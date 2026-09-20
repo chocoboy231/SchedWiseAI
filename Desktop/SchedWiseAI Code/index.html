@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SchedWiseAI Prototype</title>
+
+<!-- Styling -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+
+<!-- React + Babel (lets the browser run the .jsx file directly, no build step needed) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Scheduling engine: Genetic Algorithm + Constraint Satisfaction (plain JavaScript) -->
+<script src="engine.js"></script>
+
+<!-- Application UI (React/JSX, transpiled in-browser by Babel) -->
+<script type="text/babel" data-presets="react" src="app.jsx"></script>
+</body>
+</html>

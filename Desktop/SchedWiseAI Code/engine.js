@@ -4,6 +4,9 @@
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const PERIODS = 6;
 const HARD_PENALTY = 1000;
+const SPECIALIZATIONS = ["Programming", "Networking", "Databases", "Web Development", "Mathematics", "General Education", "Systems Analysis", "AI/ML"];
+const EMPLOYMENT_STATUSES = ["Full-time", "Part-time", "Contractual"];
+const ACADEMIC_RANKS = ["Instructor I", "Instructor II", "Instructor III", "Assistant Professor", "Associate Professor", "Professor"];
 
 function buildTimeSlots() {
   const slots = [];
@@ -64,12 +67,15 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
 function countViolations(faculty, rooms, sections, timeSlots, genes) {
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   const roomById = Object.fromEntries(rooms.map(r => [r.id, r]));
-  let facultyConflicts = 0, roomConflicts = 0, unqualified = 0, unavailable = 0, roomTypeMismatch = 0, capacityViol = 0;
+  let facultyConflicts = 0, roomConflicts = 0, unqualified = 0, unavailable = 0, roomTypeMismatch = 0, capacityViol = 0, unscheduled = 0;
   const facSlot = {}, roomSlot = {};
   const unitsPerFaculty = {};
   faculty.forEach(f => unitsPerFaculty[f.id] = 0);
   genes.forEach((g, i) => {
     const sec = sections[i];
+    // A gene with facultyId -1 represents a manually-removed/unassigned meeting -- it is
+    // intentionally incomplete, not a scheduling conflict, so it is tracked separately.
+    if (g.facultyId === -1 || g.roomId === -1 || g.slotId === -1) { unscheduled++; return; }
     const fkey = g.facultyId + "-" + g.slotId, rkey = g.roomId + "-" + g.slotId;
     facSlot[fkey] = (facSlot[fkey] || 0) + 1;
     roomSlot[rkey] = (roomSlot[rkey] || 0) + 1;
@@ -84,9 +90,24 @@ function countViolations(faculty, rooms, sections, timeSlots, genes) {
   Object.values(roomSlot).forEach(c => { if (c > 1) roomConflicts += c - 1; });
   const overload = faculty.reduce((s, f) => s + Math.max(0, unitsPerFaculty[f.id] - f.maxUnits), 0);
   const total = facultyConflicts + roomConflicts + unqualified + unavailable + roomTypeMismatch + capacityViol;
-  return { facultyConflicts, roomConflicts, unqualified, unavailable, roomTypeMismatch, capacityViol, overload, total };
+  return { facultyConflicts, roomConflicts, unqualified, unavailable, roomTypeMismatch, capacityViol, overload, unscheduled, total };
 }
-function fitness(faculty, rooms, sections, timeSlots, genes) {
+function curriculumOverlapCount(sections, timeSlots, genes) {
+  // Counts time-slot collisions between sections that share the same year level + semester,
+  // since students following that curriculum path would need to attend both at once.
+  const bucket = {};
+  let overlaps = 0;
+  genes.forEach((g, i) => {
+    const sec = sections[i];
+    if (sec.yearLevel == null || !sec.semester) return;
+    const key = sec.yearLevel + "-" + sec.semester + "-" + g.slotId;
+    bucket[key] = (bucket[key] || 0) + 1;
+  });
+  Object.values(bucket).forEach(c => { if (c > 1) overlaps += c - 1; });
+  return overlaps;
+}
+function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
+  opts = opts || {};
   const v = countViolations(faculty, rooms, sections, timeSlots, genes);
   const hardPenalty = v.total * HARD_PENALTY;
   const unitsPerFaculty = {};
@@ -109,22 +130,28 @@ function fitness(faculty, rooms, sections, timeSlots, genes) {
     if (room) waste += Math.max(0, room.capacity - sections[i].enrolledStudents);
   });
   const avgWaste = waste / (genes.length || 1);
-  return -hardPenalty - variance * 2.0 + prefScore * 50.0 - avgWaste * 0.5;
+  let curriculumPenalty = 0;
+  if (opts.curriculumAware) {
+    curriculumPenalty = curriculumOverlapCount(sections, timeSlots, genes) * 150;
+  }
+  return -hardPenalty - variance * 2.0 + prefScore * 50.0 - avgWaste * 0.5 - curriculumPenalty;
 }
 function runGA(faculty, rooms, sections, timeSlots, opts) {
   opts = opts || {};
   const generations = opts.generations || 120;
   const popSize = opts.popSize || 40;
   const baseMutation = opts.baseMutation || 0.08;
+  const curriculumAware = !!opts.curriculumAware;
+  const fitOpts = { curriculumAware };
   const n = sections.length;
-  if (n === 0) return { genes: [], fitness: 0, convergence: [], violations: countViolations(faculty,rooms,sections,timeSlots,[]), feasible: true };
+  if (n === 0) return { genes: [], fitness: 0, convergence: [], violations: countViolations(faculty,rooms,sections,timeSlots,[]), feasible: true, curriculumConflicts: 0 };
 
   let population = [];
   const seedGenes = greedySeed(faculty, rooms, timeSlots, sections);
-  population.push({ genes: seedGenes, fit: fitness(faculty, rooms, sections, timeSlots, seedGenes) });
+  population.push({ genes: seedGenes, fit: fitness(faculty, rooms, sections, timeSlots, seedGenes, fitOpts) });
   while (population.length < popSize) {
     const genes = sections.map(sec => randomGene(faculty, rooms, timeSlots, sec));
-    population.push({ genes, fit: fitness(faculty, rooms, sections, timeSlots, genes) });
+    population.push({ genes, fit: fitness(faculty, rooms, sections, timeSlots, genes, fitOpts) });
   }
   const convergence = [];
   const eliteCount = Math.max(2, Math.floor(popSize / 10));
@@ -156,7 +183,7 @@ function runGA(faculty, rooms, sections, timeSlots, opts) {
       const p1 = tournament(population), p2 = tournament(population);
       const child = crossover(p1, p2);
       mutate(child, mutRate);
-      child.fit = fitness(faculty, rooms, sections, timeSlots, child.genes);
+      child.fit = fitness(faculty, rooms, sections, timeSlots, child.genes, fitOpts);
       next.push(child);
     }
     population = next;
@@ -170,7 +197,8 @@ function runGA(faculty, rooms, sections, timeSlots, opts) {
     }
   }
   const violations = countViolations(faculty, rooms, sections, timeSlots, bestOverall.genes);
-  return { genes: bestOverall.genes, fitness: bestOverall.fit, convergence, violations, feasible: violations.total === 0 };
+  const curriculumConflicts = curriculumAware ? curriculumOverlapCount(sections, timeSlots, bestOverall.genes) : 0;
+  return { genes: bestOverall.genes, fitness: bestOverall.fit, convergence, violations, feasible: violations.total === 0, curriculumAware, curriculumConflicts };
 }
 
 function generateSyntheticData(nFaculty, nSections, nRooms, seed) {
@@ -184,7 +212,7 @@ function generateSyntheticData(nFaculty, nSections, nRooms, seed) {
     for (let i=0;i<k && copy.length;i++){ const idx=rint(copy.length); out.push(copy.splice(idx,1)[0]); }
     return out;
   }
-  const SPECS = ["Programming","Networking","Databases","Web Development","Mathematics","General Education","Systems Analysis","AI/ML"];
+  const SPECS = SPECIALIZATIONS;
   const timeSlots = buildTimeSlots();
   const faculty = [];
   const FIRST_NAMES = ["Maria","Jose","Ana","Juan","Liza","Mark","Carla","Paolo","Grace","Miguel","Rosa","Daniel","Nina","Carlo","Fe"];
@@ -196,6 +224,8 @@ function generateSyntheticData(nFaculty, nSections, nRooms, seed) {
       maxUnits: pick([18,21,24]),
       preferredDays: sample(DAYS, 2+rint(3)),
       unavailableSlotIds: sample(timeSlots.map(t=>t.id), 2+rint(5)),
+      employmentStatus: pick(EMPLOYMENT_STATUSES),
+      academicRank: pick(ACADEMIC_RANKS),
     });
   }
   for (const spec of SPECS) {
@@ -224,13 +254,18 @@ function generateSyntheticData(nFaculty, nSections, nRooms, seed) {
   const sections = [];
   for (let i=0;i<nSections;i++){
     const row = pool[i % pool.length];
+    const yearLevel = 2 + (i % 3);
     const letter = String.fromCharCode(65 + Math.floor(i/pool.length));
     sections.push({
-      id:i, subjectCode:row[0], subjectName:row[1], sectionName:"BSIT-"+(2+(i%3))+letter,
+      id:i, subjectCode:row[0], subjectName:row[1], sectionName:"BSIT-"+yearLevel+letter,
       units: pick([3,3,3,5]), requiredSpecialization: row[2], roomTypeRequired: row[3],
       enrolledStudents: row[3]==="lecture" ? 25+rint(21) : 25+rint(16),
+      yearLevel: yearLevel, semester: pick(["1st Semester", "2nd Semester"]),
     });
   }
   return { faculty, rooms, sections, timeSlots };
 }
-window.SchedEngine = { buildTimeSlots, qualifiedFaculty, validRooms, runGA, countViolations, generateSyntheticData, DAYS, PERIODS };
+window.SchedEngine = {
+  buildTimeSlots, qualifiedFaculty, validRooms, runGA, countViolations, generateSyntheticData, DAYS, PERIODS,
+  SPECIALIZATIONS, EMPLOYMENT_STATUSES, ACADEMIC_RANKS,
+};

@@ -33,6 +33,10 @@ const IconRefresh = (p) => <Icon {...p} d={<path d="M21 12a9 9 0 1 1-3-6.7M21 4v
 const IconAlert = (p) => <Icon {...p} d={<g><path d="M12 3l10 18H2L12 3z"/><path d="M12 10v4M12 17h.01"/></g>} />;
 const IconZap = (p) => <Icon {...p} d={<path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/>} />;
 const IconMenu = (p) => <Icon {...p} d={<path d="M3 6h18M3 12h18M3 18h18"/>} />;
+const IconEye = (p) => <Icon {...p} d={<g><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></g>} />;
+const IconClipboard = (p) => <Icon {...p} d={<g><rect x="6" y="4" width="12" height="17" rx="1.5"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 11h6M9 15h6"/></g>} />;
+const IconChevronDown = (p) => <Icon {...p} d={<path d="M6 9l6 6 6-6"/>} />;
+const IconAlertCircle = (p) => <Icon {...p} d={<g><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></g>} />;
 
 const ROLES = [
   { key: "admin", label: "Academic Administrator" },
@@ -95,32 +99,73 @@ function Field({ label, children }) {
 }
 const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400";
 
+function CheckboxGroup({ options, selected, onToggle, columns = 2 }) {
+  return (
+    <div className={"grid gap-1.5 " + (columns === 2 ? "grid-cols-2" : "grid-cols-1")}>
+      {options.map(opt => (
+        <label key={opt} className="flex items-center gap-2 text-sm text-slate-700 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-pointer hover:bg-slate-50">
+          <input type="checkbox" checked={selected.includes(opt)} onChange={() => onToggle(opt)} className="accent-teal-500" />
+          {opt}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function FacultyModal({ initial, onSave, onClose }) {
   const [name, setName] = useState(initial ? initial.name : "");
-  const [specs, setSpecs] = useState(initial ? initial.specializations.join(", ") : "Programming");
+  const [specs, setSpecs] = useState(initial ? initial.specializations : ["Programming"]);
   const [maxUnits, setMaxUnits] = useState(initial ? initial.maxUnits : 21);
+  const [preferredDays, setPreferredDays] = useState(initial ? initial.preferredDays : ["Mon", "Wed", "Fri"]);
+  const [employmentStatus, setEmploymentStatus] = useState(initial ? initial.employmentStatus : E.EMPLOYMENT_STATUSES[0]);
+  const [academicRank, setAcademicRank] = useState(initial ? initial.academicRank : E.ACADEMIC_RANKS[0]);
+
+  function toggleSpec(s) {
+    setSpecs(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+  }
+  function toggleDay(d) {
+    setPreferredDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  }
+
   return (
     <Modal title={initial ? "Edit Faculty" : "Add Faculty"} onClose={onClose}>
       <Field label="Full Name">
         <input className={inputCls} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Maria Santos" />
       </Field>
-      <Field label="Specializations (comma-separated)">
-        <input className={inputCls} value={specs} onChange={e=>setSpecs(e.target.value)} placeholder="Programming, Databases" />
+      <Field label="Specializations">
+        <CheckboxGroup options={E.SPECIALIZATIONS} selected={specs} onToggle={toggleSpec} />
       </Field>
-      <Field label="Maximum Teaching Units">
-        <input type="number" className={inputCls} value={maxUnits} onChange={e=>setMaxUnits(Number(e.target.value))} />
+      <Field label="Preferred Days">
+        <CheckboxGroup options={E.DAYS} selected={preferredDays} onToggle={toggleDay} columns={3} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Maximum Teaching Units">
+          <input type="number" className={inputCls} value={maxUnits} onChange={e=>setMaxUnits(Number(e.target.value))} />
+        </Field>
+        <Field label="Employment Status">
+          <select className={inputCls} value={employmentStatus} onChange={e=>setEmploymentStatus(e.target.value)}>
+            {E.EMPLOYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Academic Rank">
+        <select className={inputCls} value={academicRank} onChange={e=>setAcademicRank(e.target.value)}>
+          {E.ACADEMIC_RANKS.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
       </Field>
       <button
         className="w-full bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
-          if (!name.trim()) return;
+          if (!name.trim() || specs.length === 0) return;
           onSave({
             id: initial ? initial.id : Date.now(),
             name: name.trim(),
-            specializations: specs.split(",").map(s=>s.trim()).filter(Boolean),
+            specializations: specs,
             maxUnits,
-            preferredDays: initial ? initial.preferredDays : ["Mon","Wed","Fri"],
+            preferredDays,
             unavailableSlotIds: initial ? initial.unavailableSlotIds : [],
+            employmentStatus,
+            academicRank,
           });
           onClose();
         }}
@@ -134,9 +179,11 @@ function SectionModal({ initial, onSave, onClose }) {
   const [subjectName, setSubjectName] = useState(initial ? initial.subjectName : "");
   const [sectionName, setSectionName] = useState(initial ? initial.sectionName : "");
   const [units, setUnits] = useState(initial ? initial.units : 3);
-  const [spec, setSpec] = useState(initial ? initial.requiredSpecialization : "Programming");
+  const [spec, setSpec] = useState(initial ? initial.requiredSpecialization : E.SPECIALIZATIONS[0]);
   const [roomType, setRoomType] = useState(initial ? initial.roomTypeRequired : "lecture");
   const [enrolled, setEnrolled] = useState(initial ? initial.enrolledStudents : 35);
+  const [yearLevel, setYearLevel] = useState(initial ? initial.yearLevel : 1);
+  const [semester, setSemester] = useState(initial ? initial.semester : "1st Semester");
   return (
     <Modal title={initial ? "Edit Subject" : "Add Subject"} onClose={onClose}>
       <Field label="Subject Code"><input className={inputCls} value={subjectCode} onChange={e=>setSubjectCode(e.target.value)} placeholder="IT101" /></Field>
@@ -146,13 +193,33 @@ function SectionModal({ initial, onSave, onClose }) {
         <Field label="Units"><input type="number" className={inputCls} value={units} onChange={e=>setUnits(Number(e.target.value))} /></Field>
         <Field label="Enrolled Students"><input type="number" className={inputCls} value={enrolled} onChange={e=>setEnrolled(Number(e.target.value))} /></Field>
       </div>
-      <Field label="Required Specialization"><input className={inputCls} value={spec} onChange={e=>setSpec(e.target.value)} /></Field>
+      <Field label="Required Specialization">
+        <select className={inputCls} value={spec} onChange={e=>setSpec(e.target.value)}>
+          {E.SPECIALIZATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </Field>
       <Field label="Room Type Required">
         <select className={inputCls} value={roomType} onChange={e=>setRoomType(e.target.value)}>
           <option value="lecture">Lecture</option>
           <option value="laboratory">Laboratory</option>
         </select>
       </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Curriculum Year Level">
+          <select className={inputCls} value={yearLevel} onChange={e=>setYearLevel(Number(e.target.value))}>
+            <option value={1}>Year 1</option>
+            <option value={2}>Year 2</option>
+            <option value={3}>Year 3</option>
+            <option value={4}>Year 4</option>
+          </select>
+        </Field>
+        <Field label="Semester">
+          <select className={inputCls} value={semester} onChange={e=>setSemester(e.target.value)}>
+            <option value="1st Semester">1st Semester</option>
+            <option value="2nd Semester">2nd Semester</option>
+          </select>
+        </Field>
+      </div>
       <button
         className="w-full bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
@@ -161,6 +228,7 @@ function SectionModal({ initial, onSave, onClose }) {
             id: initial ? initial.id : Date.now(),
             subjectCode: subjectCode.trim(), subjectName: subjectName.trim(), sectionName: sectionName.trim(),
             units, requiredSpecialization: spec, roomTypeRequired: roomType, enrolledStudents: enrolled,
+            yearLevel, semester,
           });
           onClose();
         }}
@@ -191,6 +259,122 @@ function RoomModal({ initial, onSave, onClose }) {
           onClose();
         }}
       >Save</button>
+    </Modal>
+  );
+}
+
+function AssignmentModal({ assignment, faculty, rooms, sections, timeSlots, onSave, onDelete, onClose }) {
+  const sec = sections[assignment.index];
+  const qualifiedFacultyIds = E.qualifiedFaculty(faculty, sec);
+  const validRoomIds = E.validRooms(rooms, sec);
+  const [facultyId, setFacultyId] = useState(assignment.gene.facultyId);
+  const [roomId, setRoomId] = useState(assignment.gene.roomId);
+  const [slotId, setSlotId] = useState(assignment.gene.slotId);
+
+  return (
+    <Modal title={"Edit Assignment \u2014 " + sec.subjectCode + " " + sec.sectionName} onClose={onClose}>
+      <Field label="Faculty">
+        <select className={inputCls} value={facultyId} onChange={e=>setFacultyId(Number(e.target.value))}>
+          {qualifiedFacultyIds.length === 0 && <option value={-1}>No qualified faculty available</option>}
+          {faculty.filter(f => qualifiedFacultyIds.includes(f.id)).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Room">
+        <select className={inputCls} value={roomId} onChange={e=>setRoomId(Number(e.target.value))}>
+          {validRoomIds.length === 0 && <option value={-1}>No valid room available</option>}
+          {rooms.filter(r => validRoomIds.includes(r.id)).map(r => <option key={r.id} value={r.id}>{r.name} ({r.capacity} seats)</option>)}
+        </select>
+      </Field>
+      <Field label="Time Slot">
+        <select className={inputCls} value={slotId} onChange={e=>setSlotId(Number(e.target.value))}>
+          {timeSlots.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+      </Field>
+      <div className="flex gap-2 mt-2">
+        <button
+          className="flex-1 bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg"
+          onClick={() => { onSave(assignment.index, { facultyId, roomId, slotId }); onClose(); }}
+        >Save Changes</button>
+        <button
+          className="px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium text-sm py-2.5 rounded-lg"
+          onClick={() => { onDelete(assignment.index); onClose(); }}
+        >Remove</button>
+      </div>
+    </Modal>
+  );
+}
+
+function FacultyProfileModal({ faculty, sections, result, onClose }) {
+  const assignedUnits = result
+    ? result.genes.reduce((sum, g, i) => g.facultyId === faculty.id ? sum + sections[i].units : sum, 0)
+    : 0;
+  const loadPct = Math.round((assignedUnits / faculty.maxUnits) * 100);
+  return (
+    <Modal title="Faculty Profile" onClose={onClose}>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-12 h-12 rounded-full bg-teal-400 flex items-center justify-center text-[#0c1330] font-semibold text-lg shrink-0">
+          {faculty.name.split(" ").map(p=>p[0]).slice(0,2).join("")}
+        </div>
+        <div>
+          <div className="font-semibold text-slate-900">{faculty.name}</div>
+          <div className="text-xs text-slate-400">{faculty.academicRank || "\u2014"}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+        <div><div className="text-xs text-slate-400 mb-0.5">Employment Status</div><div className="font-medium text-slate-800">{faculty.employmentStatus || "\u2014"}</div></div>
+        <div><div className="text-xs text-slate-400 mb-0.5">Academic Rank</div><div className="font-medium text-slate-800">{faculty.academicRank || "\u2014"}</div></div>
+        <div><div className="text-xs text-slate-400 mb-0.5">Max Units</div><div className="font-medium text-slate-800">{faculty.maxUnits}</div></div>
+        <div><div className="text-xs text-slate-400 mb-0.5">Current Load</div><div className="font-medium text-slate-800">{assignedUnits} units ({loadPct}%)</div></div>
+      </div>
+      <div className="mb-3">
+        <div className="text-xs text-slate-400 mb-1">Specializations</div>
+        <div className="flex flex-wrap gap-1.5">
+          {faculty.specializations.map(s => (
+            <span key={s} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full font-medium">{s}</span>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="text-xs text-slate-400 mb-1">Preferred Days</div>
+        <div className="flex flex-wrap gap-1.5">
+          {faculty.preferredDays.map(d => (
+            <span key={d} className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full font-medium">{d}</span>
+          ))}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function LeaveRequestModal({ faculty, onSave, onClose }) {
+  const [facultyId, setFacultyId] = useState(faculty[0] ? faculty[0].id : null);
+  const [type, setType] = useState("Leave Request");
+  const [description, setDescription] = useState("");
+  return (
+    <Modal title="New Leave / Availability Request" onClose={onClose}>
+      <Field label="Faculty Member">
+        <select className={inputCls} value={facultyId} onChange={e=>setFacultyId(Number(e.target.value))}>
+          {faculty.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Request Type">
+        <select className={inputCls} value={type} onChange={e=>setType(e.target.value)}>
+          <option>Leave Request</option>
+          <option>Availability Change</option>
+        </select>
+      </Field>
+      <Field label="Details">
+        <textarea className={inputCls} rows={3} value={description} onChange={e=>setDescription(e.target.value)}
+          placeholder="e.g. Requesting leave on Dec 1\u20133 for a conference" />
+      </Field>
+      <button
+        className="w-full bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg mt-2"
+        onClick={() => {
+          if (facultyId == null || !description.trim()) return;
+          onSave({ id: Date.now(), facultyId, type, description: description.trim(), status: "Pending", createdAt: new Date().toISOString() });
+          onClose();
+        }}
+      >Submit Request</button>
     </Modal>
   );
 }
@@ -268,10 +452,16 @@ function App() {
   const [scheduleTab, setScheduleTab] = useState("grid");
   const [selectedFacultyId, setSelectedFacultyId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [leaveRequests, setLeaveRequests] = useState(init.leaveRequests || []);
+  const [curriculumAware, setCurriculumAware] = useState(init.curriculumAware || false);
+  const [facultyProfileModal, setFacultyProfileModal] = useState(null);
+  const [assignmentModal, setAssignmentModal] = useState(null);
+  const [leaveRequestModal, setLeaveRequestModal] = useState(false);
+  const [facultyTab, setFacultyTab] = useState("list");
 
   useEffect(() => {
-    saveState({ faculty, rooms, sections, timeSlots, result, role });
-  }, [faculty, rooms, sections, timeSlots, result, role]);
+    saveState({ faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware });
+  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware]);
 
   const visibleNav = NAV_ITEMS.filter(n => n.roles.includes(role));
   useEffect(() => {
@@ -281,17 +471,33 @@ function App() {
   function handleGenerate() {
     setGenerating(true);
     setTimeout(() => {
-      const r = E.runGA(faculty, rooms, sections, timeSlots, { generations: 140, popSize: 50 });
+      const r = E.runGA(faculty, rooms, sections, timeSlots, { generations: 140, popSize: 50, curriculumAware });
       setResult(r);
       setGenerating(false);
       setPage("schedules");
     }, 60);
   }
 
+  function handleEditAssignment(index, newGene) {
+    if (!result) return;
+    const newGenes = result.genes.slice();
+    newGenes[index] = newGene;
+    const violations = E.countViolations(faculty, rooms, sections, timeSlots, newGenes);
+    setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0 });
+  }
+
+  function handleDeleteAssignment(index) {
+    if (!result) return;
+    const newGenes = result.genes.slice();
+    newGenes[index] = { facultyId: -1, roomId: -1, slotId: -1 };
+    const violations = E.countViolations(faculty, rooms, sections, timeSlots, newGenes);
+    setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0 });
+  }
+
   function resetDemoData() {
     if (!confirm("Reset all data to a fresh demo dataset? This clears faculty, subjects, rooms, and the current schedule.")) return;
     const d = freshData();
-    setFaculty(d.faculty); setRooms(d.rooms); setSections(d.sections); setResult(null);
+    setFaculty(d.faculty); setRooms(d.rooms); setSections(d.sections); setResult(null); setLeaveRequests([]);
   }
 
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
@@ -407,10 +613,16 @@ function App() {
           )}
 
           {page === "faculty" && (
-            <FacultyPage faculty={faculty}
+            <FacultyPage faculty={faculty} sections={sections} result={result} role={role}
+              leaveRequests={leaveRequests}
+              tab={facultyTab} setTab={setFacultyTab}
               onAdd={() => setFacultyModal("new")}
               onEdit={f => setFacultyModal(f)}
               onDelete={id => setFaculty(faculty.filter(f=>f.id!==id))}
+              onViewProfile={f => setFacultyProfileModal(f)}
+              onViewSchedule={f => { setSelectedFacultyId(f.id); setScheduleTab("faculty"); setPage("schedules"); }}
+              onNewRequest={() => setLeaveRequestModal(true)}
+              onUpdateRequestStatus={(id, status) => setLeaveRequests(leaveRequests.map(r => r.id === id ? { ...r, status } : r))}
             />
           )}
 
@@ -432,13 +644,16 @@ function App() {
             />
           )}
 
-          {page === "departments" && <DepartmentsPage faculty={faculty} sections={sections} />}
+          {page === "departments" && <DepartmentsPage faculty={faculty} sections={sections} result={result} />}
 
           {page === "schedules" && (
             <SchedulesPage result={result} sections={sections} facultyById={facultyById} roomById={roomById}
               slotById={slotById} timeSlots={timeSlots} generating={generating} onGenerate={handleGenerate}
-              tab={scheduleTab} setTab={setScheduleTab} role={role} faculty={faculty}
-              selectedFacultyId={selectedFacultyId} setSelectedFacultyId={setSelectedFacultyId} />
+              tab={scheduleTab} setTab={setScheduleTab} role={role} faculty={faculty} rooms={rooms}
+              selectedFacultyId={selectedFacultyId} setSelectedFacultyId={setSelectedFacultyId}
+              curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware}
+              onEditAssignment={(index, gene) => setAssignmentModal({ index, gene })}
+            />
           )}
 
           {page === "conflicts" && <ConflictsPage result={result} onGenerate={handleGenerate} generating={generating} />}
@@ -464,6 +679,19 @@ function App() {
         <RoomModal initial={roomModal === "new" ? null : roomModal}
           onSave={r => setRooms(roomModal === "new" ? [...rooms, r] : rooms.map(x=>x.id===r.id?r:x))}
           onClose={() => setRoomModal(null)} />
+      )}
+      {facultyProfileModal && (
+        <FacultyProfileModal faculty={facultyProfileModal} sections={sections} result={result}
+          onClose={() => setFacultyProfileModal(null)} />
+      )}
+      {assignmentModal && (
+        <AssignmentModal assignment={assignmentModal} faculty={faculty} rooms={rooms} sections={sections} timeSlots={timeSlots}
+          onSave={handleEditAssignment} onDelete={handleDeleteAssignment} onClose={() => setAssignmentModal(null)} />
+      )}
+      {leaveRequestModal && (
+        <LeaveRequestModal faculty={faculty}
+          onSave={req => setLeaveRequests([req, ...leaveRequests])}
+          onClose={() => setLeaveRequestModal(false)} />
       )}
     </div>
   );
@@ -557,33 +785,104 @@ function TableShell({ title, onAdd, addLabel, children }) {
   );
 }
 
-function FacultyPage({ faculty, onAdd, onEdit, onDelete }) {
+function loadStatusFor(facultyMember, sections, result) {
+  if (!result) return { label: "No assignment yet", assigned: 0, pct: 0, color: "text-slate-400 bg-slate-50" };
+  const assigned = result.genes.reduce((sum, g, i) => (g.facultyId === facultyMember.id ? sum + sections[i].units : sum), 0);
+  const pct = Math.round((assigned / facultyMember.maxUnits) * 100);
+  if (assigned > facultyMember.maxUnits) return { label: "Overloaded", assigned, pct, color: "text-rose-600 bg-rose-50" };
+  if (pct >= 80) return { label: "Near capacity", assigned, pct, color: "text-amber-600 bg-amber-50" };
+  if (pct === 0) return { label: "Underloaded", assigned, pct, color: "text-slate-400 bg-slate-50" };
+  return { label: "Balanced", assigned, pct, color: "text-emerald-600 bg-emerald-50" };
+}
+
+function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus }) {
+  const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   return (
-    <TableShell title={"Faculty (" + faculty.length + ")"} onAdd={onAdd} addLabel="Add Faculty">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
-            <th className="px-6 py-3 font-medium">Name</th><th className="px-6 py-3 font-medium">Specializations</th>
-            <th className="px-6 py-3 font-medium">Max Units</th><th className="px-6 py-3 font-medium">Preferred Days</th>
-            <th className="px-6 py-3 font-medium"></th>
-          </tr></thead>
-          <tbody>
-            {faculty.map(f => (
-              <tr key={f.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                <td className="px-6 py-3 font-medium text-slate-900">{f.name}</td>
-                <td className="px-6 py-3 text-slate-500">{f.specializations.join(", ")}</td>
-                <td className="px-6 py-3 text-slate-500">{f.maxUnits}</td>
-                <td className="px-6 py-3 text-slate-500">{f.preferredDays.join(", ")}</td>
-                <td className="px-6 py-3 text-right whitespace-nowrap">
-                  <button onClick={()=>onEdit(f)} className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
-                  <button onClick={()=>onDelete(f.id)} className="text-slate-400 hover:text-rose-600 p-1"><IconTrash size={15}/></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <button onClick={()=>setTab("list")} className={"text-sm font-medium px-4 py-2 rounded-lg " + (tab==="list"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>Faculty List</button>
+        <button onClick={()=>setTab("requests")} className={"text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-1.5 " + (tab==="requests"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>
+          Leave &amp; Availability
+          {leaveRequests.filter(r=>r.status==="Pending").length > 0 && (
+            <span className={"text-[10px] font-semibold rounded-full w-5 h-5 flex items-center justify-center " + (tab==="requests" ? "bg-white/20 text-white" : "bg-rose-500 text-white")}>
+              {leaveRequests.filter(r=>r.status==="Pending").length}
+            </span>
+          )}
+        </button>
       </div>
-    </TableShell>
+
+      {tab === "list" && (
+        <TableShell title={"Faculty (" + faculty.length + ")"} onAdd={onAdd} addLabel="Add Faculty">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
+                <th className="px-6 py-3 font-medium">Name</th><th className="px-6 py-3 font-medium">Specializations</th>
+                <th className="px-6 py-3 font-medium">Current Load</th><th className="px-6 py-3 font-medium">Status</th>
+                <th className="px-6 py-3 font-medium">Preferred Days</th><th className="px-6 py-3 font-medium"></th>
+              </tr></thead>
+              <tbody>
+                {faculty.map(f => {
+                  const status = loadStatusFor(f, sections, result);
+                  return (
+                    <tr key={f.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                      <td className="px-6 py-3 font-medium text-slate-900">{f.name}</td>
+                      <td className="px-6 py-3 text-slate-500">{f.specializations.join(", ")}</td>
+                      <td className="px-6 py-3 text-slate-500">{status.assigned}/{f.maxUnits} units</td>
+                      <td className="px-6 py-3"><span className={"text-xs font-medium px-2 py-1 rounded-full " + status.color}>{status.label}</span></td>
+                      <td className="px-6 py-3 text-slate-500">{f.preferredDays.join(", ")}</td>
+                      <td className="px-6 py-3 text-right whitespace-nowrap">
+                        <button onClick={()=>onViewProfile(f)} title="View Profile" className="text-slate-400 hover:text-teal-600 p-1"><IconEye size={15}/></button>
+                        <button onClick={()=>onViewSchedule(f)} title="View Schedule" className="text-slate-400 hover:text-blue-600 p-1"><IconCalendar size={15}/></button>
+                        <button onClick={()=>onEdit(f)} title="Edit" className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
+                        <button onClick={()=>onDelete(f.id)} title="Delete" className="text-slate-400 hover:text-rose-600 p-1"><IconTrash size={15}/></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </TableShell>
+      )}
+
+      {tab === "requests" && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+            <h2 className="font-semibold text-slate-900">Leave / Availability Requests</h2>
+            <button onClick={onNewRequest} className="flex items-center gap-1.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium px-3.5 py-2 rounded-lg">
+              <IconPlus size={15} /> New Request
+            </button>
+          </div>
+          {leaveRequests.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-400">No leave or availability requests yet.</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {leaveRequests.map(r => {
+                const fac = facultyById[r.facultyId];
+                const statusColor = r.status === "Approved" ? "text-emerald-600 bg-emerald-50" : r.status === "Denied" ? "text-rose-600 bg-rose-50" : "text-amber-600 bg-amber-50";
+                return (
+                  <div key={r.id} className="px-6 py-4 flex items-start justify-between gap-4">
+                    <div>
+                      <div className="font-medium text-slate-900 text-sm">{fac ? fac.name : "Unknown faculty"} \u2014 {r.type}</div>
+                      <div className="text-sm text-slate-500 mt-0.5">{r.description}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={"text-xs font-medium px-2 py-1 rounded-full " + statusColor}>{r.status}</span>
+                      {role !== "faculty" && r.status === "Pending" && (
+                        <>
+                          <button onClick={()=>onUpdateRequestStatus(r.id, "Approved")} className="text-xs font-medium text-emerald-600 hover:underline">Approve</button>
+                          <button onClick={()=>onUpdateRequestStatus(r.id, "Denied")} className="text-xs font-medium text-rose-600 hover:underline">Deny</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -649,29 +948,195 @@ function RoomsPage({ rooms, onAdd, onEdit, onDelete }) {
   );
 }
 
-function DepartmentsPage({ faculty, sections }) {
-  const specs = {};
-  faculty.forEach(f => f.specializations.forEach(s => { specs[s] = specs[s] || { faculty: 0, sections: 0 }; specs[s].faculty++; }));
-  sections.forEach(s => { specs[s.requiredSpecialization] = specs[s.requiredSpecialization] || { faculty: 0, sections: 0 }; specs[s.requiredSpecialization].sections++; });
+function computeDepartmentStats(spec, faculty, sections, result) {
+  const deptFaculty = faculty.filter(f => f.specializations.includes(spec));
+  const deptSectionEntries = sections.map((s, i) => ({ s, i })).filter(({s}) => s.requiredSpecialization === spec);
+
+  let facSlot = {}, roomSlot = {};
+  if (result) {
+    result.genes.forEach(g => {
+      if (g.facultyId === -1) return;
+      const fk = g.facultyId + "-" + g.slotId, rk = g.roomId + "-" + g.slotId;
+      facSlot[fk] = (facSlot[fk] || 0) + 1;
+      roomSlot[rk] = (roomSlot[rk] || 0) + 1;
+    });
+  }
+
+  let totalAssigned = 0, totalCapacity = 0, overloads = 0, underloads = 0, conflicts = 0;
+  const facultyStats = deptFaculty.map(f => {
+    totalCapacity += f.maxUnits;
+    let assigned = 0;
+    if (result) result.genes.forEach((g, i) => { if (g.facultyId === f.id) assigned += sections[i].units; });
+    totalAssigned += assigned;
+    const pct = f.maxUnits ? Math.round((assigned / f.maxUnits) * 100) : 0;
+    let status = "No assignment yet";
+    if (result) {
+      if (assigned > f.maxUnits) { status = "Overloaded"; overloads++; }
+      else if (assigned === 0) { status = "Underloaded"; underloads++; }
+      else { status = "Balanced"; }
+    }
+    return { faculty: f, assigned, pct, status };
+  });
+
+  if (result) {
+    deptSectionEntries.forEach(({ s, i }) => {
+      const g = result.genes[i];
+      if (!g || g.facultyId === -1) return;
+      const fac = faculty.find(f => f.id === g.facultyId);
+      const unqualified = !fac || !fac.specializations.includes(spec);
+      const facConflict = (facSlot[g.facultyId + "-" + g.slotId] || 0) > 1;
+      const roomConflict = (roomSlot[g.roomId + "-" + g.slotId] || 0) > 1;
+      if (unqualified || facConflict || roomConflict) conflicts++;
+    });
+  }
+
+  const noQualifiedFaculty = deptFaculty.length === 0 && deptSectionEntries.length > 0;
+  const loadPct = totalCapacity > 0 ? Math.round((totalAssigned / totalCapacity) * 100) : 0;
+  return {
+    deptFaculty, deptSections: deptSectionEntries.map(d => d.s),
+    facultyStats, totalAssigned, totalCapacity, loadPct, overloads, underloads, conflicts, noQualifiedFaculty,
+  };
+}
+
+function DepartmentsPage({ faculty, sections, result }) {
+  const [expanded, setExpanded] = useState({});
+  const allSpecs = Array.from(new Set([
+    ...faculty.flatMap(f => f.specializations),
+    ...sections.map(s => s.requiredSpecialization),
+  ]));
+
+  const deptStats = allSpecs.map(spec => ({ spec, stats: computeDepartmentStats(spec, faculty, sections, result) }));
+
+  const totalFaculty = faculty.length;
+  const totalConflicts = deptStats.reduce((s, d) => s + d.stats.conflicts, 0);
+  const totalOverloads = deptStats.reduce((s, d) => s + d.stats.overloads, 0);
+  const avgLoadPct = deptStats.length
+    ? Math.round(deptStats.reduce((s, d) => s + d.stats.loadPct, 0) / deptStats.length)
+    : 0;
+
+  const issues = [];
+  deptStats.forEach(({ spec, stats }) => {
+    if (stats.noQualifiedFaculty) issues.push({ spec, text: "No qualified faculty available for " + stats.deptSections.length + " section(s) in " + spec + "." });
+    if (stats.overloads > 0) issues.push({ spec, text: stats.overloads + " faculty member(s) in " + spec + " are overloaded beyond their maximum units." });
+    if (stats.conflicts > 0) issues.push({ spec, text: stats.conflicts + " section(s) in " + spec + " have an unresolved scheduling conflict." });
+  });
+
+  function toggle(spec) { setExpanded(prev => ({ ...prev, [spec]: !prev[spec] })); }
+
   return (
-    <TableShell title="Departments (by specialization)">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
-            <th className="px-6 py-3 font-medium">Specialization Area</th><th className="px-6 py-3 font-medium">Qualified Faculty</th><th className="px-6 py-3 font-medium">Sections Offered</th>
-          </tr></thead>
-          <tbody>
-            {Object.entries(specs).map(([name, v]) => (
-              <tr key={name} className="border-b border-slate-50 hover:bg-slate-50/50">
-                <td className="px-6 py-3 font-medium text-slate-900">{name}</td>
-                <td className="px-6 py-3 text-slate-500">{v.faculty}</td>
-                <td className="px-6 py-3 text-slate-500">{v.sections}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Departments" value={allSpecs.length} />
+        <StatCard label="Total Faculty" value={totalFaculty} />
+        <StatCard label="Average Teaching Load" value={result ? avgLoadPct + "%" : "\u2014"} color={result && avgLoadPct > 100 ? "#c0392b" : undefined} />
+        <StatCard label="Open Issues" value={issues.length} color={issues.length > 0 ? "#c0392b" : "#0f8a6b"} />
       </div>
-    </TableShell>
+
+      {issues.length > 0 && (
+        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <IconAlertCircle size={18} className="text-amber-600" />
+            <h3 className="font-semibold text-slate-900 text-sm">Issues Requiring Attention</h3>
+          </div>
+          <ul className="space-y-1.5">
+            {issues.map((issue, idx) => (
+              <li key={idx} className="text-sm text-amber-800 flex items-start gap-2">
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                {issue.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {issues.length === 0 && result && (
+        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-2">
+          <IconCheckCircle size={18} className="text-emerald-600" />
+          <span className="text-sm text-emerald-800 font-medium">No department issues detected in the current schedule.</span>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h2 className="font-semibold text-slate-900">Departments (by specialization)</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Click a specialization area to view detailed workload and issues.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
+              <th className="px-6 py-3 font-medium">Specialization Area</th>
+              <th className="px-6 py-3 font-medium">Faculty</th>
+              <th className="px-6 py-3 font-medium">Sections</th>
+              <th className="px-6 py-3 font-medium">Teaching Load</th>
+              <th className="px-6 py-3 font-medium">Overloads</th>
+              <th className="px-6 py-3 font-medium">Conflicts</th>
+              <th className="px-6 py-3 font-medium"></th>
+            </tr></thead>
+            <tbody>
+              {deptStats.map(({ spec, stats }) => (
+                <React.Fragment key={spec}>
+                  <tr onClick={() => toggle(spec)} className="border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer">
+                    <td className="px-6 py-3 font-medium text-slate-900 flex items-center gap-2">
+                      <IconChevronDown size={14} className={"text-slate-400 transition-transform " + (expanded[spec] ? "rotate-180" : "")} />
+                      {spec}
+                    </td>
+                    <td className="px-6 py-3 text-slate-500">{stats.deptFaculty.length}</td>
+                    <td className="px-6 py-3 text-slate-500">{stats.deptSections.length}</td>
+                    <td className="px-6 py-3 text-slate-500">{result ? stats.loadPct + "%" : "\u2014"}</td>
+                    <td className="px-6 py-3">
+                      {stats.overloads > 0
+                        ? <span className="text-xs font-medium px-2 py-1 rounded-full text-rose-600 bg-rose-50">{stats.overloads} overloaded</span>
+                        : <span className="text-xs font-medium px-2 py-1 rounded-full text-slate-400 bg-slate-50">\u2014</span>}
+                    </td>
+                    <td className="px-6 py-3">
+                      {stats.conflicts > 0
+                        ? <span className="text-xs font-medium px-2 py-1 rounded-full text-rose-600 bg-rose-50">{stats.conflicts}</span>
+                        : <span className="text-xs font-medium px-2 py-1 rounded-full text-emerald-600 bg-emerald-50">0</span>}
+                    </td>
+                    <td className="px-6 py-3 text-right text-xs text-slate-400">{expanded[spec] ? "Hide" : "Details"}</td>
+                  </tr>
+                  {expanded[spec] && (
+                    <tr className="bg-slate-50/60">
+                      <td colSpan={7} className="px-6 py-5">
+                        {stats.deptFaculty.length === 0 ? (
+                          <div className="text-sm text-slate-500">No faculty members currently list {spec} as a specialization.</div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div>
+                              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Workload Distribution</h4>
+                              <BarChart
+                                data={stats.facultyStats.map(fs => ({ label: fs.faculty.name.split(" ")[0], value: fs.assigned }))}
+                                colorFn={(d, i) => "#0F8A6B"}
+                              />
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {stats.facultyStats.map(fs => {
+                                const badgeColor = fs.status === "Overloaded" ? "text-rose-600 bg-rose-50"
+                                  : fs.status === "Underloaded" ? "text-slate-400 bg-slate-50"
+                                  : fs.status === "Balanced" ? "text-emerald-600 bg-emerald-50"
+                                  : "text-slate-400 bg-slate-50";
+                                return (
+                                  <div key={fs.faculty.id} className="flex items-center justify-between bg-white border border-slate-100 rounded-lg px-3 py-2">
+                                    <div>
+                                      <div className="text-sm font-medium text-slate-900">{fs.faculty.name}</div>
+                                      <div className="text-xs text-slate-400">{fs.assigned}/{fs.faculty.maxUnits} units ({fs.pct}%)</div>
+                                    </div>
+                                    <span className={"text-xs font-medium px-2 py-1 rounded-full " + badgeColor}>{fs.status}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -712,13 +1177,29 @@ function WorkloadPage({ faculty, sections, result }) {
   );
 }
 
-function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, selectedFacultyId, setSelectedFacultyId }) {
+function CurriculumToggle({ curriculumAware, setCurriculumAware }) {
+  return (
+    <label className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer">
+      <input type="checkbox" checked={curriculumAware} onChange={e=>setCurriculumAware(e.target.checked)} className="accent-teal-500" />
+      <span>Use curriculum (avoid overlaps within the same year level &amp; semester)</span>
+    </label>
+  );
+}
+
+function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, rooms, selectedFacultyId, setSelectedFacultyId, curriculumAware, setCurriculumAware, onEditAssignment }) {
+  const canEdit = role !== "faculty";
+
   if (!result) {
     return (
       <div className="bg-white rounded-2xl p-12 shadow-sm border border-slate-100 text-center">
         <IconCalendar size={40} className="mx-auto text-slate-300 mb-4" />
         <h3 className="font-semibold text-slate-900 mb-2">No schedule generated yet</h3>
         <p className="text-sm text-slate-500 mb-5">Run the AI Optimization Engine to generate a conflict-free schedule from your current faculty, subjects, and rooms.</p>
+        {canEdit && (
+          <div className="max-w-md mx-auto mb-5">
+            <CurriculumToggle curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware} />
+          </div>
+        )}
         <button onClick={onGenerate} disabled={generating}
           className="bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm px-5 py-2.5 rounded-lg disabled:opacity-60">
           {generating ? "Generating..." : "Generate Schedule"}
@@ -735,23 +1216,35 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
   result.genes.forEach((g, i) => {
     const slot = slotById[g.slotId];
     if (!slot) return;
-    grid[slot.day][slot.period] = { section: sections[i], faculty: facultyById[g.facultyId], room: roomById[g.roomId] };
+    grid[slot.day][slot.period] = { section: sections[i], faculty: facultyById[g.facultyId], room: roomById[g.roomId], index: i };
   });
 
   const periods = Array.from({length: E.PERIODS}, (_,i) => i+1);
+  const unscheduledCount = result.violations.unscheduled || 0;
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className={"text-sm font-medium px-3 py-1.5 rounded-lg " + (result.feasible ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>
             {result.feasible ? "✓ Conflict-free" : "⚠ " + result.violations.total + " conflicts remaining"}
           </span>
+          {result.curriculumAware && (
+            <span className={"text-sm font-medium px-3 py-1.5 rounded-lg " + (result.curriculumConflicts === 0 ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700")}>
+              Curriculum: {result.curriculumConflicts === 0 ? "no overlaps" : result.curriculumConflicts + " overlaps"}
+            </span>
+          )}
+          {unscheduledCount > 0 && (
+            <span className="text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600">{unscheduledCount} unscheduled (manually removed)</span>
+          )}
           <span className="text-sm text-slate-400">Fitness score: {result.fitness.toFixed(1)} · {result.convergence.length} generations</span>
         </div>
-        <button onClick={onGenerate} disabled={generating} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-3.5 py-2 rounded-lg disabled:opacity-60">
-          <IconRefresh size={14}/> {generating ? "Regenerating..." : "Regenerate"}
-        </button>
+        <div className="flex items-center gap-2">
+          {canEdit && <CurriculumToggle curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware} />}
+          <button onClick={onGenerate} disabled={generating} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-3.5 py-2 rounded-lg disabled:opacity-60">
+            <IconRefresh size={14}/> {generating ? "Regenerating..." : "Regenerate"}
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
@@ -759,9 +1252,12 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
         <ConvergenceChart convergence={result.convergence} />
       </div>
 
-      <div className="flex gap-2">
-        <button onClick={()=>setTab("grid")} className={"text-sm font-medium px-4 py-2 rounded-lg " + (tab==="grid"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>Weekly Grid</button>
-        <button onClick={()=>setTab("faculty")} className={"text-sm font-medium px-4 py-2 rounded-lg " + (tab==="faculty"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>{role === "faculty" ? "My Schedule" : "By Faculty"}</button>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-2">
+          <button onClick={()=>setTab("grid")} className={"text-sm font-medium px-4 py-2 rounded-lg " + (tab==="grid"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>Weekly Grid</button>
+          <button onClick={()=>setTab("faculty")} className={"text-sm font-medium px-4 py-2 rounded-lg " + (tab==="faculty"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>{role === "faculty" ? "My Schedule" : "By Faculty"}</button>
+        </div>
+        {canEdit && <span className="text-xs text-slate-400">Click any class to edit or remove it</span>}
       </div>
 
       {tab === "grid" && (
@@ -780,7 +1276,9 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
                     return (
                       <td key={d} className="p-1.5 border border-slate-100 align-top min-w-[140px]">
                         {cell ? (
-                          <div className="bg-teal-50 border border-teal-100 rounded-lg p-2">
+                          <div
+                            onClick={() => canEdit && onEditAssignment(cell.index, result.genes[cell.index])}
+                            className={"bg-teal-50 border border-teal-100 rounded-lg p-2 " + (canEdit ? "cursor-pointer hover:bg-teal-100 transition-colors" : "")}>
                             <div className="font-semibold text-slate-900">{cell.section.subjectCode} · {cell.section.sectionName}</div>
                             <div className="text-slate-500">{cell.faculty ? cell.faculty.name : "—"}</div>
                             <div className="text-slate-400">{cell.room ? cell.room.name : "—"}</div>
@@ -810,7 +1308,8 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
               .map(({g,i}) => {
                 const slot = slotById[g.slotId], sec = sections[i], room = roomById[g.roomId];
                 return (
-                  <div key={i} className="flex items-center justify-between border border-slate-100 rounded-lg px-4 py-2.5">
+                  <div key={i} onClick={() => canEdit && onEditAssignment(i, g)}
+                    className={"flex items-center justify-between border border-slate-100 rounded-lg px-4 py-2.5 " + (canEdit ? "cursor-pointer hover:bg-slate-50 transition-colors" : "")}>
                     <div>
                       <div className="font-medium text-slate-900 text-sm">{sec.subjectCode} — {sec.subjectName}</div>
                       <div className="text-xs text-slate-400">{sec.sectionName} · {room ? room.name : "—"}</div>

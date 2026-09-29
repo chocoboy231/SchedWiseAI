@@ -30,3 +30,10 @@
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   .scroll-x { overflow-x: auto; }
+
+  @media print {
+    .no-print { display: none !important; }
+    #root, .print-main { display: block !important; }
+    body { background: white !important; }
+    .print-area { box-shadow: none !important; border: none !important; }
+  }

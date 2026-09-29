@@ -37,6 +37,14 @@ const IconEye = (p) => <Icon {...p} d={<g><path d="M1 12s4-7 11-7 11 7 11 7-4 7-
 const IconClipboard = (p) => <Icon {...p} d={<g><rect x="6" y="4" width="12" height="17" rx="1.5"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 11h6M9 15h6"/></g>} />;
 const IconChevronDown = (p) => <Icon {...p} d={<path d="M6 9l6 6 6-6"/>} />;
 const IconAlertCircle = (p) => <Icon {...p} d={<g><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></g>} />;
+const IconDownload = (p) => <Icon {...p} d={<g><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></g>} />;
+const IconUpload = (p) => <Icon {...p} d={<g><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M4 3h16"/></g>} />;
+const IconPrinter = (p) => <Icon {...p} d={<g><rect x="6" y="9" width="12" height="7" rx="1"/><path d="M6 9V4h12v5"/><path d="M6 17v3h12v-3"/></g>} />;
+const IconLogOut = (p) => <Icon {...p} d={<g><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></g>} />;
+const IconHistory = (p) => <Icon {...p} d={<g><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></g>} />;
+const IconThumbsUp = (p) => <Icon {...p} d={<path d="M7 22V11M2 13v7a2 2 0 0 0 2 2h12.7a2 2 0 0 0 2-1.6l1.3-6A2 2 0 0 0 18 11h-5l1-5a2 2 0 0 0-2-2.4L7 11"/>} />;
+const IconThumbsDown = (p) => <Icon {...p} d={<path d="M17 2v11M22 11V4a2 2 0 0 0-2-2H7.3a2 2 0 0 0-2 1.6l-1.3 6A2 2 0 0 0 6 12h5l-1 5a2 2 0 0 0 2 2.4L17 13"/>} />;
+const IconGrid2 = (p) => <Icon {...p} d={<g><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></g>} />;
 
 const ROLES = [
   { key: "admin", label: "Academic Administrator" },
@@ -51,11 +59,57 @@ const NAV_ITEMS = [
   { key: "workload", label: "Workload Management", icon: IconGauge, roles: ["admin","chair","it"] },
   { key: "subjects", label: "Subjects", icon: IconBook, roles: ["admin","chair","it"] },
   { key: "schedules", label: "Class Schedules", icon: IconCalendar, roles: ["admin","chair","faculty","it"] },
+  { key: "history", label: "Schedule History", icon: IconHistory, roles: ["admin","chair","it"] },
   { key: "rooms", label: "Rooms", icon: IconDoor, roles: ["admin","chair","it"] },
   { key: "departments", label: "Departments", icon: IconBuilding, roles: ["admin","it"] },
   { key: "conflicts", label: "Conflict Detection", icon: IconAlert, roles: ["admin","chair","it"] },
   { key: "reports", label: "Reports", icon: IconChart, roles: ["admin","chair","it"] },
 ];
+
+// ---------------- Export / print / CSV helpers ----------------
+function downloadCSV(filename, headers, rows) {
+  const escape = (v) => {
+    const s = String(v == null ? "" : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [headers.map(escape).join(",")].concat(rows.map(r => r.map(escape).join(",")));
+  const csv = lines.join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.endsWith(".csv") ? filename : filename + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length === 0) return { headers: [], rows: [] };
+  const parseLine = (line) => {
+    const out = [];
+    let cur = "", inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQuotes) {
+        if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+        else if (c === '"') { inQuotes = false; }
+        else cur += c;
+      } else {
+        if (c === '"') inQuotes = true;
+        else if (c === ",") { out.push(cur); cur = ""; }
+        else cur += c;
+      }
+    }
+    out.push(cur);
+    return out;
+  };
+  const headers = parseLine(lines[0]).map(h => h.trim());
+  const rows = lines.slice(1).filter(l => l.trim().length > 0).map(parseLine);
+  return { headers, rows };
+}
 
 function loadState() {
   try {
@@ -174,7 +228,7 @@ function FacultyModal({ initial, onSave, onClose }) {
   );
 }
 
-function SectionModal({ initial, onSave, onClose }) {
+function SectionModal({ initial, allSections, onSave, onClose }) {
   const [subjectCode, setSubjectCode] = useState(initial ? initial.subjectCode : "");
   const [subjectName, setSubjectName] = useState(initial ? initial.subjectName : "");
   const [sectionName, setSectionName] = useState(initial ? initial.sectionName : "");
@@ -184,6 +238,12 @@ function SectionModal({ initial, onSave, onClose }) {
   const [enrolled, setEnrolled] = useState(initial ? initial.enrolledStudents : 35);
   const [yearLevel, setYearLevel] = useState(initial ? initial.yearLevel : 1);
   const [semester, setSemester] = useState(initial ? initial.semester : "1st Semester");
+  const [prerequisiteCode, setPrerequisiteCode] = useState(initial ? (initial.prerequisiteCode || "") : "");
+
+  const uniqueSubjectCodes = Array.from(new Set((allSections || [])
+    .map(s => s.subjectCode)
+    .filter(code => !initial || code !== initial.subjectCode)));
+
   return (
     <Modal title={initial ? "Edit Subject" : "Add Subject"} onClose={onClose}>
       <Field label="Subject Code"><input className={inputCls} value={subjectCode} onChange={e=>setSubjectCode(e.target.value)} placeholder="IT101" /></Field>
@@ -220,6 +280,12 @@ function SectionModal({ initial, onSave, onClose }) {
           </select>
         </Field>
       </div>
+      <Field label="Prerequisite Subject (optional)">
+        <select className={inputCls} value={prerequisiteCode} onChange={e=>setPrerequisiteCode(e.target.value)}>
+          <option value="">None</option>
+          {uniqueSubjectCodes.map(code => <option key={code} value={code}>{code}</option>)}
+        </select>
+      </Field>
       <button
         className="w-full bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
@@ -228,7 +294,7 @@ function SectionModal({ initial, onSave, onClose }) {
             id: initial ? initial.id : Date.now(),
             subjectCode: subjectCode.trim(), subjectName: subjectName.trim(), sectionName: sectionName.trim(),
             units, requiredSpecialization: spec, roomTypeRequired: roomType, enrolledStudents: enrolled,
-            yearLevel, semester,
+            yearLevel, semester, prerequisiteCode: prerequisiteCode || null,
           });
           onClose();
         }}
@@ -272,7 +338,7 @@ function AssignmentModal({ assignment, faculty, rooms, sections, timeSlots, onSa
   const [slotId, setSlotId] = useState(assignment.gene.slotId);
 
   return (
-    <Modal title={"Edit Assignment \u2014 " + sec.subjectCode + " " + sec.sectionName} onClose={onClose}>
+    <Modal title={"Edit Assignment — " + sec.subjectCode + " " + sec.sectionName} onClose={onClose}>
       <Field label="Faculty">
         <select className={inputCls} value={facultyId} onChange={e=>setFacultyId(Number(e.target.value))}>
           {qualifiedFacultyIds.length === 0 && <option value={-1}>No qualified faculty available</option>}
@@ -317,12 +383,12 @@ function FacultyProfileModal({ faculty, sections, result, onClose }) {
         </div>
         <div>
           <div className="font-semibold text-slate-900">{faculty.name}</div>
-          <div className="text-xs text-slate-400">{faculty.academicRank || "\u2014"}</div>
+          <div className="text-xs text-slate-400">{faculty.academicRank || "—"}</div>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm mb-3">
-        <div><div className="text-xs text-slate-400 mb-0.5">Employment Status</div><div className="font-medium text-slate-800">{faculty.employmentStatus || "\u2014"}</div></div>
-        <div><div className="text-xs text-slate-400 mb-0.5">Academic Rank</div><div className="font-medium text-slate-800">{faculty.academicRank || "\u2014"}</div></div>
+        <div><div className="text-xs text-slate-400 mb-0.5">Employment Status</div><div className="font-medium text-slate-800">{faculty.employmentStatus || "—"}</div></div>
+        <div><div className="text-xs text-slate-400 mb-0.5">Academic Rank</div><div className="font-medium text-slate-800">{faculty.academicRank || "—"}</div></div>
         <div><div className="text-xs text-slate-400 mb-0.5">Max Units</div><div className="font-medium text-slate-800">{faculty.maxUnits}</div></div>
         <div><div className="text-xs text-slate-400 mb-0.5">Current Load</div><div className="font-medium text-slate-800">{assignedUnits} units ({loadPct}%)</div></div>
       </div>
@@ -365,7 +431,7 @@ function LeaveRequestModal({ faculty, onSave, onClose }) {
       </Field>
       <Field label="Details">
         <textarea className={inputCls} rows={3} value={description} onChange={e=>setDescription(e.target.value)}
-          placeholder="e.g. Requesting leave on Dec 1\u20133 for a conference" />
+          placeholder="e.g. Requesting leave on Dec 1–3 for a conference" />
       </Field>
       <button
         className="w-full bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg mt-2"
@@ -376,6 +442,158 @@ function LeaveRequestModal({ faculty, onSave, onClose }) {
         }}
       >Submit Request</button>
     </Modal>
+  );
+}
+
+function validateCurriculumSequence(sections) {
+  // Flags cases where a subject's declared prerequisite is not actually scheduled
+  // in an earlier year level + semester than the subject that depends on it.
+  const bySubjectCode = {};
+  sections.forEach(s => { bySubjectCode[s.subjectCode] = s; });
+  const order = (s) => s.yearLevel * 2 + (s.semester === "2nd Semester" ? 1 : 0);
+  const issues = [];
+  sections.forEach(s => {
+    if (!s.prerequisiteCode) return;
+    const prereq = bySubjectCode[s.prerequisiteCode];
+    if (!prereq) {
+      issues.push({ section: s, text: s.subjectCode + " (" + s.sectionName + ") requires prerequisite " + s.prerequisiteCode + ", which is not in the curriculum." });
+    } else if (order(prereq) >= order(s)) {
+      issues.push({ section: s, text: s.subjectCode + " (Year " + s.yearLevel + ", " + s.semester + ") lists " + prereq.subjectCode + " as a prerequisite, but it is scheduled in Year " + prereq.yearLevel + ", " + prereq.semester + " — not earlier." });
+    }
+  });
+  return issues;
+}
+
+function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms, onClose }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+
+  const templates = {
+    faculty: "name,specializations,maxUnits,preferredDays,employmentStatus,academicRank\nJuan Dela Cruz,\"Programming;Databases\",21,\"Mon;Wed;Fri\",Full-time,Instructor I",
+    subjects: "subjectCode,subjectName,sectionName,units,requiredSpecialization,roomTypeRequired,enrolledStudents,yearLevel,semester\nIT103,Web Systems,BSIT-2A,3,Web Development,laboratory,35,2,1st Semester",
+    rooms: "name,type,capacity\nRoom 210,lecture,40",
+  };
+
+  function handleImport() {
+    try {
+      const { headers, rows } = parseCSV(text);
+      if (rows.length === 0) { setError("No data rows found."); return; }
+      const idx = (name) => headers.indexOf(name);
+
+      if (kind === "faculty") {
+        const records = rows.map((r, i) => ({
+          id: Date.now() + i,
+          name: r[idx("name")] || "Unnamed",
+          specializations: (r[idx("specializations")] || "").split(";").map(s=>s.trim()).filter(Boolean),
+          maxUnits: Number(r[idx("maxUnits")]) || 21,
+          preferredDays: (r[idx("preferredDays")] || "Mon;Wed;Fri").split(";").map(s=>s.trim()).filter(Boolean),
+          unavailableSlotIds: [],
+          employmentStatus: r[idx("employmentStatus")] || E.EMPLOYMENT_STATUSES[0],
+          academicRank: r[idx("academicRank")] || E.ACADEMIC_RANKS[0],
+        }));
+        onImportFaculty(records);
+      } else if (kind === "subjects") {
+        const records = rows.map((r, i) => ({
+          id: Date.now() + i,
+          subjectCode: r[idx("subjectCode")] || ("NEW" + i),
+          subjectName: r[idx("subjectName")] || "",
+          sectionName: r[idx("sectionName")] || "",
+          units: Number(r[idx("units")]) || 3,
+          requiredSpecialization: r[idx("requiredSpecialization")] || E.SPECIALIZATIONS[0],
+          roomTypeRequired: r[idx("roomTypeRequired")] || "lecture",
+          enrolledStudents: Number(r[idx("enrolledStudents")]) || 35,
+          yearLevel: Number(r[idx("yearLevel")]) || 1,
+          semester: r[idx("semester")] || "1st Semester",
+          prerequisiteCode: null,
+        }));
+        onImportSections(records);
+      } else if (kind === "rooms") {
+        const records = rows.map((r, i) => ({
+          id: Date.now() + i,
+          name: r[idx("name")] || ("Room " + i),
+          type: r[idx("type")] || "lecture",
+          capacity: Number(r[idx("capacity")]) || 40,
+        }));
+        onImportRooms(records);
+      }
+      onClose();
+    } catch (e) {
+      setError("Could not parse CSV: " + e.message);
+    }
+  }
+
+  return (
+    <Modal title={"Bulk Import — " + kind} onClose={onClose}>
+      <p className="text-xs text-slate-500 mb-2">Paste CSV data below (comma-separated, first row = headers). Use semicolons to separate multiple values within a single field, e.g. specializations.</p>
+      <Field label="CSV Data">
+        <textarea className={inputCls} rows={6} value={text} onChange={e=>setText(e.target.value)} placeholder={templates[kind]} />
+      </Field>
+      <button className="text-xs text-teal-600 hover:underline mb-3" onClick={() => setText(templates[kind])}>Load example template</button>
+      {error && <div className="text-xs text-rose-600 mb-2">{error}</div>}
+      <button className="w-full bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg" onClick={handleImport}>Import</button>
+    </Modal>
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("admin");
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#eef1f8] px-4">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 w-full max-w-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-teal-400 flex items-center justify-center">
+            <IconCalendar size={20} className="text-[#0c1330]" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-900 text-lg leading-tight">SchedWiseAI</div>
+            <div className="text-slate-400 text-xs leading-tight">World Citi Colleges</div>
+          </div>
+        </div>
+        <Field label="Full Name">
+          <input className={inputCls} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Alex Dela Cruz" />
+        </Field>
+        <Field label="Sign in as">
+          <select className={inputCls} value={role} onChange={e=>setRole(e.target.value)}>
+            {ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+          </select>
+        </Field>
+        <button
+          className="w-full bg-teal-500 hover:bg-teal-600 text-white font-medium text-sm py-2.5 rounded-lg mt-2"
+          onClick={() => onLogin(name.trim() || "Alex Dela Cruz", role)}
+        >Sign In</button>
+        <p className="text-xs text-slate-400 mt-4 text-center">This is a prototype — any name works, no password required.</p>
+      </div>
+    </div>
+  );
+}
+
+function NotificationPanel({ notifications, onMarkRead, onMarkAllRead, onClose }) {
+  return (
+    <div className="absolute right-0 top-11 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 max-h-96 overflow-y-auto">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <span className="font-semibold text-sm text-slate-900">Notifications</span>
+        <button onClick={onMarkAllRead} className="text-xs text-teal-600 hover:underline">Mark all read</button>
+      </div>
+      {notifications.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-slate-400">No notifications yet.</div>
+      ) : (
+        <div className="divide-y divide-slate-50">
+          {notifications.map(n => (
+            <div key={n.id} onClick={() => onMarkRead(n.id)}
+              className={"px-4 py-3 text-sm cursor-pointer hover:bg-slate-50 " + (n.read ? "opacity-60" : "")}>
+              <div className="flex items-start gap-2">
+                {!n.read && <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-teal-500 shrink-0" />}
+                <div>
+                  <div className="text-slate-800">{n.message}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{new Date(n.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -458,23 +676,48 @@ function App() {
   const [assignmentModal, setAssignmentModal] = useState(null);
   const [leaveRequestModal, setLeaveRequestModal] = useState(false);
   const [facultyTab, setFacultyTab] = useState("list");
+  const [notifications, setNotifications] = useState(init.notifications || []);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [scheduleHistory, setScheduleHistory] = useState(init.scheduleHistory || []);
+  const [loggedIn, setLoggedIn] = useState(init.loggedIn || false);
+  const [userName, setUserName] = useState(init.userName || "Alex Dela Cruz");
+  const [csvImportKind, setCsvImportKind] = useState(null);
 
   useEffect(() => {
-    saveState({ faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware });
-  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware]);
+    saveState({ faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName });
+  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName]);
 
   const visibleNav = NAV_ITEMS.filter(n => n.roles.includes(role));
   useEffect(() => {
     if (!visibleNav.find(n => n.key === page)) setPage(visibleNav[0].key);
   }, [role]);
 
+  // Keep the matching history entry in sync with the live schedule, so approvals and
+  // manual edits are preserved when a version is restored later.
+  useEffect(() => {
+    if (result && result.id) {
+      setScheduleHistory(prev => prev.map(h => (h.id === result.id ? result : h)));
+    }
+  }, [result]);
+
+  function pushNotification(message) {
+    setNotifications(prev => [{ id: Date.now(), message, timestamp: new Date().toISOString(), read: false }, ...prev]);
+  }
+
   function handleGenerate() {
     setGenerating(true);
     setTimeout(() => {
       const r = E.runGA(faculty, rooms, sections, timeSlots, { generations: 140, popSize: 50, curriculumAware });
-      setResult(r);
+      const stamped = { ...r, id: Date.now(), generatedAt: new Date().toISOString(), approvalStatus: "Pending Review", approvalComment: "" };
+      setResult(stamped);
+      setScheduleHistory(prev => [stamped, ...prev].slice(0, 20));
       setGenerating(false);
       setPage("schedules");
+      pushNotification(
+        stamped.feasible
+          ? "New schedule generated — fully conflict-free, awaiting approval."
+          : "New schedule generated with " + stamped.violations.total + " unresolved conflict(s)."
+      );
     }, 60);
   }
 
@@ -483,7 +726,7 @@ function App() {
     const newGenes = result.genes.slice();
     newGenes[index] = newGene;
     const violations = E.countViolations(faculty, rooms, sections, timeSlots, newGenes);
-    setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0 });
+    setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0, approvalStatus: "Pending Review" });
   }
 
   function handleDeleteAssignment(index) {
@@ -491,13 +734,25 @@ function App() {
     const newGenes = result.genes.slice();
     newGenes[index] = { facultyId: -1, roomId: -1, slotId: -1 };
     const violations = E.countViolations(faculty, rooms, sections, timeSlots, newGenes);
-    setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0 });
+    setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0, approvalStatus: "Pending Review" });
+  }
+
+  function handleApprovalDecision(status, comment) {
+    if (!result) return;
+    setResult({ ...result, approvalStatus: status, approvalComment: comment || "" });
+    pushNotification("Schedule " + (status === "Approved" ? "approved" : "rejected") + (comment ? " — \"" + comment + "\"" : "") + ".");
+  }
+
+  function handleRestoreHistory(entry) {
+    setResult(entry);
+    pushNotification("Restored schedule from " + new Date(entry.generatedAt).toLocaleString() + ".");
+    setPage("schedules");
   }
 
   function resetDemoData() {
     if (!confirm("Reset all data to a fresh demo dataset? This clears faculty, subjects, rooms, and the current schedule.")) return;
     const d = freshData();
-    setFaculty(d.faculty); setRooms(d.rooms); setSections(d.sections); setResult(null); setLeaveRequests([]);
+    setFaculty(d.faculty); setRooms(d.rooms); setSections(d.sections); setResult(null); setLeaveRequests([]); setScheduleHistory([]);
   }
 
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
@@ -505,11 +760,16 @@ function App() {
   const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
 
   const roleLabel = ROLES.find(r => r.key === role).label;
-  const currentUserName = role === "faculty" && faculty[0] ? faculty[0].name : "Alex Dela Cruz";
+  const currentUserName = role === "faculty" && faculty[0] ? faculty[0].name : userName;
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   function goToPage(key) {
     setPage(key);
     setSidebarOpen(false);
+  }
+
+  if (!loggedIn) {
+    return <LoginScreen onLogin={(name, r) => { setUserName(name); setRole(r); setLoggedIn(true); }} />;
   }
 
   return (
@@ -519,7 +779,7 @@ function App() {
       )}
 
       <aside className={
-        "w-64 shrink-0 bg-[#0c1330] flex flex-col justify-between py-5 h-screen fixed md:sticky top-0 left-0 z-50 " +
+        "no-print w-64 shrink-0 bg-[#0c1330] flex flex-col justify-between py-5 h-screen fixed md:sticky top-0 left-0 z-50 " +
         "transition-transform duration-200 ease-in-out " +
         (sidebarOpen ? "translate-x-0" : "-translate-x-full") + " md:translate-x-0"
       }>
@@ -565,6 +825,9 @@ function App() {
             <button onClick={() => goToPage("settings")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
               <IconSettings size={17} /><span>Settings</span>
             </button>
+            <button onClick={() => { setLoggedIn(false); setSidebarOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
+              <IconLogOut size={17} /><span>Sign Out</span>
+            </button>
           </nav>
         </div>
 
@@ -587,7 +850,7 @@ function App() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-slate-100 px-4 sm:px-8 py-3.5 flex items-center gap-3 sm:gap-4">
+        <header className="no-print bg-white border-b border-slate-100 px-4 sm:px-8 py-3.5 flex items-center gap-3 sm:gap-4">
           <button onClick={() => setSidebarOpen(true)} className="md:hidden shrink-0 w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center">
             <IconMenu size={18} className="text-slate-600" />
           </button>
@@ -596,9 +859,21 @@ function App() {
             <input readOnly placeholder="Search faculty, subjects, rooms..."
               className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none" />
           </div>
-          <button className="relative shrink-0 w-9 h-9 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
-            <IconBell size={16} className="text-slate-500" />
-          </button>
+          <div className="relative shrink-0">
+            <button onClick={() => setNotificationsOpen(o => !o)} aria-label="Notifications"
+              className="relative w-9 h-9 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
+              <IconBell size={16} className="text-slate-500" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-semibold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{unreadCount}</span>
+              )}
+            </button>
+            {notificationsOpen && (
+              <NotificationPanel notifications={notifications}
+                onMarkRead={id => setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))}
+                onMarkAllRead={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))}
+                onClose={() => setNotificationsOpen(false)} />
+            )}
+          </div>
           <div className="text-right hidden lg:block shrink-0">
             <div className="text-slate-900 text-sm font-semibold leading-tight">This is a prototype</div>
             <div className="text-slate-400 text-[12px] leading-tight">Data is local to your browser</div>
@@ -615,6 +890,7 @@ function App() {
           {page === "faculty" && (
             <FacultyPage faculty={faculty} sections={sections} result={result} role={role}
               leaveRequests={leaveRequests}
+              onImport={() => setCsvImportKind("faculty")}
               tab={facultyTab} setTab={setFacultyTab}
               onAdd={() => setFacultyModal("new")}
               onEdit={f => setFacultyModal(f)}
@@ -622,7 +898,12 @@ function App() {
               onViewProfile={f => setFacultyProfileModal(f)}
               onViewSchedule={f => { setSelectedFacultyId(f.id); setScheduleTab("faculty"); setPage("schedules"); }}
               onNewRequest={() => setLeaveRequestModal(true)}
-              onUpdateRequestStatus={(id, status) => setLeaveRequests(leaveRequests.map(r => r.id === id ? { ...r, status } : r))}
+              onUpdateRequestStatus={(id, status) => {
+                setLeaveRequests(leaveRequests.map(r => r.id === id ? { ...r, status } : r));
+                const req = leaveRequests.find(r => r.id === id);
+                const fac = req && faculty.find(f => f.id === req.facultyId);
+                pushNotification((req ? req.type : "Request") + " for " + (fac ? fac.name : "faculty") + " was " + status.toLowerCase() + ".");
+              }}
             />
           )}
 
@@ -630,6 +911,7 @@ function App() {
 
           {page === "subjects" && (
             <SubjectsPage sections={sections}
+              onImport={() => setCsvImportKind("subjects")}
               onAdd={() => setSectionModal("new")}
               onEdit={s => setSectionModal(s)}
               onDelete={id => setSections(sections.filter(s=>s.id!==id))}
@@ -638,6 +920,7 @@ function App() {
 
           {page === "rooms" && (
             <RoomsPage rooms={rooms}
+              onImport={() => setCsvImportKind("rooms")}
               onAdd={() => setRoomModal("new")}
               onEdit={r => setRoomModal(r)}
               onDelete={id => setRooms(rooms.filter(r=>r.id!==id))}
@@ -653,12 +936,17 @@ function App() {
               selectedFacultyId={selectedFacultyId} setSelectedFacultyId={setSelectedFacultyId}
               curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware}
               onEditAssignment={(index, gene) => setAssignmentModal({ index, gene })}
+              onApprovalDecision={handleApprovalDecision}
             />
+          )}
+
+          {page === "history" && (
+            <HistoryPage history={scheduleHistory} currentId={result ? result.id : null} onRestore={handleRestoreHistory} />
           )}
 
           {page === "conflicts" && <ConflictsPage result={result} onGenerate={handleGenerate} generating={generating} />}
 
-          {page === "reports" && <ReportsPage faculty={faculty} rooms={rooms} sections={sections} result={result} />}
+          {page === "reports" && <ReportsPage faculty={faculty} rooms={rooms} sections={sections} result={result} slotById={slotById} />}
 
           {page === "settings" && <SettingsPage />}
 
@@ -671,7 +959,7 @@ function App() {
           onClose={() => setFacultyModal(null)} />
       )}
       {sectionModal && (
-        <SectionModal initial={sectionModal === "new" ? null : sectionModal}
+        <SectionModal initial={sectionModal === "new" ? null : sectionModal} allSections={sections}
           onSave={s => setSections(sectionModal === "new" ? [...sections, s] : sections.map(x=>x.id===s.id?s:x))}
           onClose={() => setSectionModal(null)} />
       )}
@@ -690,8 +978,19 @@ function App() {
       )}
       {leaveRequestModal && (
         <LeaveRequestModal faculty={faculty}
-          onSave={req => setLeaveRequests([req, ...leaveRequests])}
+          onSave={req => {
+            setLeaveRequests([req, ...leaveRequests]);
+            const fac = faculty.find(f => f.id === req.facultyId);
+            pushNotification("New " + req.type.toLowerCase() + " submitted by " + (fac ? fac.name : "faculty") + ".");
+          }}
           onClose={() => setLeaveRequestModal(false)} />
+      )}
+      {csvImportKind && (
+        <CSVImportModal kind={csvImportKind}
+          onImportFaculty={recs => { setFaculty([...faculty, ...recs]); pushNotification("Imported " + recs.length + " faculty record(s)."); }}
+          onImportSections={recs => { setSections([...sections, ...recs]); pushNotification("Imported " + recs.length + " subject record(s)."); }}
+          onImportRooms={recs => { setRooms([...rooms, ...recs]); pushNotification("Imported " + recs.length + " room record(s)."); }}
+          onClose={() => setCsvImportKind(null)} />
       )}
     </div>
   );
@@ -769,16 +1068,28 @@ function DashboardPage({ faculty, rooms, sections, result, generating, onGenerat
   );
 }
 
-function TableShell({ title, onAdd, addLabel, children }) {
+function TableShell({ title, onAdd, addLabel, onImport, onExport, children }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div className="flex items-center justify-between flex-wrap gap-2 px-6 py-4 border-b border-slate-100">
         <h2 className="font-semibold text-slate-900">{title}</h2>
-        {onAdd && (
-          <button onClick={onAdd} className="flex items-center gap-1.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium px-3.5 py-2 rounded-lg">
-            <IconPlus size={15} /> {addLabel}
-          </button>
-        )}
+        <div className="flex items-center gap-2 no-print">
+          {onExport && (
+            <button onClick={onExport} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg">
+              <IconDownload size={15} /> Export CSV
+            </button>
+          )}
+          {onImport && (
+            <button onClick={onImport} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg">
+              <IconUpload size={15} /> Import CSV
+            </button>
+          )}
+          {onAdd && (
+            <button onClick={onAdd} className="flex items-center gap-1.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium px-3.5 py-2 rounded-lg">
+              <IconPlus size={15} /> {addLabel}
+            </button>
+          )}
+        </div>
       </div>
       {children}
     </div>
@@ -795,7 +1106,7 @@ function loadStatusFor(facultyMember, sections, result) {
   return { label: "Balanced", assigned, pct, color: "text-emerald-600 bg-emerald-50" };
 }
 
-function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus }) {
+function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onImport, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus }) {
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   return (
     <div className="space-y-4">
@@ -812,7 +1123,10 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
       </div>
 
       {tab === "list" && (
-        <TableShell title={"Faculty (" + faculty.length + ")"} onAdd={onAdd} addLabel="Add Faculty">
+        <TableShell title={"Faculty (" + faculty.length + ")"} onAdd={onAdd} addLabel="Add Faculty" onImport={onImport}
+          onExport={() => downloadCSV("faculty.csv",
+            ["Name","Specializations","Max Units","Current Load","Status","Preferred Days","Employment Status","Academic Rank"],
+            faculty.map(f => { const st = loadStatusFor(f, sections, result); return [f.name, f.specializations.join("; "), f.maxUnits, st.assigned, st.label, f.preferredDays.join("; "), f.employmentStatus || "", f.academicRank || ""]; }))}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
@@ -863,7 +1177,7 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
                 return (
                   <div key={r.id} className="px-6 py-4 flex items-start justify-between gap-4">
                     <div>
-                      <div className="font-medium text-slate-900 text-sm">{fac ? fac.name : "Unknown faculty"} \u2014 {r.type}</div>
+                      <div className="font-medium text-slate-900 text-sm">{fac ? fac.name : "Unknown faculty"} — {r.type}</div>
                       <div className="text-sm text-slate-500 mt-0.5">{r.description}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -886,43 +1200,68 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
   );
 }
 
-function SubjectsPage({ sections, onAdd, onEdit, onDelete }) {
+function SubjectsPage({ sections, onImport, onAdd, onEdit, onDelete }) {
+  const curriculumIssues = validateCurriculumSequence(sections);
   return (
-    <TableShell title={"Subjects / Sections (" + sections.length + ")"} onAdd={onAdd} addLabel="Add Subject">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
-            <th className="px-6 py-3 font-medium">Code</th><th className="px-6 py-3 font-medium">Subject</th>
-            <th className="px-6 py-3 font-medium">Section</th><th className="px-6 py-3 font-medium">Units</th>
-            <th className="px-6 py-3 font-medium">Specialization</th><th className="px-6 py-3 font-medium">Room Type</th>
-            <th className="px-6 py-3 font-medium">Enrolled</th><th className="px-6 py-3 font-medium"></th>
-          </tr></thead>
-          <tbody>
-            {sections.map(s => (
-              <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                <td className="px-6 py-3 font-medium text-slate-900">{s.subjectCode}</td>
-                <td className="px-6 py-3 text-slate-500">{s.subjectName}</td>
-                <td className="px-6 py-3 text-slate-500">{s.sectionName}</td>
-                <td className="px-6 py-3 text-slate-500">{s.units}</td>
-                <td className="px-6 py-3 text-slate-500">{s.requiredSpecialization}</td>
-                <td className="px-6 py-3 text-slate-500 capitalize">{s.roomTypeRequired}</td>
-                <td className="px-6 py-3 text-slate-500">{s.enrolledStudents}</td>
-                <td className="px-6 py-3 text-right whitespace-nowrap">
-                  <button onClick={()=>onEdit(s)} className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
-                  <button onClick={()=>onDelete(s.id)} className="text-slate-400 hover:text-rose-600 p-1"><IconTrash size={15}/></button>
-                </td>
-              </tr>
+    <div className="space-y-4">
+      {curriculumIssues.length > 0 && (
+        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <IconAlertCircle size={18} className="text-amber-600" />
+            <h3 className="font-semibold text-slate-900 text-sm">Curriculum Prerequisite Issues</h3>
+          </div>
+          <ul className="space-y-1">
+            {curriculumIssues.map((iss, i) => (
+              <li key={i} className="text-sm text-amber-800 flex items-start gap-2">
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />{iss.text}
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </TableShell>
+          </ul>
+        </div>
+      )}
+      <TableShell title={"Subjects / Sections (" + sections.length + ")"} onAdd={onAdd} addLabel="Add Subject" onImport={onImport}
+        onExport={() => downloadCSV("subjects.csv",
+          ["Code","Subject","Section","Units","Specialization","Room Type","Enrolled","Year Level","Semester","Prerequisite"],
+          sections.map(s => [s.subjectCode, s.subjectName, s.sectionName, s.units, s.requiredSpecialization, s.roomTypeRequired, s.enrolledStudents, s.yearLevel || "", s.semester || "", s.prerequisiteCode || ""]))}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
+              <th className="px-6 py-3 font-medium">Code</th><th className="px-6 py-3 font-medium">Subject</th>
+              <th className="px-6 py-3 font-medium">Section</th><th className="px-6 py-3 font-medium">Units</th>
+              <th className="px-6 py-3 font-medium">Specialization</th><th className="px-6 py-3 font-medium">Room Type</th>
+              <th className="px-6 py-3 font-medium">Year / Sem</th><th className="px-6 py-3 font-medium">Prerequisite</th>
+              <th className="px-6 py-3 font-medium">Enrolled</th><th className="px-6 py-3 font-medium"></th>
+            </tr></thead>
+            <tbody>
+              {sections.map(s => (
+                <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                  <td className="px-6 py-3 font-medium text-slate-900">{s.subjectCode}</td>
+                  <td className="px-6 py-3 text-slate-500">{s.subjectName}</td>
+                  <td className="px-6 py-3 text-slate-500">{s.sectionName}</td>
+                  <td className="px-6 py-3 text-slate-500">{s.units}</td>
+                  <td className="px-6 py-3 text-slate-500">{s.requiredSpecialization}</td>
+                  <td className="px-6 py-3 text-slate-500 capitalize">{s.roomTypeRequired}</td>
+                  <td className="px-6 py-3 text-slate-500 whitespace-nowrap">{s.yearLevel ? "Y" + s.yearLevel : "—"} / {s.semester ? s.semester.replace(" Semester","") : "—"}</td>
+                  <td className="px-6 py-3 text-slate-500">{s.prerequisiteCode || "—"}</td>
+                  <td className="px-6 py-3 text-slate-500">{s.enrolledStudents}</td>
+                  <td className="px-6 py-3 text-right whitespace-nowrap">
+                    <button onClick={()=>onEdit(s)} className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
+                    <button onClick={()=>onDelete(s.id)} className="text-slate-400 hover:text-rose-600 p-1"><IconTrash size={15}/></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TableShell>
+    </div>
   );
 }
 
-function RoomsPage({ rooms, onAdd, onEdit, onDelete }) {
+function RoomsPage({ rooms, onImport, onAdd, onEdit, onDelete }) {
   return (
-    <TableShell title={"Rooms (" + rooms.length + ")"} onAdd={onAdd} addLabel="Add Room">
+    <TableShell title={"Rooms (" + rooms.length + ")"} onAdd={onAdd} addLabel="Add Room" onImport={onImport}
+      onExport={() => downloadCSV("rooms.csv", ["Name","Type","Capacity"], rooms.map(r => [r.name, r.type, r.capacity]))}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
@@ -1028,7 +1367,7 @@ function DepartmentsPage({ faculty, sections, result }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Departments" value={allSpecs.length} />
         <StatCard label="Total Faculty" value={totalFaculty} />
-        <StatCard label="Average Teaching Load" value={result ? avgLoadPct + "%" : "\u2014"} color={result && avgLoadPct > 100 ? "#c0392b" : undefined} />
+        <StatCard label="Average Teaching Load" value={result ? avgLoadPct + "%" : "—"} color={result && avgLoadPct > 100 ? "#c0392b" : undefined} />
         <StatCard label="Open Issues" value={issues.length} color={issues.length > 0 ? "#c0392b" : "#0f8a6b"} />
       </div>
 
@@ -1081,11 +1420,11 @@ function DepartmentsPage({ faculty, sections, result }) {
                     </td>
                     <td className="px-6 py-3 text-slate-500">{stats.deptFaculty.length}</td>
                     <td className="px-6 py-3 text-slate-500">{stats.deptSections.length}</td>
-                    <td className="px-6 py-3 text-slate-500">{result ? stats.loadPct + "%" : "\u2014"}</td>
+                    <td className="px-6 py-3 text-slate-500">{result ? stats.loadPct + "%" : "—"}</td>
                     <td className="px-6 py-3">
                       {stats.overloads > 0
                         ? <span className="text-xs font-medium px-2 py-1 rounded-full text-rose-600 bg-rose-50">{stats.overloads} overloaded</span>
-                        : <span className="text-xs font-medium px-2 py-1 rounded-full text-slate-400 bg-slate-50">\u2014</span>}
+                        : <span className="text-xs font-medium px-2 py-1 rounded-full text-slate-400 bg-slate-50">—</span>}
                     </td>
                     <td className="px-6 py-3">
                       {stats.conflicts > 0
@@ -1186,8 +1525,10 @@ function CurriculumToggle({ curriculumAware, setCurriculumAware }) {
   );
 }
 
-function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, rooms, selectedFacultyId, setSelectedFacultyId, curriculumAware, setCurriculumAware, onEditAssignment }) {
+function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, rooms, selectedFacultyId, setSelectedFacultyId, curriculumAware, setCurriculumAware, onEditAssignment, onApprovalDecision }) {
   const canEdit = role !== "faculty";
+  const canApprove = role === "admin" || role === "chair";
+  const [approvalComment, setApprovalComment] = useState("");
 
   if (!result) {
     return (
@@ -1247,12 +1588,57 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+      <div className="no-print bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-900">Approval Status:</span>
+            <span className={"text-xs font-semibold px-2.5 py-1 rounded-full " +
+              (result.approvalStatus === "Approved" ? "bg-emerald-50 text-emerald-700"
+                : result.approvalStatus === "Rejected" ? "bg-rose-50 text-rose-700"
+                : "bg-amber-50 text-amber-700")}>
+              {result.approvalStatus || "Pending Review"}
+            </span>
+            {result.approvalComment && <span className="text-xs text-slate-500 italic">“{result.approvalComment}”</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => {
+                const rows = result.genes.map((g, i) => {
+                  const sec = sections[i], fac = facultyById[g.facultyId], room = roomById[g.roomId], slot = slotById[g.slotId];
+                  return [slot ? slot.day : "Unscheduled", slot ? slot.label : "", sec.subjectCode, sec.subjectName, sec.sectionName, fac ? fac.name : "", room ? room.name : ""];
+                });
+                downloadCSV("timetable.csv", ["Day","Time","Code","Subject","Section","Faculty","Room"], rows);
+              }}
+              className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg">
+              <IconDownload size={15} /> Export CSV
+            </button>
+            <button onClick={() => window.print()}
+              className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg">
+              <IconPrinter size={15} /> Print / Save PDF
+            </button>
+          </div>
+        </div>
+        {canApprove && (result.approvalStatus || "Pending Review") === "Pending Review" && (
+          <div className="mt-4 flex flex-col sm:flex-row gap-2">
+            <input className={inputCls + " flex-1"} value={approvalComment} onChange={e => setApprovalComment(e.target.value)}
+              placeholder="Optional comment for this decision" />
+            <button onClick={() => { onApprovalDecision("Approved", approvalComment); setApprovalComment(""); }}
+              className="flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2 rounded-lg">
+              <IconThumbsUp size={15} /> Approve
+            </button>
+            <button onClick={() => { onApprovalDecision("Rejected", approvalComment); setApprovalComment(""); }}
+              className="flex items-center justify-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-medium px-4 py-2 rounded-lg">
+              <IconThumbsDown size={15} /> Reject
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="no-print bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
         <h3 className="font-semibold text-slate-900 mb-3 text-sm">GA Convergence (this run)</h3>
         <ConvergenceChart convergence={result.convergence} />
       </div>
 
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="no-print flex items-center justify-between flex-wrap gap-3">
         <div className="flex gap-2">
           <button onClick={()=>setTab("grid")} className={"text-sm font-medium px-4 py-2 rounded-lg " + (tab==="grid"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>Weekly Grid</button>
           <button onClick={()=>setTab("faculty")} className={"text-sm font-medium px-4 py-2 rounded-lg " + (tab==="faculty"?"bg-slate-900 text-white":"bg-white text-slate-600 border border-slate-200")}>{role === "faculty" ? "My Schedule" : "By Faculty"}</button>
@@ -1328,6 +1714,72 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
   );
 }
 
+function HistoryPage({ history, currentId, onRestore }) {
+  if (history.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl p-12 shadow-sm border border-slate-100 text-center">
+        <IconHistory size={40} className="mx-auto text-slate-300 mb-4" />
+        <h3 className="font-semibold text-slate-900 mb-2">No schedule versions yet</h3>
+        <p className="text-sm text-slate-500">Every time you generate a schedule, a version is saved here so you can compare and restore earlier runs.</p>
+      </div>
+    );
+  }
+  const best = history.reduce((a, b) => (b.fitness > a.fitness ? b : a));
+  return (
+    <div className="space-y-5">
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+        <h3 className="font-semibold text-slate-900 mb-1 text-sm">Fitness Across Versions</h3>
+        <p className="text-xs text-slate-400 mb-3">Higher is better. Each bar is one generated schedule (oldest to newest).</p>
+        <BarChart
+          data={history.slice().reverse().map((h, i) => ({ label: "v" + (i + 1), value: Math.max(0, Math.round(h.fitness)) }))}
+          colorFn={() => "#0F8A6B"} />
+      </div>
+      <TableShell title={"Schedule History (" + history.length + ")"}
+        onExport={() => downloadCSV("schedule_history.csv",
+          ["Version","Generated","Feasible","Conflicts","Fitness","Generations","Curriculum-aware","Approval"],
+          history.slice().reverse().map((h, i) => ["v" + (i + 1), new Date(h.generatedAt).toLocaleString(), h.feasible ? "Yes" : "No", h.violations.total, h.fitness.toFixed(1), h.convergence.length, h.curriculumAware ? "Yes" : "No", h.approvalStatus || "Pending Review"]))}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
+              <th className="px-6 py-3 font-medium">Version</th><th className="px-6 py-3 font-medium">Generated</th>
+              <th className="px-6 py-3 font-medium">Conflicts</th><th className="px-6 py-3 font-medium">Fitness</th>
+              <th className="px-6 py-3 font-medium">Generations</th><th className="px-6 py-3 font-medium">Curriculum</th>
+              <th className="px-6 py-3 font-medium"></th>
+            </tr></thead>
+            <tbody>
+              {history.map((h, idx) => {
+                const versionNum = history.length - idx;
+                const isCurrent = h.id === currentId;
+                return (
+                  <tr key={h.id} className={"border-b border-slate-50 " + (isCurrent ? "bg-teal-50/50" : "hover:bg-slate-50/50")}>
+                    <td className="px-6 py-3 font-medium text-slate-900">
+                      v{versionNum}
+                      {h.id === best.id && <span className="ml-2 text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full">Best</span>}
+                      {isCurrent && <span className="ml-2 text-[10px] font-semibold bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full">Current</span>}
+                    </td>
+                    <td className="px-6 py-3 text-slate-500 whitespace-nowrap">{new Date(h.generatedAt).toLocaleString()}</td>
+                    <td className="px-6 py-3">
+                      <span className={"text-xs font-semibold px-2 py-1 rounded-full " + (h.violations.total > 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600")}>{h.violations.total}</span>
+                    </td>
+                    <td className="px-6 py-3 text-slate-500">{h.fitness.toFixed(1)}</td>
+                    <td className="px-6 py-3 text-slate-500">{h.convergence.length}</td>
+                    <td className="px-6 py-3 text-slate-500">{h.curriculumAware ? "On" : "Off"}</td>
+                    <td className="px-6 py-3 text-right">
+                      {!isCurrent && (
+                        <button onClick={() => onRestore(h)} className="text-xs font-medium text-teal-600 hover:underline">Restore</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </TableShell>
+    </div>
+  );
+}
+
 function ConflictsPage({ result, onGenerate, generating }) {
   if (!result) {
     return (
@@ -1384,32 +1836,160 @@ function ConflictsPage({ result, onGenerate, generating }) {
   );
 }
 
-function ReportsPage({ faculty, rooms, sections, result }) {
+function ReportCard({ title, subtitle, onExport, children }) {
+  return (
+    <div className="print-area bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h3 className="font-semibold text-slate-900">{title}</h3>
+          {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+        </div>
+        {onExport && (
+          <button onClick={onExport} className="no-print shrink-0 flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium px-2.5 py-1.5 rounded-lg">
+            <IconDownload size={13} /> CSV
+          </button>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function RoomHeatmap({ rooms, result, slotById }) {
+  const usage = {};
+  result.genes.forEach(g => {
+    const slot = slotById[g.slotId];
+    if (!slot || g.roomId === -1) return;
+    const key = g.roomId + "-" + slot.day;
+    usage[key] = (usage[key] || 0) + 1;
+  });
+  const max = E.PERIODS;
+  const shade = (n) => {
+    if (!n) return "#f1f5f9";
+    const t = n / max;
+    if (t <= 0.25) return "#ccfbf1";
+    if (t <= 0.5) return "#5eead4";
+    if (t <= 0.75) return "#14b8a6";
+    return "#0f766e";
+  };
+  return (
+    <div className="overflow-x-auto">
+      <table className="text-xs border-collapse">
+        <thead><tr>
+          <th className="p-2 text-left text-slate-400 font-medium">Room</th>
+          {E.DAYS.map(d => <th key={d} className="p-2 text-slate-400 font-medium">{d}</th>)}
+        </tr></thead>
+        <tbody>
+          {rooms.map(r => (
+            <tr key={r.id}>
+              <td className="p-2 text-slate-700 font-medium whitespace-nowrap">{r.name}</td>
+              {E.DAYS.map(d => {
+                const n = usage[r.id + "-" + d] || 0;
+                return (
+                  <td key={d} className="p-1">
+                    <div title={n + " of " + max + " periods used"}
+                      className="w-12 h-8 rounded flex items-center justify-center font-semibold"
+                      style={{ background: shade(n), color: n / max > 0.5 ? "white" : "#334155" }}>
+                      {n}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="flex items-center gap-2 mt-3 text-[11px] text-slate-400">
+        <span>Periods used per day (max {max}):</span>
+        {[0, 1, 3, 4, 6].map(n => <span key={n} className="w-5 h-3 rounded inline-block" style={{ background: shade(n) }} />)}
+        <span>low → high</span>
+      </div>
+    </div>
+  );
+}
+
+function ReportsPage({ faculty, rooms, sections, result, slotById }) {
   if (!result) {
-    return <div className="bg-white rounded-2xl p-12 shadow-sm border border-slate-100 text-center text-slate-400">Generate a schedule to see analytics here.</div>;
+    return <div className="bg-white rounded-2xl p-12 shadow-sm border border-slate-100 text-center text-slate-400">Generate a schedule to see analytics and reports here.</div>;
   }
   const unitsByFaculty = {};
   faculty.forEach(f => unitsByFaculty[f.id] = 0);
-  result.genes.forEach((g,i) => { unitsByFaculty[g.facultyId] = (unitsByFaculty[g.facultyId]||0) + sections[i].units; });
+  result.genes.forEach((g,i) => { if (g.facultyId !== -1) unitsByFaculty[g.facultyId] = (unitsByFaculty[g.facultyId]||0) + sections[i].units; });
   const workloadData = faculty.map(f => ({ label: f.name.split(" ")[0], value: unitsByFaculty[f.id] || 0 }));
 
   const roomUsage = {};
   rooms.forEach(r => roomUsage[r.id] = 0);
-  result.genes.forEach(g => { roomUsage[g.roomId] = (roomUsage[g.roomId]||0) + 1; });
+  result.genes.forEach(g => { if (g.roomId !== -1) roomUsage[g.roomId] = (roomUsage[g.roomId]||0) + 1; });
+  const totalSlots = E.DAYS.length * E.PERIODS;
   const roomData = rooms.map(r => ({ label: r.name.replace("Room ",""), value: roomUsage[r.id] || 0 }));
+
+  const allSpecs = Array.from(new Set([...faculty.flatMap(f => f.specializations), ...sections.map(s => s.requiredSpecialization)]));
+  const deptRows = allSpecs.map(spec => {
+    const st = computeDepartmentStats(spec, faculty, sections, result);
+    return [spec, st.deptFaculty.length, st.deptSections.length, st.loadPct + "%", st.overloads, st.conflicts];
+  });
 
   return (
     <div className="space-y-5">
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-        <h3 className="font-semibold text-slate-900 mb-1">Faculty Workload Distribution</h3>
-        <p className="text-xs text-slate-400 mb-4">Assigned teaching units per faculty member in the current schedule</p>
-        <BarChart data={workloadData} colorFn={d => "#0f8a6b"} />
+      <div className="no-print flex justify-end">
+        <button onClick={() => window.print()} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-3.5 py-2 rounded-lg">
+          <IconPrinter size={15} /> Print All Reports / Save PDF
+        </button>
       </div>
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-        <h3 className="font-semibold text-slate-900 mb-1">Room Utilization</h3>
-        <p className="text-xs text-slate-400 mb-4">Number of sessions held per room</p>
-        <BarChart data={roomData} colorFn={d => "#5B3E96"} />
-      </div>
+
+      <ReportCard title="Faculty Teaching Load Report" subtitle="Assigned teaching units per faculty member in the current schedule"
+        onExport={() => downloadCSV("faculty_teaching_load_report.csv",
+          ["Faculty","Academic Rank","Employment Status","Assigned Units","Max Units","Load %","Status"],
+          faculty.map(f => { const st = loadStatusFor(f, sections, result); return [f.name, f.academicRank || "", f.employmentStatus || "", st.assigned, f.maxUnits, st.pct + "%", st.label]; }))}>
+        <BarChart data={workloadData} colorFn={() => "#0f8a6b"} />
+      </ReportCard>
+
+      <ReportCard title="Room Utilization Report" subtitle={"Sessions held per room (out of " + totalSlots + " weekly periods)"}
+        onExport={() => downloadCSV("room_utilization_report.csv",
+          ["Room","Type","Capacity","Sessions","Utilization %"],
+          rooms.map(r => [r.name, r.type, r.capacity, roomUsage[r.id] || 0, Math.round(((roomUsage[r.id] || 0) / totalSlots) * 100) + "%"]))}>
+        <BarChart data={roomData} colorFn={() => "#5B3E96"} />
+        <div className="mt-5">
+          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Utilization Heatmap (room × day)</h4>
+          <RoomHeatmap rooms={rooms} result={result} slotById={slotById} />
+        </div>
+      </ReportCard>
+
+      <ReportCard title="Department Summary" subtitle="Teaching load, overloads, and conflicts per specialization area"
+        onExport={() => downloadCSV("department_summary.csv",
+          ["Specialization","Faculty","Sections","Teaching Load","Overloads","Conflicts"], deptRows)}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
+              {["Specialization","Faculty","Sections","Teaching Load","Overloads","Conflicts"].map(h => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {deptRows.map(r => (
+                <tr key={r[0]} className="border-b border-slate-50">
+                  {r.map((c, i) => <td key={i} className={"px-3 py-2 " + (i === 0 ? "font-medium text-slate-900" : "text-slate-500")}>{c}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </ReportCard>
+
+      <ReportCard title="Conflict Report" subtitle="Hard-constraint check across the current schedule"
+        onExport={() => downloadCSV("conflict_report.csv", ["Constraint","Count"], [
+          ["Faculty double-booking", result.violations.facultyConflicts],
+          ["Room double-booking", result.violations.roomConflicts],
+          ["Unqualified assignment", result.violations.unqualified],
+          ["Faculty unavailable", result.violations.unavailable],
+          ["Room type mismatch", result.violations.roomTypeMismatch],
+          ["Room capacity exceeded", result.violations.capacityViol],
+          ["Faculty overload (units)", result.violations.overload],
+          ["Unscheduled (manually removed)", result.violations.unscheduled || 0],
+        ])}>
+        <div className="text-sm text-slate-600">
+          Total hard-constraint violations: <span className={"font-semibold " + (result.violations.total ? "text-rose-600" : "text-emerald-600")}>{result.violations.total}</span>
+          {" "}· Approval: <span className="font-semibold">{result.approvalStatus || "Pending Review"}</span>
+        </div>
+      </ReportCard>
     </div>
   );
 }

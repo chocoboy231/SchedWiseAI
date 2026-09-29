@@ -1,3 +1,11 @@
+/* =====================================================================
+   SchedWiseAI — GLOBAL STYLES (styles.css)
+   Most styling is done with Tailwind utility classes directly in app.jsx.
+   This file only holds things Tailwind classes can't easily express:
+   colour variables, the page font, scrollbars, and print rules.
+   ===================================================================== */
+
+/* Brand colours, stored as CSS variables so they can be reused. */
 :root {
     --navy: #0c1330;
     --navy-2: #0e3a4a;
@@ -8,6 +16,7 @@
     --text: #0f172a;
     --text-muted: #64748b;
   }
+  /* The app keeps its light look even if the device is in dark mode. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #eef1f8;
@@ -27,10 +36,14 @@
     color: var(--text);
     overflow-x: auto;
   }
+  /* Thin, subtle scrollbars (Chrome/Edge/Safari). */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   .scroll-x { overflow-x: auto; }
 
+  /* PRINT MODE — used by the "Print / Save PDF" buttons.
+     Anything with class "no-print" (sidebar, header, buttons) is hidden,
+     so only the schedule or reports end up on paper / in the PDF. */
   @media print {
     .no-print { display: none !important; }
     #root, .print-main { display: block !important; }

@@ -1,7 +1,59 @@
+/* =====================================================================
+   SchedWiseAI — USER INTERFACE  (app.jsx)
+   ---------------------------------------------------------------------
+   Written in React (JSX). The browser turns this file into normal
+   JavaScript on the fly using Babel (loaded in index.html), so there is
+   no build step — just open index.html through a web server.
+
+   HOW THE PIECES FIT TOGETHER
+     engine.js   → the AI scheduling logic (Genetic Algorithm). It exposes
+                   `window.SchedEngine`, which this file calls "E".
+     app.jsx     → everything you see and click: pages, forms, tables.
+     styles.css  → a few global styles (colors, print layout).
+     index.html  → loads the libraries and the three files above.
+
+   HOW REACT WORKS HERE (quick primer)
+     • A "component" is a function that returns what should be on screen,
+       e.g. function StatCard({ label, value }) { return <div>...</div>; }
+     • useState(x) creates a value the component remembers. Changing it
+       with its setter (e.g. setFaculty(...)) makes React redraw the screen.
+     • useEffect(fn, [a, b]) runs fn after the screen updates, whenever a
+       or b changes — used here for saving data and syncing history.
+     • Props are the inputs passed into a component: <Panel title="X" />.
+
+   WHERE THE DATA LIVES
+     All data is held in state inside the App() component and saved to the
+     browser's localStorage (see saveState/loadState), so it survives a
+     page refresh. Nothing is sent to a server.
+
+   MAP OF THIS FILE (top to bottom)
+     1. Icons ........................ small SVG icon components
+     2. Roles & navigation ........... who can see which page
+     3. CSV / export helpers ......... downloadCSV, parseCSV
+     4. Saving & loading ............. loadState, saveState, freshData
+     5. Form building blocks ......... Modal, Field, CheckboxGroup
+     6. Forms (modals) ............... Faculty, Subject, Room, Assignment,
+                                       Profile, Leave Request, CSV Import
+     7. Login & notifications ........ LoginScreen, NotificationPanel
+     8. Charts & cards ............... StatCard, ConvergenceChart, BarChart
+     9. App() ........................ the main component: all state + page switching
+    10. Overview pages ............... one per role (Admin, Chair, Faculty, IT)
+    11. Other pages .................. Faculty, Subjects, Rooms, Departments,
+                                       Workload, Schedules, History,
+                                       Conflicts, Reports, Settings
+   ===================================================================== */
+
+// Pull React's "hooks" out of the global React object (loaded from a CDN in index.html).
 const { useState, useEffect, useRef, useMemo } = React;
+// Shortcut to the scheduling engine defined in engine.js (E.runGA, E.DAYS, etc.).
 const E = window.SchedEngine;
 
-// ---------------- Icons (hand-rolled, no external icon dependency) ----------------
+/* ---------------------------------------------------------------------
+   1. ICONS
+   Each icon is a tiny SVG drawing. `Icon` is the shared wrapper (size,
+   stroke style); each IconXxx just supplies its own shape via `d`.
+   Hand-drawn so the app doesn't depend on an external icon library.
+   --------------------------------------------------------------------- */
 function Icon({ d, size = 18, className = "" }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -46,6 +98,13 @@ const IconThumbsUp = (p) => <Icon {...p} d={<path d="M7 22V11M2 13v7a2 2 0 0 0 2
 const IconThumbsDown = (p) => <Icon {...p} d={<path d="M17 2v11M22 11V4a2 2 0 0 0-2-2H7.3a2 2 0 0 0-2 1.6l-1.3 6A2 2 0 0 0 6 12h5l-1 5a2 2 0 0 0 2 2.4L17 13"/>} />;
 const IconGrid2 = (p) => <Icon {...p} d={<g><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></g>} />;
 
+/* ---------------------------------------------------------------------
+   2. ROLES & NAVIGATION
+   ROLES: the four user types from the study's respondent groups.
+   NAV_ITEMS: every sidebar page, and the list of roles allowed to see it.
+   This is the Role-Based Access Control (RBAC): if a role isn't listed
+   for a page, that page never appears in that role's sidebar.
+   --------------------------------------------------------------------- */
 const ROLES = [
   { key: "admin", label: "Academic Administrator" },
   { key: "chair", label: "Department Chair" },
@@ -66,7 +125,16 @@ const NAV_ITEMS = [
   { key: "reports", label: "Reports", icon: IconChart, roles: ["admin","chair","it"] },
 ];
 
-// ---------------- Export / print / CSV helpers ----------------
+/* ---------------------------------------------------------------------
+   3. CSV / EXPORT HELPERS
+   --------------------------------------------------------------------- */
+
+// downloadCSV(filename, headers, rows)
+// Turns a table (a header row + data rows) into a .csv file and makes the
+// browser download it. CSV files open directly in Excel or Google Sheets.
+// Values containing commas, quotes, or line breaks are wrapped in quotes
+// (the standard CSV escaping rule). After downloading, it announces a
+// "schedwise:export" event so the IT overview can log the export.
 function downloadCSV(filename, headers, rows) {
   const escape = (v) => {
     const s = String(v == null ? "" : v);
@@ -74,6 +142,7 @@ function downloadCSV(filename, headers, rows) {
   };
   const lines = [headers.map(escape).join(",")].concat(rows.map(r => r.map(escape).join(",")));
   const csv = lines.join("\r\n");
+  // Create an in-memory file, point a hidden link at it, and "click" the link to download.
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -83,8 +152,13 @@ function downloadCSV(filename, headers, rows) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.dispatchEvent(new CustomEvent("schedwise:export", { detail: { filename: a.download, rows: rows.length } }));
 }
 
+// parseCSV(text)
+// The reverse of downloadCSV: reads pasted CSV text into { headers, rows }.
+// It walks each line character by character so that commas INSIDE quotes
+// (e.g. "Santos, Maria") are not mistaken for column separators.
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length === 0) return { headers: [], rows: [] };
@@ -111,6 +185,12 @@ function parseCSV(text) {
   return { headers, rows };
 }
 
+/* ---------------------------------------------------------------------
+   4. SAVING & LOADING
+   All app data is stored in the browser under one key. try/catch is used
+   because some browsers (private mode, storage full) can refuse access —
+   in that case the app simply keeps working without saving.
+   --------------------------------------------------------------------- */
 function loadState() {
   try {
     const raw = localStorage.getItem("schedwiseai_prototype_v1");
@@ -123,12 +203,20 @@ function saveState(data) {
   catch (e) { console.warn("localStorage write failed", e); }
 }
 
+// freshData(): creates a brand-new sample dataset (9 faculty, 18 sections, 6 rooms)
+// with a random seed, used on first visit and by "Reset Demo Data".
 function freshData() {
   const seed = 100 + Math.floor(Math.random() * 900);
   const d = E.generateSyntheticData(9, 18, 6, seed);
   return { faculty: d.faculty, rooms: d.rooms, sections: d.sections, timeSlots: d.timeSlots, result: null };
 }
 
+/* ---------------------------------------------------------------------
+   5. FORM BUILDING BLOCKS
+   --------------------------------------------------------------------- */
+
+// Modal: a pop-up dialog. Clicking the dark background closes it;
+// clicking inside the white box does not (stopPropagation).
 function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -143,6 +231,7 @@ function Modal({ title, onClose, children }) {
   );
 }
 
+// Field: a label placed above any input.
 function Field({ label, children }) {
   return (
     <div className="mb-3">
@@ -151,8 +240,11 @@ function Field({ label, children }) {
     </div>
   );
 }
+// Shared Tailwind CSS classes so every text box and dropdown looks the same.
 const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400";
 
+// CheckboxGroup: a grid of checkboxes for picking several options
+// (used for Specializations and Preferred Days).
 function CheckboxGroup({ options, selected, onToggle, columns = 2 }) {
   return (
     <div className={"grid gap-1.5 " + (columns === 2 ? "grid-cols-2" : "grid-cols-1")}>
@@ -166,6 +258,16 @@ function CheckboxGroup({ options, selected, onToggle, columns = 2 }) {
   );
 }
 
+/* ---------------------------------------------------------------------
+   6. FORMS (MODALS)
+   Each form keeps its own copy of the fields in local state while the
+   user types. Nothing changes in the real data until "Save" is pressed,
+   which calls onSave(...) with the finished record. If `initial` is
+   given, the form is in "edit" mode and starts pre-filled.
+   --------------------------------------------------------------------- */
+
+// FacultyModal: add/edit a faculty member (specializations, preferred days,
+// max units, employment status, academic rank).
 function FacultyModal({ initial, onSave, onClose }) {
   const [name, setName] = useState(initial ? initial.name : "");
   const [specs, setSpecs] = useState(initial ? initial.specializations : ["Programming"]);
@@ -228,6 +330,8 @@ function FacultyModal({ initial, onSave, onClose }) {
   );
 }
 
+// SectionModal: add/edit a subject section, including curriculum year level,
+// semester, and an optional prerequisite subject.
 function SectionModal({ initial, allSections, onSave, onClose }) {
   const [subjectCode, setSubjectCode] = useState(initial ? initial.subjectCode : "");
   const [subjectName, setSubjectName] = useState(initial ? initial.subjectName : "");
@@ -303,6 +407,7 @@ function SectionModal({ initial, allSections, onSave, onClose }) {
   );
 }
 
+// RoomModal: add/edit a room (name, lecture/laboratory, capacity).
 function RoomModal({ initial, onSave, onClose }) {
   const [name, setName] = useState(initial ? initial.name : "");
   const [type, setType] = useState(initial ? initial.type : "lecture");
@@ -329,6 +434,10 @@ function RoomModal({ initial, onSave, onClose }) {
   );
 }
 
+// AssignmentModal: manual edit of ONE scheduled class after generation.
+// The dropdowns only offer qualified faculty and valid rooms for that section,
+// so an admin can't accidentally assign an unqualified teacher.
+// "Remove" unschedules the class (stored as -1 in the engine).
 function AssignmentModal({ assignment, faculty, rooms, sections, timeSlots, onSave, onDelete, onClose }) {
   const sec = sections[assignment.index];
   const qualifiedFacultyIds = E.qualifiedFaculty(faculty, sec);
@@ -370,6 +479,8 @@ function AssignmentModal({ assignment, faculty, rooms, sections, timeSlots, onSa
   );
 }
 
+// FacultyProfileModal: read-only profile card (rank, status, specializations,
+// preferred days, and current load computed from the live schedule).
 function FacultyProfileModal({ faculty, sections, result, onClose }) {
   const assignedUnits = result
     ? result.genes.reduce((sum, g, i) => g.facultyId === faculty.id ? sum + sections[i].units : sum, 0)
@@ -412,16 +523,26 @@ function FacultyProfileModal({ faculty, sections, result, onClose }) {
   );
 }
 
-function LeaveRequestModal({ faculty, onSave, onClose }) {
-  const [facultyId, setFacultyId] = useState(faculty[0] ? faculty[0].id : null);
+// LeaveRequestModal: submit a leave or availability-change request.
+// If lockedFacultyId is given (Faculty role), the faculty member can only
+// file for themselves; otherwise a dropdown lets admins pick anyone.
+function LeaveRequestModal({ faculty, lockedFacultyId, onSave, onClose }) {
+  const locked = lockedFacultyId != null;
+  const [facultyId, setFacultyId] = useState(locked ? lockedFacultyId : (faculty[0] ? faculty[0].id : null));
   const [type, setType] = useState("Leave Request");
   const [description, setDescription] = useState("");
   return (
     <Modal title="New Leave / Availability Request" onClose={onClose}>
       <Field label="Faculty Member">
-        <select className={inputCls} value={facultyId} onChange={e=>setFacultyId(Number(e.target.value))}>
-          {faculty.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
+        {locked ? (
+          <div className="text-sm font-medium text-slate-800 border border-slate-200 rounded-lg px-3 py-2 bg-slate-50">
+            {(faculty.find(f => f.id === lockedFacultyId) || {}).name || "—"}
+          </div>
+        ) : (
+          <select className={inputCls} value={facultyId} onChange={e=>setFacultyId(Number(e.target.value))}>
+            {faculty.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        )}
       </Field>
       <Field label="Request Type">
         <select className={inputCls} value={type} onChange={e=>setType(e.target.value)}>
@@ -445,6 +566,11 @@ function LeaveRequestModal({ faculty, onSave, onClose }) {
   );
 }
 
+// validateCurriculumSequence(sections)
+// Checks prerequisites: a subject's prerequisite must be offered in an
+// EARLIER term. Terms are turned into a single number so they can be
+// compared: order = yearLevel × 2 + (0 for 1st sem, 1 for 2nd sem).
+// e.g. Year 2 1st Sem = 4, Year 2 2nd Sem = 5, Year 3 1st Sem = 6.
 function validateCurriculumSequence(sections) {
   // Flags cases where a subject's declared prerequisite is not actually scheduled
   // in an earlier year level + semester than the subject that depends on it.
@@ -464,6 +590,9 @@ function validateCurriculumSequence(sections) {
   return issues;
 }
 
+// CSVImportModal: bulk-add faculty, subjects, or rooms by pasting CSV text.
+// Columns are matched by header NAME (not position), so column order doesn't
+// matter. Multi-value fields use semicolons, e.g. "Programming;Databases".
 function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms, onClose }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
@@ -478,6 +607,7 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
     try {
       const { headers, rows } = parseCSV(text);
       if (rows.length === 0) { setError("No data rows found."); return; }
+      // Find a column by its header name, so column order in the CSV doesn't matter.
       const idx = (name) => headers.indexOf(name);
 
       if (kind === "faculty") {
@@ -535,6 +665,12 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
   );
 }
 
+/* ---------------------------------------------------------------------
+   7. LOGIN & NOTIFICATIONS
+   --------------------------------------------------------------------- */
+
+// LoginScreen: prototype sign-in. The user types a name and picks a role.
+// There is intentionally no password — this is a respondent-testing build.
 function LoginScreen({ onLogin }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState("admin");
@@ -568,6 +704,8 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+// NotificationPanel: the drop-down list under the bell icon.
+// Clicking one marks it read; "Mark all read" clears the badge.
 function NotificationPanel({ notifications, onMarkRead, onMarkAllRead, onClose }) {
   return (
     <div className="absolute right-0 top-11 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 max-h-96 overflow-y-auto">
@@ -597,6 +735,12 @@ function NotificationPanel({ notifications, onMarkRead, onMarkAllRead, onClose }
   );
 }
 
+/* ---------------------------------------------------------------------
+   8. CHARTS & CARDS
+   Charts are drawn by hand as SVG (no chart library needed).
+   --------------------------------------------------------------------- */
+
+// StatCard: a small box with a label and a big number.
 function StatCard({ label, value, sub, color }) {
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
@@ -607,12 +751,18 @@ function StatCard({ label, value, sub, color }) {
   );
 }
 
+// ConvergenceChart: the GA's learning curve. For each generation it plots
+// the best score (teal) and the population's average score (purple).
+// x() and y() convert a generation number / score into pixel positions.
+// The dashed line marks where the score crosses zero.
 function ConvergenceChart({ convergence }) {
   if (!convergence || convergence.length === 0) return null;
   const w = 600, h = 180, pad = 30;
   const allVals = convergence.flatMap(c => [c.best, c.avg]);
   const maxV = Math.max(...allVals, 1), minV = Math.min(...allVals, -1);
   const range = maxV - minV || 1;
+  // Convert generation number -> horizontal pixel, and score -> vertical pixel
+  // (SVG's y axis points down, so higher scores are drawn higher by subtracting).
   const x = i => pad + (i / Math.max(1, convergence.length - 1)) * (w - 2*pad);
   const y = v => h - pad - ((v - minV) / range) * (h - 2*pad);
   const bestPath = convergence.map((c,i) => (i===0?"M":"L") + x(i) + "," + y(c.best)).join(" ");
@@ -630,6 +780,8 @@ function ConvergenceChart({ convergence }) {
   );
 }
 
+// BarChart: simple vertical bars. `data` is [{ label, value }].
+// Bars are scaled so the tallest value fills the chart height.
 function BarChart({ data, colorFn, maxOverride }) {
   const w = 600, h = 220, pad = 36;
   const maxV = maxOverride || Math.max(...data.map(d => d.value), 1);
@@ -653,16 +805,29 @@ function BarChart({ data, colorFn, maxOverride }) {
   );
 }
 
+/* =====================================================================
+   9. App() — THE MAIN COMPONENT
+   ---------------------------------------------------------------------
+   Holds ALL of the app's data (faculty, rooms, sections, the current
+   schedule, requests, notifications, history...) and all the actions that
+   change it. Every page component receives just the pieces it needs as
+   props. The page shown is chosen by the `page` state value.
+   ===================================================================== */
 function App() {
+  // On startup: use saved data if it exists, otherwise generate sample data.
   const saved = loadState();
   const init = saved || freshData();
+
+  // ---- Core data ----
   const [faculty, setFaculty] = useState(init.faculty);
   const [rooms, setRooms] = useState(init.rooms);
   const [sections, setSections] = useState(init.sections);
   const [timeSlots] = useState(init.timeSlots || E.buildTimeSlots());
-  const [result, setResult] = useState(init.result);
-  const [role, setRole] = useState(init.role || "admin");
-  const [page, setPage] = useState("dashboard");
+  const [result, setResult] = useState(init.result);      // the CURRENT schedule (output of the GA), or null
+  const [role, setRole] = useState(init.role || "admin"); // which role is signed in
+  const [page, setPage] = useState("dashboard");          // which page is on screen
+
+  // ---- UI state (which pop-up is open, which tab is selected, etc.) ----
   const [generating, setGenerating] = useState(false);
   const [facultyModal, setFacultyModal] = useState(null);
   const [sectionModal, setSectionModal] = useState(null);
@@ -670,6 +835,7 @@ function App() {
   const [scheduleTab, setScheduleTab] = useState("grid");
   const [selectedFacultyId, setSelectedFacultyId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // ---- Feature data (the `|| []` fallbacks keep older saved data working) ----
   const [leaveRequests, setLeaveRequests] = useState(init.leaveRequests || []);
   const [curriculumAware, setCurriculumAware] = useState(init.curriculumAware || false);
   const [facultyProfileModal, setFacultyProfileModal] = useState(null);
@@ -682,11 +848,32 @@ function App() {
   const [loggedIn, setLoggedIn] = useState(init.loggedIn || false);
   const [userName, setUserName] = useState(init.userName || "Alex Dela Cruz");
   const [csvImportKind, setCsvImportKind] = useState(null);
+  const [activityLog, setActivityLog] = useState(init.activityLog || []);   // import/export log (IT overview)
+  const [chairDept, setChairDept] = useState(init.chairDept || "All");       // department filter (Chair overview)
+  const [leaveRequestLockedTo, setLeaveRequestLockedTo] = useState(null);    // faculty id a request form is locked to
+
+  // Save everything to the browser whenever any of these values change.
 
   useEffect(() => {
-    saveState({ faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName });
-  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName]);
+    saveState({ faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName, activityLog, chairDept });
+  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName, activityLog, chairDept]);
 
+  // Adds an entry to the import/export activity log (newest first, max 30 kept).
+  function logActivity(kind, detail) {
+    setActivityLog(prev => [{ id: Date.now() + Math.random(), kind, detail, timestamp: new Date().toISOString() }, ...prev].slice(0, 30));
+  }
+
+  // Listen for the "schedwise:export" event fired by downloadCSV(), so every
+  // CSV export from any page is recorded — without each page needing extra code.
+  // The returned function removes the listener if App is ever unmounted.
+  useEffect(() => {
+    function onExport(e) { logActivity("Export", e.detail.filename + " (" + e.detail.rows + " rows)"); }
+    window.addEventListener("schedwise:export", onExport);
+    return () => window.removeEventListener("schedwise:export", onExport);
+  }, []);
+
+  // Sidebar items this role may see (RBAC). If the role changes and the current
+  // page isn't allowed anymore, jump to the first allowed page.
   const visibleNav = NAV_ITEMS.filter(n => n.roles.includes(role));
   useEffect(() => {
     if (!visibleNav.find(n => n.key === page)) setPage(visibleNav[0].key);
@@ -700,15 +887,31 @@ function App() {
     }
   }, [result]);
 
+  // Adds a new unread notification to the top of the bell list.
+  // Math.random() is added to the id so two notifications in the same
+  // millisecond still get unique ids.
   function pushNotification(message) {
-    setNotifications(prev => [{ id: Date.now(), message, timestamp: new Date().toISOString(), read: false }, ...prev]);
+    setNotifications(prev => [{ id: Date.now() + Math.random(), message, timestamp: new Date().toISOString(), read: false }, ...prev]);
   }
 
+  // ------------------------------------------------------------------
+  // handleGenerate: runs the AI Optimization Engine.
+  //  1. Shows "Generating..." (the short setTimeout lets the screen redraw
+  //     before the heavy calculation blocks the browser).
+  //  2. Runs E.runGA and times it with performance.now().
+  //  3. Stamps the result with an id, timestamp, "Pending Review" status,
+  //     run time, and settings — these feed Approval, History, and IT views.
+  //  4. Saves it as the current schedule AND at the top of history (max 20).
+  // ------------------------------------------------------------------
   function handleGenerate() {
     setGenerating(true);
     setTimeout(() => {
-      const r = E.runGA(faculty, rooms, sections, timeSlots, { generations: 140, popSize: 50, curriculumAware });
-      const stamped = { ...r, id: Date.now(), generatedAt: new Date().toISOString(), approvalStatus: "Pending Review", approvalComment: "" };
+      const settings = { generations: 140, popSize: 50, curriculumAware };
+      const t0 = performance.now();
+      const r = E.runGA(faculty, rooms, sections, timeSlots, settings);
+      const elapsedMs = Math.round(performance.now() - t0);
+      const stamped = { ...r, id: Date.now(), generatedAt: new Date().toISOString(), approvalStatus: "Pending Review", approvalComment: "",
+        elapsedMs, settings: { generations: settings.generations, popSize: settings.popSize } };
       setResult(stamped);
       setScheduleHistory(prev => [stamped, ...prev].slice(0, 20));
       setGenerating(false);
@@ -721,6 +924,9 @@ function App() {
     }, 60);
   }
 
+  // Manual edit of one class. Arrays in state must not be changed in place,
+  // so we copy the genes, change one entry, then re-run the rule checker.
+  // Any edit sends the schedule back to "Pending Review".
   function handleEditAssignment(index, newGene) {
     if (!result) return;
     const newGenes = result.genes.slice();
@@ -729,6 +935,7 @@ function App() {
     setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0, approvalStatus: "Pending Review" });
   }
 
+  // Manual removal of one class: mark it -1 ("unscheduled") and re-check rules.
   function handleDeleteAssignment(index) {
     if (!result) return;
     const newGenes = result.genes.slice();
@@ -737,37 +944,47 @@ function App() {
     setResult({ ...result, genes: newGenes, violations, feasible: violations.total === 0, approvalStatus: "Pending Review" });
   }
 
+  // Approve / Reject the current schedule (Admin & Chair only; the buttons
+  // aren't shown to other roles). Also sends a notification.
   function handleApprovalDecision(status, comment) {
     if (!result) return;
     setResult({ ...result, approvalStatus: status, approvalComment: comment || "" });
     pushNotification("Schedule " + (status === "Approved" ? "approved" : "rejected") + (comment ? " — \"" + comment + "\"" : "") + ".");
   }
 
+  // Make an older saved version the current schedule again.
   function handleRestoreHistory(entry) {
     setResult(entry);
     pushNotification("Restored schedule from " + new Date(entry.generatedAt).toLocaleString() + ".");
     setPage("schedules");
   }
 
+  // Replace all data with a fresh sample dataset (asks for confirmation first).
   function resetDemoData() {
     if (!confirm("Reset all data to a fresh demo dataset? This clears faculty, subjects, rooms, and the current schedule.")) return;
     const d = freshData();
-    setFaculty(d.faculty); setRooms(d.rooms); setSections(d.sections); setResult(null); setLeaveRequests([]); setScheduleHistory([]);
+    setFaculty(d.faculty); setRooms(d.rooms); setSections(d.sections); setResult(null); setLeaveRequests([]); setScheduleHistory([]); setActivityLog([]);
   }
 
+  // Lookup tables: find a faculty member / room / time slot by id instantly.
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   const roomById = Object.fromEntries(rooms.map(r => [r.id, r]));
   const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
 
   const roleLabel = ROLES.find(r => r.key === role).label;
-  const currentUserName = role === "faculty" && faculty[0] ? faculty[0].name : userName;
+  // Who "I" am when signed in as Faculty: the faculty record whose name matches
+  // the login name; if none matches (it's a prototype), the first faculty member.
+  const myFaculty = faculty.find(f => f.name === userName) || faculty[0] || null;
+  const currentUserName = role === "faculty" && myFaculty ? myFaculty.name : userName;
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  // Change page and close the mobile sidebar.
   function goToPage(key) {
     setPage(key);
     setSidebarOpen(false);
   }
 
+  // Not signed in yet → show only the login screen.
   if (!loggedIn) {
     return <LoginScreen onLogin={(name, r) => { setUserName(name); setRole(r); setLoggedIn(true); }} />;
   }
@@ -883,8 +1100,23 @@ function App() {
         <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">
 
           {page === "dashboard" && (
-            <DashboardPage faculty={faculty} rooms={rooms} sections={sections} result={result}
-              generating={generating} onGenerate={handleGenerate} role={role} />
+            <DashboardPage role={role} userName={currentUserName}
+              faculty={faculty} rooms={rooms} sections={sections} result={result} slotById={slotById}
+              generating={generating} onGenerate={handleGenerate}
+              leaveRequests={leaveRequests} notifications={notifications} scheduleHistory={scheduleHistory}
+              activityLog={activityLog} myFaculty={myFaculty}
+              chairDept={chairDept} setChairDept={setChairDept}
+              onNavigate={goToPage}
+              onOpenRequests={() => { setFacultyTab("requests"); goToPage("faculty"); }}
+              onApprovalDecision={handleApprovalDecision}
+              onUpdateRequestStatus={(id, status) => {
+                setLeaveRequests(leaveRequests.map(r => r.id === id ? { ...r, status } : r));
+                const req = leaveRequests.find(r => r.id === id);
+                const fac = req && faculty.find(f => f.id === req.facultyId);
+                pushNotification((req ? req.type : "Request") + " for " + (fac ? fac.name : "faculty") + " was " + status.toLowerCase() + ".");
+              }}
+              onNewRequest={(lockedId) => { setLeaveRequestLockedTo(lockedId == null ? null : lockedId); setLeaveRequestModal(true); }}
+            />
           )}
 
           {page === "faculty" && (
@@ -897,7 +1129,7 @@ function App() {
               onDelete={id => setFaculty(faculty.filter(f=>f.id!==id))}
               onViewProfile={f => setFacultyProfileModal(f)}
               onViewSchedule={f => { setSelectedFacultyId(f.id); setScheduleTab("faculty"); setPage("schedules"); }}
-              onNewRequest={() => setLeaveRequestModal(true)}
+              onNewRequest={() => { setLeaveRequestLockedTo(null); setLeaveRequestModal(true); }}
               onUpdateRequestStatus={(id, status) => {
                 setLeaveRequests(leaveRequests.map(r => r.id === id ? { ...r, status } : r));
                 const req = leaveRequests.find(r => r.id === id);
@@ -937,6 +1169,7 @@ function App() {
               curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware}
               onEditAssignment={(index, gene) => setAssignmentModal({ index, gene })}
               onApprovalDecision={handleApprovalDecision}
+              myFacultyId={myFaculty ? myFaculty.id : null}
             />
           )}
 
@@ -977,7 +1210,7 @@ function App() {
           onSave={handleEditAssignment} onDelete={handleDeleteAssignment} onClose={() => setAssignmentModal(null)} />
       )}
       {leaveRequestModal && (
-        <LeaveRequestModal faculty={faculty}
+        <LeaveRequestModal faculty={faculty} lockedFacultyId={leaveRequestLockedTo}
           onSave={req => {
             setLeaveRequests([req, ...leaveRequests]);
             const fac = faculty.find(f => f.id === req.facultyId);
@@ -987,87 +1220,569 @@ function App() {
       )}
       {csvImportKind && (
         <CSVImportModal kind={csvImportKind}
-          onImportFaculty={recs => { setFaculty([...faculty, ...recs]); pushNotification("Imported " + recs.length + " faculty record(s)."); }}
-          onImportSections={recs => { setSections([...sections, ...recs]); pushNotification("Imported " + recs.length + " subject record(s)."); }}
-          onImportRooms={recs => { setRooms([...rooms, ...recs]); pushNotification("Imported " + recs.length + " room record(s)."); }}
+          onImportFaculty={recs => { setFaculty([...faculty, ...recs]); pushNotification("Imported " + recs.length + " faculty record(s)."); logActivity("Import", recs.length + " faculty record(s)"); }}
+          onImportSections={recs => { setSections([...sections, ...recs]); pushNotification("Imported " + recs.length + " subject record(s)."); logActivity("Import", recs.length + " subject record(s)"); }}
+          onImportRooms={recs => { setRooms([...rooms, ...recs]); pushNotification("Imported " + recs.length + " room record(s)."); logActivity("Import", recs.length + " room record(s)"); }}
           onClose={() => setCsvImportKind(null)} />
       )}
     </div>
   );
 }
 
-function DashboardPage({ faculty, rooms, sections, result, generating, onGenerate, role }) {
-  const totalUnits = sections.reduce((s,x)=>s+x.units, 0);
+/* =====================================================================
+   10. OVERVIEW (DASHBOARD) PAGE — ROLE-SPECIFIC
+   ---------------------------------------------------------------------
+   The Overview page is the first thing a user sees after signing in.
+   Instead of one generic page, each role gets its own version that
+   surfaces the information that role actually acts on:
+
+     Admin   -> approvals, leave requests, system-wide issues, load snapshot
+     Chair   -> approval queue with quick actions, leave decisions inline,
+                department-level workload (filterable by department)
+     Faculty -> my classes this week, my load, my requests, preference match
+     IT      -> AI engine performance, data health, room utilization,
+                recent import/export activity
+
+   DashboardPage below is only a "dispatcher": it looks at the current
+   role and renders the matching overview component.
+   ===================================================================== */
+
+// Counts how many faculty fall into each workload status bucket.
+// Re-uses loadStatusFor() so the labels match the Faculty/Workload pages exactly.
+function computeLoadBuckets(faculty, sections, result) {
+  const buckets = { "Overloaded": 0, "Near capacity": 0, "Balanced": 0, "Underloaded": 0, "No assignment yet": 0 };
+  faculty.forEach(f => {
+    const label = loadStatusFor(f, sections, result).label;
+    buckets[label] = (buckets[label] || 0) + 1;
+  });
+  return buckets;
+}
+
+// Scans the raw data (before any schedule is generated) for records that would make
+// scheduling impossible or unreliable. This is what the IT overview calls "data health".
+function computeDataHealth(faculty, rooms, sections) {
+  const problems = [];
+  sections.forEach(s => {
+    // A section nobody is qualified to teach can never be scheduled correctly.
+    if (E.qualifiedFaculty(faculty, s).length === 0)
+      problems.push(s.subjectCode + " (" + s.sectionName + ") has no qualified faculty for " + s.requiredSpecialization + ".");
+    // A section with no room of the right type and size can never be placed.
+    if (E.validRooms(rooms, s).length === 0)
+      problems.push(s.subjectCode + " (" + s.sectionName + ") has no " + s.roomTypeRequired + " room that fits " + s.enrolledStudents + " students.");
+  });
+  faculty.forEach(f => {
+    if (!f.specializations || f.specializations.length === 0) problems.push(f.name + " has no specializations listed.");
+    if (!f.preferredDays || f.preferredDays.length === 0) problems.push(f.name + " has no preferred days set.");
+  });
+  // Prerequisite ordering problems (same check the Subjects page uses).
+  validateCurriculumSequence(sections).forEach(iss => problems.push(iss.text));
+  return problems;
+}
+
+// ---------- Small shared building blocks used by all four overviews ----------
+
+// The coloured banner at the top of every overview. `children` holds the action buttons.
+function OverviewHero({ eyebrow, title, subtitle, children }) {
+  return (
+    <section className="rounded-3xl overflow-hidden bg-gradient-to-br from-[#0c1330] via-[#0e3a4a] to-[#127a72] px-5 sm:px-10 py-7 sm:py-9">
+      <span className="inline-flex items-center gap-1.5 bg-white/10 text-white text-xs font-medium px-3 py-1.5 rounded-full mb-4">
+        <IconSparkles size={13} /> {eyebrow}
+      </span>
+      <h1 className="text-white font-bold text-2xl sm:text-3xl leading-tight mb-2">{title}</h1>
+      <p className="text-slate-300 text-sm sm:text-[15px] leading-relaxed mb-5 max-w-2xl">{subtitle}</p>
+      <div className="flex flex-wrap items-center gap-3">{children}</div>
+    </section>
+  );
+}
+
+// A white card with a title row and an optional action (usually a "View all" link).
+function Panel({ title, action, onAction, children }) {
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-slate-900 text-sm">{title}</h3>
+        {action && <button onClick={onAction} className="text-xs font-medium text-teal-600 hover:underline">{action}</button>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// Grey placeholder text for empty lists.
+function EmptyNote({ children }) {
+  return <div className="text-sm text-slate-400 py-4 text-center">{children}</div>;
+}
+
+// Coloured pill showing a schedule's approval status.
+function ApprovalBadge({ status }) {
+  const s = status || "Pending Review";
+  const cls = s === "Approved" ? "bg-emerald-50 text-emerald-700" : s === "Rejected" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700";
+  return <span className={"text-xs font-semibold px-2.5 py-1 rounded-full " + cls}>{s}</span>;
+}
+
+// The primary "Generate Schedule" button used in the hero of Admin, Chair, and IT overviews.
+function GenerateButton({ generating, onGenerate }) {
+  return (
+    <button onClick={onGenerate} disabled={generating}
+      className="bg-teal-400 text-[#0c1330] font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-teal-300 transition-colors disabled:opacity-60 flex items-center gap-2">
+      <IconZap size={15} />{generating ? "Generating..." : "Generate Schedule"}
+    </button>
+  );
+}
+
+// Horizontal stacked bar showing how faculty are distributed across load statuses.
+function LoadSnapshotBar({ buckets, total }) {
+  const order = [
+    ["Overloaded", "#e11d48"], ["Near capacity", "#f59e0b"], ["Balanced", "#10b981"],
+    ["Underloaded", "#94a3b8"], ["No assignment yet", "#cbd5e1"],
+  ];
+  return (
+    <div>
+      <div className="flex h-3 w-full rounded-full overflow-hidden bg-slate-100">
+        {order.map(([label, color]) => buckets[label] > 0 && (
+          <div key={label} style={{ width: (buckets[label] / Math.max(1, total)) * 100 + "%", background: color }} title={label + ": " + buckets[label]} />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 mt-3">
+        {order.map(([label, color]) => (
+          <div key={label} className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: color }} />
+            {label}: <span className="font-semibold text-slate-900">{buckets[label] || 0}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Compact list of issue strings with a coloured dot per severity.
+function IssueList({ issues, max = 5 }) {
+  if (issues.length === 0) return <EmptyNote>No issues detected.</EmptyNote>;
+  return (
+    <ul className="space-y-1.5">
+      {issues.slice(0, max).map((iss, i) => (
+        <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+          <span className={"mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 " + (iss.severity === "high" ? "bg-rose-500" : "bg-amber-500")} />
+          {iss.text}
+        </li>
+      ))}
+      {issues.length > max && <li className="text-xs text-slate-400">+ {issues.length - max} more</li>}
+    </ul>
+  );
+}
+
+// ---------- ADMIN OVERVIEW ----------
+// Focus: "what needs my decision, and is anything broken institution-wide?"
+function AdminOverview(props) {
+  const { userName, faculty, rooms, sections, result, generating, onGenerate, leaveRequests, notifications, scheduleHistory, onNavigate, onOpenRequests } = props;
+  const { issues } = computeAllDepartments(faculty, sections, result);
+  // Prerequisite problems are also institution-wide, so they are merged into the admin's issue list.
+  const allIssues = issues.concat(validateCurriculumSequence(sections).map(i => ({ severity: "medium", text: i.text })));
+  const buckets = computeLoadBuckets(faculty, sections, result);
+  const pendingLeave = leaveRequests.filter(r => r.status === "Pending");
+  // Every saved version still waiting for a decision (the current one included).
+  const pendingVersions = scheduleHistory.filter(h => (h.approvalStatus || "Pending Review") === "Pending Review").length;
+
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl overflow-hidden bg-gradient-to-br from-[#0c1330] via-[#0e3a4a] to-[#127a72] px-5 sm:px-10 py-8 sm:py-10">
-        <span className="inline-flex items-center gap-1.5 bg-white/10 text-white text-xs font-medium px-3 py-1.5 rounded-full mb-5 sm:mb-6">
-          <IconSparkles size={13} /> Academic planning, made clearer
-        </span>
-        <h1 className="text-white font-bold text-2xl sm:text-4xl leading-tight mb-3">Welcome to your workspace</h1>
-        <p className="text-slate-300 text-sm sm:text-[15px] leading-relaxed mb-6 sm:mb-7 max-w-xl">
-          This is a working prototype of SchedWiseAI. Explore Faculty, Subjects, and Rooms, then generate an
-          AI-optimized class schedule using a real Genetic Algorithm running in your browser.
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <button onClick={onGenerate} disabled={generating}
-            className="bg-teal-400 text-[#0c1330] font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-teal-300 transition-colors disabled:opacity-60 flex items-center gap-2">
-            <IconZap size={15} />{generating ? "Generating..." : "Generate Schedule"}
-          </button>
-          {result && (
-            <span className={"text-sm font-medium px-3 py-2 rounded-lg " + (result.feasible ? "bg-emerald-400/20 text-emerald-300" : "bg-rose-400/20 text-rose-300")}>
-              {result.feasible ? "✓ Last run: fully conflict-free" : "⚠ Last run: " + result.violations.total + " conflicts"}
-            </span>
-          )}
-        </div>
+      <OverviewHero eyebrow="Academic Administrator" title={"Welcome back, " + userName.split(" ")[0]}
+        subtitle="Here's what needs your attention across the institution today.">
+        <GenerateButton generating={generating} onGenerate={onGenerate} />
+        {result && <span className="text-sm text-slate-200 flex items-center gap-2">Current schedule: <ApprovalBadge status={result.approvalStatus} /></span>}
+      </OverviewHero>
+
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Pending Approvals" value={pendingVersions} sub="schedule versions awaiting review" color={pendingVersions ? "#b45309" : "#0f8a6b"} />
+        <StatCard label="Pending Leave Requests" value={pendingLeave.length} color={pendingLeave.length ? "#b45309" : "#0f8a6b"} />
+        <StatCard label="Open Issues" value={allIssues.length} color={allIssues.length ? "#c0392b" : "#0f8a6b"} />
+        <StatCard label="Faculty / Sections / Rooms" value={faculty.length + " / " + sections.length + " / " + rooms.length} />
       </section>
 
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-5">
-        <StatCard label="Faculty Members" value={faculty.length} />
-        <StatCard label="Class Sections" value={sections.length} sub={totalUnits + " total units"} />
-        <StatCard label="Rooms" value={rooms.length} />
-        <StatCard label="Schedule Status" value={result ? (result.feasible ? "Ready" : "Conflicts") : "Not generated"}
-          color={result ? (result.feasible ? "#0f8a6b" : "#c0392b") : "#94a3b8"} />
-      </section>
-
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-          <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center mb-4"><IconGauge size={20} className="text-blue-600" /></div>
-          <h3 className="font-semibold text-slate-900 mb-1.5">Balanced workloads</h3>
-          <p className="text-sm text-slate-500 leading-relaxed">See assigned teaching units per faculty member at a glance in Workload Management.</p>
-        </div>
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-          <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center mb-4"><IconCalendar size={20} className="text-blue-600" /></div>
-          <h3 className="font-semibold text-slate-900 mb-1.5">Clear scheduling</h3>
-          <p className="text-sm text-slate-500 leading-relaxed">Review the generated weekly timetable by grid view or per faculty member.</p>
-        </div>
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-          <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center mb-4"><IconShield size={20} className="text-blue-600" /></div>
-          <h3 className="font-semibold text-slate-900 mb-1.5">Early conflict review</h3>
-          <p className="text-sm text-slate-500 leading-relaxed">Every generation runs a full conflict check across faculty, rooms, and time slots.</p>
-        </div>
-      </section>
-
-      <section className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100">
-        <div className="text-blue-600 text-xs font-semibold tracking-wide mb-2">How it works</div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-6">From faculty data to a review-ready schedule</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {[
-            ["1", "Organize resources", "Review or edit faculty, subjects, and available rooms."],
-            ["2", "Generate", "The AI Optimization Engine (Genetic Algorithm + constraint checking) builds a conflict-free schedule."],
-            ["3", "Review and evaluate", "Check the Class Schedules and Conflict Detection pages, then rate the system."],
-          ].map(([n,t,d]) => (
-            <div className="flex gap-3" key={n}>
-              <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold text-sm shrink-0">{n}</div>
-              <div><h4 className="font-semibold text-slate-900">{t}</h4><p className="text-sm text-slate-500 mt-1">{d}</p></div>
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Panel title="Schedule Approval" action="Review schedule" onAction={() => onNavigate("schedules")}>
+          {result ? (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between"><span className="text-slate-500">Status</span><ApprovalBadge status={result.approvalStatus} /></div>
+              <div className="flex items-center justify-between"><span className="text-slate-500">Conflicts</span>
+                <span className={"font-semibold " + (result.violations.total ? "text-rose-600" : "text-emerald-600")}>{result.violations.total}</span></div>
+              <div className="flex items-center justify-between"><span className="text-slate-500">Generated</span>
+                <span className="text-slate-700">{result.generatedAt ? new Date(result.generatedAt).toLocaleString() : "—"}</span></div>
+              {result.approvalComment && <div className="text-xs text-slate-500 italic">“{result.approvalComment}”</div>}
             </div>
-          ))}
+          ) : <EmptyNote>No schedule generated yet.</EmptyNote>}
+        </Panel>
+
+        <Panel title="Pending Leave & Availability Requests" action="Open requests" onAction={onOpenRequests}>
+          {pendingLeave.length === 0 ? <EmptyNote>No pending requests.</EmptyNote> : (
+            <ul className="divide-y divide-slate-50">
+              {pendingLeave.slice(0, 4).map(r => {
+                const fac = faculty.find(f => f.id === r.facultyId);
+                return (
+                  <li key={r.id} className="py-2 text-sm">
+                    <div className="font-medium text-slate-900">{fac ? fac.name : "Unknown"} — {r.type}</div>
+                    <div className="text-xs text-slate-500 truncate">{r.description}</div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel title="Issues Requiring Attention" action="Open departments" onAction={() => onNavigate("departments")}>
+          <IssueList issues={allIssues} />
+        </Panel>
+
+        <Panel title="Faculty Load Snapshot" action="Workload details" onAction={() => onNavigate("workload")}>
+          {result ? <LoadSnapshotBar buckets={buckets} total={faculty.length} /> : <EmptyNote>Generate a schedule to see workload distribution.</EmptyNote>}
+        </Panel>
+      </section>
+
+      <Panel title="Recent Notifications">
+        {notifications.length === 0 ? <EmptyNote>No notifications yet.</EmptyNote> : (
+          <ul className="divide-y divide-slate-50">
+            {notifications.slice(0, 4).map(n => (
+              <li key={n.id} className="py-2 flex items-start justify-between gap-3 text-sm">
+                <span className={n.read ? "text-slate-500" : "text-slate-900 font-medium"}>{n.message}</span>
+                <span className="text-xs text-slate-400 shrink-0">{new Date(n.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+// ---------- DEPARTMENT CHAIR OVERVIEW ----------
+// Focus: "act quickly" — approve/reject the schedule and leave requests without leaving the page.
+// A department filter narrows workload, issues, and leave requests to one specialization.
+function ChairOverview(props) {
+  const { userName, faculty, sections, result, generating, onGenerate, leaveRequests, chairDept, setChairDept,
+    onNavigate, onApprovalDecision, onUpdateRequestStatus } = props;
+  const { allSpecs, deptStats, issues } = computeAllDepartments(faculty, sections, result);
+
+  // Apply the department filter ("All" shows everything).
+  const inDept = (spec) => chairDept === "All" || spec === chairDept;
+  const visibleDepts = deptStats.filter(d => inDept(d.spec));
+  const visibleIssues = issues.filter(i => inDept(i.spec));
+  const deptFacultyIds = new Set(faculty.filter(f => chairDept === "All" || f.specializations.includes(chairDept)).map(f => f.id));
+  const pendingLeave = leaveRequests.filter(r => r.status === "Pending" && deptFacultyIds.has(r.facultyId));
+  const needsDecision = result && (result.approvalStatus || "Pending Review") === "Pending Review";
+
+  return (
+    <div className="space-y-6">
+      <OverviewHero eyebrow="Department Chair" title={"Welcome back, " + userName.split(" ")[0]}
+        subtitle="Review schedules and faculty requests for your department in one place.">
+        <GenerateButton generating={generating} onGenerate={onGenerate} />
+        <label className="flex items-center gap-2 text-sm text-slate-200">
+          Department:
+          <select value={chairDept} onChange={e => setChairDept(e.target.value)}
+            className="bg-white/10 border border-white/20 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none">
+            <option value="All" className="text-slate-900">All departments</option>
+            {allSpecs.map(sp => <option key={sp} value={sp} className="text-slate-900">{sp}</option>)}
+          </select>
+        </label>
+      </OverviewHero>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* My Approvals Queue — quick approve/reject right here, or open the full review page. */}
+        <Panel title="My Approvals Queue" action="Review in detail" onAction={() => onNavigate("schedules")}>
+          {!result ? <EmptyNote>No schedule generated yet.</EmptyNote> : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Current schedule</span><ApprovalBadge status={result.approvalStatus} />
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Conflicts</span>
+                <span className={"font-semibold " + (result.violations.total ? "text-rose-600" : "text-emerald-600")}>{result.violations.total}</span>
+              </div>
+              {needsDecision ? (
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => onApprovalDecision("Approved", "")}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium py-2 rounded-lg">
+                    <IconThumbsUp size={15} /> Approve
+                  </button>
+                  <button onClick={() => onApprovalDecision("Rejected", "")}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-medium py-2 rounded-lg">
+                    <IconThumbsDown size={15} /> Reject
+                  </button>
+                </div>
+              ) : <div className="text-xs text-slate-400">No decision needed right now.</div>}
+            </div>
+          )}
+        </Panel>
+
+        {/* Leave requests with inline Approve / Deny, filtered to the chosen department. */}
+        <Panel title={"Faculty Leave Requests (" + pendingLeave.length + ")"}>
+          {pendingLeave.length === 0 ? <EmptyNote>No pending requests{chairDept !== "All" ? " in " + chairDept : ""}.</EmptyNote> : (
+            <ul className="divide-y divide-slate-50">
+              {pendingLeave.map(r => {
+                const fac = faculty.find(f => f.id === r.facultyId);
+                return (
+                  <li key={r.id} className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900">{fac ? fac.name : "Unknown"} — {r.type}</div>
+                      <div className="text-xs text-slate-500 truncate">{r.description}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => onUpdateRequestStatus(r.id, "Approved")} className="text-xs font-medium text-emerald-600 hover:underline">Approve</button>
+                      <button onClick={() => onUpdateRequestStatus(r.id, "Denied")} className="text-xs font-medium text-rose-600 hover:underline">Deny</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+      </section>
+
+      {/* Condensed department table: only the numbers a chair scans for (no charts). */}
+      <Panel title="Department Workload Snapshot" action="Full department view" onAction={() => onNavigate("departments")}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
+              <th className="py-2 pr-3 font-medium">Specialization</th><th className="py-2 pr-3 font-medium">Faculty</th>
+              <th className="py-2 pr-3 font-medium">Load</th><th className="py-2 pr-3 font-medium">Overloads</th><th className="py-2 font-medium">Conflicts</th>
+            </tr></thead>
+            <tbody>
+              {visibleDepts.map(({ spec, stats }) => (
+                <tr key={spec} className="border-b border-slate-50">
+                  <td className="py-2 pr-3 font-medium text-slate-900">{spec}</td>
+                  <td className="py-2 pr-3 text-slate-500">{stats.deptFaculty.length}</td>
+                  <td className="py-2 pr-3 text-slate-500">{result ? stats.loadPct + "%" : "—"}</td>
+                  <td className={"py-2 pr-3 " + (stats.overloads ? "text-rose-600 font-semibold" : "text-slate-400")}>{stats.overloads}</td>
+                  <td className={"py-2 " + (stats.conflicts ? "text-rose-600 font-semibold" : "text-slate-400")}>{stats.conflicts}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      </Panel>
+
+      <Panel title="Issues Requiring Attention">
+        <IssueList issues={visibleIssues} />
+      </Panel>
+    </div>
+  );
+}
+
+// ---------- FACULTY OVERVIEW ----------
+// Focus: "what am I teaching, how heavy is my load, and did my requests go through?"
+// Faculty never generate schedules, so there is no Generate button here.
+function FacultyOverview(props) {
+  const { myFaculty, sections, result, slotById, leaveRequests, onNavigate, onNewRequest } = props;
+  if (!myFaculty) return <EmptyNote>No faculty profile found. Ask an administrator to add you to the Faculty list.</EmptyNote>;
+
+  const status = loadStatusFor(myFaculty, sections, result);
+
+  // Collect this faculty member's scheduled classes (skipping manually removed ones).
+  const myClasses = result
+    ? result.genes.map((g, i) => ({ g, sec: sections[i], slot: slotById[g.slotId] }))
+        .filter(x => x.g.facultyId === myFaculty.id && x.slot)
+    : [];
+
+  // Group classes by weekday, in Mon→Fri order, sorted by period within each day.
+  const byDay = {};
+  E.DAYS.forEach(d => { byDay[d] = []; });
+  myClasses.forEach(c => byDay[c.slot.day].push(c));
+  E.DAYS.forEach(d => byDay[d].sort((a, b) => a.slot.period - b.slot.period));
+
+  // Preference match: share of my classes that land on one of my preferred days.
+  const prefHits = myClasses.filter(c => myFaculty.preferredDays.includes(c.slot.day)).length;
+  const prefPct = myClasses.length ? Math.round((prefHits / myClasses.length) * 100) : 0;
+
+  const myRequests = leaveRequests.filter(r => r.facultyId === myFaculty.id);
+  const approval = result ? (result.approvalStatus || "Pending Review") : null;
+
+  return (
+    <div className="space-y-6">
+      <OverviewHero eyebrow="Faculty Member" title={"Welcome back, " + myFaculty.name.split(" ")[0]}
+        subtitle={myFaculty.academicRank ? myFaculty.academicRank + " · " + (myFaculty.employmentStatus || "") : "Your teaching schedule and requests at a glance."}>
+        <button onClick={() => onNavigate("schedules")}
+          className="bg-teal-400 text-[#0c1330] font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-teal-300 transition-colors flex items-center gap-2">
+          <IconCalendar size={15} /> View My Full Schedule
+        </button>
+        <button onClick={() => onNewRequest(myFaculty.id)}
+          className="border border-white/30 text-white font-medium text-sm px-5 py-2.5 rounded-lg hover:bg-white/10 transition-colors flex items-center gap-2">
+          <IconPlus size={15} /> New Leave / Availability Request
+        </button>
+      </OverviewHero>
+
+      {/* Tell faculty whether their schedule is final or may still change. */}
+      {approval && (
+        <div className={"rounded-2xl p-4 border text-sm " + (approval === "Approved" ? "bg-emerald-50 border-emerald-100 text-emerald-800"
+          : approval === "Rejected" ? "bg-rose-50 border-rose-100 text-rose-800" : "bg-amber-50 border-amber-100 text-amber-800")}>
+          {approval === "Approved" ? "Your schedule has been approved and is final."
+            : approval === "Rejected" ? "The current schedule was rejected and is being revised."
+            : "The current schedule is still pending review and may change."}
+        </div>
+      )}
+
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="My Current Load" value={status.assigned + " / " + myFaculty.maxUnits} sub="units" />
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <div className="text-slate-400 text-xs font-medium mb-2">Load Status</div>
+          <span className={"text-sm font-semibold px-2.5 py-1 rounded-full " + status.color}>{status.label}</span>
+        </div>
+        <StatCard label="Classes This Week" value={myClasses.length} />
+        <StatCard label="Preference Match" value={myClasses.length ? prefPct + "%" : "—"}
+          sub={myClasses.length ? prefHits + " of " + myClasses.length + " on preferred days" : "no classes yet"} />
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2">
+          <Panel title="My Schedule This Week">
+            {myClasses.length === 0 ? <EmptyNote>{result ? "You have no classes in the current schedule." : "No schedule has been generated yet."}</EmptyNote> : (
+              <div className="space-y-3">
+                {E.DAYS.filter(d => byDay[d].length > 0).map(d => (
+                  <div key={d}>
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center gap-2">
+                      {d}
+                      {myFaculty.preferredDays.includes(d) && <span className="normal-case tracking-normal text-[10px] bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded-full">preferred</span>}
+                    </div>
+                    <div className="space-y-1.5">
+                      {byDay[d].map((c, i) => (
+                        <div key={i} className="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2">
+                          <div>
+                            <div className="text-sm font-medium text-slate-900">{c.sec.subjectCode} — {c.sec.subjectName}</div>
+                            <div className="text-xs text-slate-400">{c.sec.sectionName}</div>
+                          </div>
+                          <div className="text-xs text-slate-500 text-right">{c.slot.label.split(" ")[1]}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        <Panel title="My Requests" action="+ New" onAction={() => onNewRequest(myFaculty.id)}>
+          {myRequests.length === 0 ? <EmptyNote>You haven't submitted any requests.</EmptyNote> : (
+            <ul className="divide-y divide-slate-50">
+              {myRequests.map(r => {
+                const cls = r.status === "Approved" ? "text-emerald-600 bg-emerald-50" : r.status === "Denied" ? "text-rose-600 bg-rose-50" : "text-amber-600 bg-amber-50";
+                return (
+                  <li key={r.id} className="py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-slate-900">{r.type}</span>
+                      <span className={"text-xs font-medium px-2 py-0.5 rounded-full " + cls}>{r.status}</span>
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">{r.description}</div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
       </section>
     </div>
   );
 }
 
+// ---------- IT PROFESSIONAL / STAFF OVERVIEW ----------
+// Focus: technical health — how the AI engine is performing, whether the data is clean,
+// how rooms are being used, and what data operations (imports/exports) happened recently.
+function ITOverview(props) {
+  const { userName, faculty, rooms, sections, result, slotById, generating, onGenerate, scheduleHistory, activityLog, onNavigate } = props;
+  const health = computeDataHealth(faculty, rooms, sections);
+
+  // Average engine run time across every saved version that recorded a timing.
+  const timed = scheduleHistory.filter(h => typeof h.elapsedMs === "number");
+  const avgMs = timed.length ? Math.round(timed.reduce((s, h) => s + h.elapsedMs, 0) / timed.length) : null;
+
+  // Rows for the "Last Engine Run" table: [label, value].
+  const engineRows = result ? [
+    ["Run time", typeof result.elapsedMs === "number" ? result.elapsedMs + " ms" : "not recorded"],
+    ["Generations run", result.convergence.length + (result.settings ? " of " + result.settings.generations + " max" : "")],
+    ["Population size", result.settings ? result.settings.popSize : "—"],
+    ["Final fitness", result.fitness.toFixed(1)],
+    ["Hard-constraint violations", result.violations.total],
+    ["Curriculum-aware", result.curriculumAware ? "On" : "Off"],
+  ] : [];
+
+  return (
+    <div className="space-y-6">
+      <OverviewHero eyebrow="IT Professional / Staff" title={"Welcome back, " + userName.split(" ")[0]}
+        subtitle="System health, AI engine performance, and data operations.">
+        <GenerateButton generating={generating} onGenerate={onGenerate} />
+        <button onClick={() => onNavigate("reports")}
+          className="border border-white/30 text-white font-medium text-sm px-5 py-2.5 rounded-lg hover:bg-white/10 transition-colors flex items-center gap-2">
+          <IconChart size={15} /> Open Reports
+        </button>
+      </OverviewHero>
+
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Last Run Time" value={result && typeof result.elapsedMs === "number" ? result.elapsedMs + " ms" : "—"}
+          sub={avgMs != null ? "avg " + avgMs + " ms over " + timed.length + " run(s)" : undefined} />
+        <StatCard label="Saved Versions" value={scheduleHistory.length} />
+        <StatCard label="Data Health Issues" value={health.length} color={health.length ? "#c0392b" : "#0f8a6b"} />
+        <StatCard label="Records" value={faculty.length + sections.length + rooms.length} sub={faculty.length + " faculty · " + sections.length + " sections · " + rooms.length + " rooms"} />
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Panel title="Last AI Engine Run" action="Convergence chart" onAction={() => onNavigate("schedules")}>
+          {!result ? <EmptyNote>The engine hasn't been run yet.</EmptyNote> : (
+            <table className="w-full text-sm">
+              <tbody>
+                {engineRows.map(([k, v]) => (
+                  <tr key={k} className="border-b border-slate-50">
+                    <td className="py-1.5 text-slate-500">{k}</td>
+                    <td className="py-1.5 text-right font-medium text-slate-900">{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Panel>
+
+        <Panel title="Data Health">
+          {health.length === 0
+            ? <div className="flex items-center gap-2 text-sm text-emerald-700"><IconCheckCircle size={16} /> All records are valid for scheduling.</div>
+            : <IssueList issues={health.map(t => ({ severity: "high", text: t }))} max={6} />}
+        </Panel>
+      </section>
+
+      <Panel title="Room Utilization Overview" action="Full report" onAction={() => onNavigate("reports")}>
+        {result ? <RoomHeatmap rooms={rooms} result={result} slotById={slotById} /> : <EmptyNote>Generate a schedule to see room usage.</EmptyNote>}
+      </Panel>
+
+      <Panel title="Recent Import / Export Activity">
+        {activityLog.length === 0 ? <EmptyNote>No imports or exports yet.</EmptyNote> : (
+          <ul className="divide-y divide-slate-50">
+            {activityLog.slice(0, 8).map(a => (
+              <li key={a.id} className="py-2 flex items-center justify-between gap-3 text-sm">
+                <span className="flex items-center gap-2">
+                  {a.kind === "Import" ? <IconUpload size={14} className="text-blue-600" /> : <IconDownload size={14} className="text-teal-600" />}
+                  <span className="font-medium text-slate-900">{a.kind}</span>
+                  <span className="text-slate-500">{a.detail}</span>
+                </span>
+                <span className="text-xs text-slate-400 shrink-0">{new Date(a.timestamp).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+// Dispatcher: picks the overview that matches the signed-in role.
+function DashboardPage(props) {
+  if (props.role === "admin") return <AdminOverview {...props} />;
+  if (props.role === "chair") return <ChairOverview {...props} />;
+  if (props.role === "faculty") return <FacultyOverview {...props} />;
+  return <ITOverview {...props} />;
+}
+
+/* =====================================================================
+   11. OTHER PAGES
+   ===================================================================== */
+
+// TableShell: the shared white card around every data table, with optional
+// Export CSV / Import CSV / Add buttons in its header. `no-print` hides the
+// buttons when printing.
 function TableShell({ title, onAdd, addLabel, onImport, onExport, children }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -1096,6 +1811,14 @@ function TableShell({ title, onAdd, addLabel, onImport, onExport, children }) {
   );
 }
 
+// loadStatusFor(facultyMember, sections, result)
+// Adds up the units assigned to one faculty member in the current schedule
+// and labels their load. This one function is used everywhere a status badge
+// appears, so every page agrees:
+//   Overloaded     assigned > max units
+//   Near capacity  80% or more of max
+//   Underloaded    0 units assigned
+//   Balanced       anything in between
 function loadStatusFor(facultyMember, sections, result) {
   if (!result) return { label: "No assignment yet", assigned: 0, pct: 0, color: "text-slate-400 bg-slate-50" };
   const assigned = result.genes.reduce((sum, g, i) => (g.facultyId === facultyMember.id ? sum + sections[i].units : sum), 0);
@@ -1106,6 +1829,10 @@ function loadStatusFor(facultyMember, sections, result) {
   return { label: "Balanced", assigned, pct, color: "text-emerald-600 bg-emerald-50" };
 }
 
+// FacultyPage: two tabs.
+//   "Faculty List" — table with load/status, and View Profile / View Schedule /
+//                    Edit / Delete actions per row.
+//   "Leave & Availability" — all requests; Admin/Chair can Approve or Deny.
 function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onImport, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus }) {
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   return (
@@ -1200,6 +1927,8 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
   );
 }
 
+// SubjectsPage: subject/section table, plus a warning box listing any
+// prerequisite-order problems found by validateCurriculumSequence().
 function SubjectsPage({ sections, onImport, onAdd, onEdit, onDelete }) {
   const curriculumIssues = validateCurriculumSequence(sections);
   return (
@@ -1258,6 +1987,7 @@ function SubjectsPage({ sections, onImport, onAdd, onEdit, onDelete }) {
   );
 }
 
+// RoomsPage: room table with CSV import/export.
 function RoomsPage({ rooms, onImport, onAdd, onEdit, onDelete }) {
   return (
     <TableShell title={"Rooms (" + rooms.length + ")"} onAdd={onAdd} addLabel="Add Room" onImport={onImport}
@@ -1287,8 +2017,18 @@ function RoomsPage({ rooms, onImport, onAdd, onEdit, onDelete }) {
   );
 }
 
+// computeDepartmentStats(spec, faculty, sections, result)
+// Treats each specialization (e.g. "Networking") as a department and works out:
+//   • its faculty and sections
+//   • each member's assigned units and status
+//   • teaching load % = total assigned units ÷ total max units
+//   • how many members are overloaded / underloaded
+//   • how many of its sections have a conflict (unqualified teacher,
+//     teacher double-booked, or room double-booked)
 function computeDepartmentStats(spec, faculty, sections, result) {
+  // Members of this department = anyone who lists this specialization.
   const deptFaculty = faculty.filter(f => f.specializations.includes(spec));
+  // Keep each section's original index `i`, because genes[i] belongs to sections[i].
   const deptSectionEntries = sections.map((s, i) => ({ s, i })).filter(({s}) => s.requiredSpecialization === spec);
 
   let facSlot = {}, roomSlot = {};
@@ -1337,28 +2077,35 @@ function computeDepartmentStats(spec, faculty, sections, result) {
   };
 }
 
-function DepartmentsPage({ faculty, sections, result }) {
-  const [expanded, setExpanded] = useState({});
+// computeAllDepartments(faculty, sections, result)
+// Runs computeDepartmentStats for every specialization and turns the numbers
+// into a list of human-readable issues. Shared by the Departments page and
+// the Admin/Chair overviews so they always report the same issues.
+function computeAllDepartments(faculty, sections, result) {
   const allSpecs = Array.from(new Set([
     ...faculty.flatMap(f => f.specializations),
     ...sections.map(s => s.requiredSpecialization),
   ]));
-
   const deptStats = allSpecs.map(spec => ({ spec, stats: computeDepartmentStats(spec, faculty, sections, result) }));
-
-  const totalFaculty = faculty.length;
-  const totalConflicts = deptStats.reduce((s, d) => s + d.stats.conflicts, 0);
-  const totalOverloads = deptStats.reduce((s, d) => s + d.stats.overloads, 0);
   const avgLoadPct = deptStats.length
     ? Math.round(deptStats.reduce((s, d) => s + d.stats.loadPct, 0) / deptStats.length)
     : 0;
-
   const issues = [];
   deptStats.forEach(({ spec, stats }) => {
-    if (stats.noQualifiedFaculty) issues.push({ spec, text: "No qualified faculty available for " + stats.deptSections.length + " section(s) in " + spec + "." });
-    if (stats.overloads > 0) issues.push({ spec, text: stats.overloads + " faculty member(s) in " + spec + " are overloaded beyond their maximum units." });
-    if (stats.conflicts > 0) issues.push({ spec, text: stats.conflicts + " section(s) in " + spec + " have an unresolved scheduling conflict." });
+    if (stats.noQualifiedFaculty) issues.push({ spec, severity: "high", text: "No qualified faculty available for " + stats.deptSections.length + " section(s) in " + spec + "." });
+    if (stats.overloads > 0) issues.push({ spec, severity: "high", text: stats.overloads + " faculty member(s) in " + spec + " are overloaded beyond their maximum units." });
+    if (stats.conflicts > 0) issues.push({ spec, severity: "medium", text: stats.conflicts + " section(s) in " + spec + " have an unresolved scheduling conflict." });
   });
+  return { allSpecs, deptStats, avgLoadPct, issues };
+}
+
+// DepartmentsPage: summary cards, the "Issues Requiring Attention" box, and a
+// table where clicking a row expands it (the `expanded` object remembers
+// which rows are open) to show a workload chart and per-faculty statuses.
+function DepartmentsPage({ faculty, sections, result }) {
+  const [expanded, setExpanded] = useState({});
+  const { allSpecs, deptStats, avgLoadPct, issues } = computeAllDepartments(faculty, sections, result);
+  const totalFaculty = faculty.length;
 
   function toggle(spec) { setExpanded(prev => ({ ...prev, [spec]: !prev[spec] })); }
 
@@ -1479,6 +2226,7 @@ function DepartmentsPage({ faculty, sections, result }) {
   );
 }
 
+// WorkloadPage: assigned vs. maximum units for every faculty member.
 function WorkloadPage({ faculty, sections, result }) {
   const unitsByFaculty = {};
   faculty.forEach(f => unitsByFaculty[f.id] = 0);
@@ -1516,6 +2264,7 @@ function WorkloadPage({ faculty, sections, result }) {
   );
 }
 
+// CurriculumToggle: the checkbox that turns curriculum-aware scheduling on/off.
 function CurriculumToggle({ curriculumAware, setCurriculumAware }) {
   return (
     <label className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer">
@@ -1525,7 +2274,15 @@ function CurriculumToggle({ curriculumAware, setCurriculumAware }) {
   );
 }
 
-function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, rooms, selectedFacultyId, setSelectedFacultyId, curriculumAware, setCurriculumAware, onEditAssignment, onApprovalDecision }) {
+// SchedulesPage: where schedules are generated, reviewed, approved, and edited.
+//   • Approval panel (Approve/Reject for Admin & Chair, Export CSV, Print/PDF)
+//   • Convergence chart for the latest run
+//   • "Weekly Grid": builds grid[day][period] from the genes, then draws it
+//   • "By Faculty" / "My Schedule": one person's classes in time order
+// Clicking a class opens AssignmentModal (not available to Faculty role).
+// For the Faculty role, the person shown is always myFacultyId.
+function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, rooms, selectedFacultyId, setSelectedFacultyId, curriculumAware, setCurriculumAware, onEditAssignment, onApprovalDecision, myFacultyId }) {
+  // Permissions for this page: faculty can only view; only Admin/Chair approve.
   const canEdit = role !== "faculty";
   const canApprove = role === "admin" || role === "chair";
   const [approvalComment, setApprovalComment] = useState("");
@@ -1549,9 +2306,13 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
     );
   }
 
-  const facultyList = role === "faculty" ? faculty.slice(0,1) : faculty;
-  const activeFacultyId = selectedFacultyId != null ? selectedFacultyId : facultyList[0]?.id;
+  const facultyList = role === "faculty" ? faculty.filter(f => f.id === myFacultyId) : faculty;
+  const activeFacultyId = role === "faculty"
+    ? myFacultyId
+    : (selectedFacultyId != null ? selectedFacultyId : facultyList[0]?.id);
 
+  // Build the weekly grid: grid["Mon"][3] = the class held Monday period 3.
+  // Removed classes (slotId -1) have no slot, so they are skipped.
   const grid = {};
   E.DAYS.forEach(d => grid[d] = {});
   result.genes.forEach((g, i) => {
@@ -1714,6 +2475,8 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
   );
 }
 
+// HistoryPage: every generated version (newest first). "Best" = highest
+// fitness, "Current" = the one in use. Restore makes an older one current.
 function HistoryPage({ history, currentId, onRestore }) {
   if (history.length === 0) {
     return (
@@ -1780,6 +2543,8 @@ function HistoryPage({ history, currentId, onRestore }) {
   );
 }
 
+// ConflictsPage: the hard-constraint report from countViolations(), one row
+// per rule, with a plain-language description.
 function ConflictsPage({ result, onGenerate, generating }) {
   if (!result) {
     return (
@@ -1836,6 +2601,7 @@ function ConflictsPage({ result, onGenerate, generating }) {
   );
 }
 
+// ReportCard: a titled card with its own CSV export button (used for each report).
 function ReportCard({ title, subtitle, onExport, children }) {
   return (
     <div className="print-area bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
@@ -1855,6 +2621,8 @@ function ReportCard({ title, subtitle, onExport, children }) {
   );
 }
 
+// RoomHeatmap: a room × day grid. Each cell counts how many of the 6 periods
+// that room is used on that day; darker teal = busier.
 function RoomHeatmap({ rooms, result, slotById }) {
   const usage = {};
   result.genes.forEach(g => {
@@ -1908,6 +2676,9 @@ function RoomHeatmap({ rooms, result, slotById }) {
   );
 }
 
+// ReportsPage: the four reports named in the thesis (Faculty Teaching Load,
+// Room Utilization + heatmap, Department Summary, Conflict Report), each
+// exportable to CSV, plus "Print All Reports" for a PDF.
 function ReportsPage({ faculty, rooms, sections, result, slotById }) {
   if (!result) {
     return <div className="bg-white rounded-2xl p-12 shadow-sm border border-slate-100 text-center text-slate-400">Generate a schedule to see analytics and reports here.</div>;
@@ -1994,6 +2765,7 @@ function ReportsPage({ faculty, rooms, sections, result, slotById }) {
   );
 }
 
+// SettingsPage: short "about this prototype" text.
 function SettingsPage() {
   return (
     <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 max-w-xl">
@@ -2011,4 +2783,5 @@ function SettingsPage() {
   );
 }
 
+// Start the app: draw <App /> inside the <div id="root"> in index.html.
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);

@@ -1,7 +1,24 @@
 <!DOCTYPE html>
+<!--
+  SchedWiseAI — ENTRY PAGE (index.html)
+  This is the file the browser opens. It loads, in order:
+    1. Styling: Tailwind CSS (utility classes like "bg-white rounded-2xl"),
+       the Inter font, and our own styles.css.
+    2. Libraries: React (builds the UI), ReactDOM (puts it on the page),
+       and Babel (converts app.jsx's JSX syntax into plain JavaScript
+       inside the browser, so no build tools are needed).
+    3. engine.js  — the scheduling AI; must load BEFORE app.jsx, because
+                    app.jsx uses window.SchedEngine which engine.js creates.
+    4. app.jsx    — the user interface, which draws itself into <div id="root">.
+
+  IMPORTANT: open this through a web server (Netlify, GitHub Pages, school
+  hosting, or a local server). Opening it by double-clicking may be blocked
+  by some browsers, because app.jsx is loaded as a separate file.
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<!-- Makes the layout scale properly on phones instead of showing a zoomed-out desktop page. -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SchedWiseAI Prototype</title>
 
@@ -17,9 +34,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 </head>
 <body>
+<!-- React renders the entire application inside this empty div. -->
 <div id="root"></div>
 
-<!-- Scheduling engine: Genetic Algorithm + Constraint Satisfaction (plain JavaScript) -->
+<!-- Scheduling engine: Genetic Algorithm + constraint-based seeding (plain JavaScript) -->
 <script src="engine.js"></script>
 
 <!-- Application UI (React/JSX, transpiled in-browser by Babel) -->

@@ -5,12 +5,13 @@
    colour variables, the page font, scrollbars, and print rules.
    ===================================================================== */
 
-/* Brand colours, stored as CSS variables so they can be reused. */
+/* Brand colours (dark blue, gold, white), stored as CSS variables so they can be reused.
+   Status colours stay separate on purpose: green = OK, orange = warning, red = problem. */
 :root {
-    --navy: #0c1330;
-    --navy-2: #0e3a4a;
-    --teal: #14b8a6;
-    --teal-light: #5eead4;
+    --navy: #0b1d4a;
+    --navy-2: #13306e;
+    --gold: #fbbf24;
+    --gold-dark: #b7791f;
     --bg: #eef1f8;
     --card: #ffffff;
     --text: #0f172a;

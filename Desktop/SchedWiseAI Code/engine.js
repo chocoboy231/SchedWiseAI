@@ -33,10 +33,10 @@
                         re-places the classes that now break a rule (e.g. after
                         a teacher's availability changed). Nothing else moves.
 
-   NOTE ON THE SEED STEP: this browser prototype uses a *greedy* constraint-
-   satisfaction heuristic (first free slot/faculty/room that fits). The
-   separate Python engine (schedwiseai-engine.zip) uses Google OR-Tools
-   CP-SAT for this step instead. Both feed the same kind of GA.
+   NOTE ON THE SEED STEP: the starting schedule is built with a *greedy*
+   constraint-respecting heuristic (first free slot/faculty/room that fits).
+   The Genetic Algorithm then improves a whole group of candidate schedules,
+   starting from that one.
    ===================================================================== */
 
 // ---------------------------------------------------------------------
@@ -262,6 +262,8 @@ function curriculumOverlapCount(sections, timeSlots, genes) {
 //   score = - (hard violations × 1000)      must-follow rules
 //           - (workload variance × 2)        spread teaching units evenly
 //           + (preferred-day share × 50)     honour faculty day preferences
+//           + (requested-time share × 60)    honour approved "Prefer instead" times
+//                                            (0 when no teacher has requested times)
 //           - (average empty seats × 0.5)    don't waste big rooms on small classes
 //           - (curriculum overlaps × 150)    only if curriculum-aware is on
 //
@@ -290,6 +292,18 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
     if (fac && slot && fac.preferredDays.includes(slot.day)) prefHits++;
   });
   const prefScore = prefHits / (genes.length || 1);
+  // 3b) Requested times: share of classes placed in the exact times a teacher
+  //     asked for in an approved "Prefer instead" request (preferredSlotIds).
+  //     Only teachers WITH such times are counted, so when nobody has made a
+  //     request this term is 0 and every score is exactly as before.
+  let reqTotal = 0, reqHits = 0;
+  genes.forEach(g => {
+    const fac = facultyById[g.facultyId];
+    if (!fac || !fac.preferredSlotIds || fac.preferredSlotIds.length === 0 || g.slotId < 0) return;
+    reqTotal++;
+    if (fac.preferredSlotIds.includes(g.slotId)) reqHits++;
+  });
+  const requestScore = reqTotal ? reqHits / reqTotal : 0;
   // 4) Room efficiency: average number of empty seats per class.
   const roomById = Object.fromEntries(rooms.map(r => [r.id, r]));
   let waste = 0;
@@ -317,7 +331,7 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
       if (g.slotId !== a.slotId) changePenalty += 1;
     });
   }
-  return -hardPenalty - variance * 2.0 + prefScore * 50.0 - avgWaste * 0.5 - curriculumPenalty - changePenalty;
+  return -hardPenalty - variance * 2.0 + prefScore * 50.0 + requestScore * 60.0 - avgWaste * 0.5 - curriculumPenalty - changePenalty;
 }
 // ---------------------------------------------------------------------
 // runGA(faculty, rooms, sections, timeSlots, opts)   — THE GENETIC ALGORITHM
@@ -534,8 +548,9 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
 
   // Every rule-abiding (teacher, time, room) option for class i, best first:
   // the class's current teacher first, then lighter-loaded teachers; the
-  // teacher's preferred days first; the current room first. Times the teacher
-  // is unavailable are never offered.
+  // times the teacher asked for in an approved "Prefer instead" request first,
+  // then their preferred days, then the rest; the current room first. Times
+  // the teacher is unavailable are never offered.
   function options(i) {
     const sec = sections[i], old = genes[i];
     const teachers = qualifiedFaculty(faculty, sec).sort((a, b) =>
@@ -545,8 +560,10 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
     const out = [];
     teachers.forEach(fid => {
       const fac = facultyById[fid];
+      // rank: 2 = a requested "prefer instead" time, 1 = a preferred day, 0 = other
+      const rank = sid => ((fac.preferredSlotIds || []).includes(sid) ? 2 : fac.preferredDays.includes(slotById[sid].day) ? 1 : 0);
       slotsToTry.slice()
-        .sort((a, b) => (fac.preferredDays.includes(slotById[b].day) ? 1 : 0) - (fac.preferredDays.includes(slotById[a].day) ? 1 : 0))
+        .sort((a, b) => rank(b) - rank(a))
         .forEach(sid => {
           if ((fac.unavailableSlotIds || []).includes(sid)) return;
           roomsToTry.forEach(rid => out.push({ facultyId: fid, roomId: rid, slotId: sid }));
@@ -650,6 +667,18 @@ function generateSyntheticData(nFaculty, nSections, nRooms, seed) {
       academicRank: pick(ACADEMIC_RANKS),
     });
   }
+  // Make every sample name unique: two "Maria Ramos" are confusing, and faculty
+  // sign in by name. A repeat gets the next unused last name. No random numbers
+  // are drawn here, so everything else in the sample stays exactly the same.
+  const usedNames = new Set();
+  faculty.forEach(f => {
+    if (usedNames.has(f.name)) {
+      const first = f.name.split(" ")[0];
+      const alt = LAST_NAMES.map(l => first + " " + l).find(n => !usedNames.has(n));
+      if (alt) f.name = alt;
+    }
+    usedNames.add(f.name);
+  });
   // Guarantee: at least 2 faculty can teach every specialization.
   for (const spec of SPECS) {
     let qualified = faculty.filter(f => f.specializations.includes(spec));

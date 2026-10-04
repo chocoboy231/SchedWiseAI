@@ -205,6 +205,15 @@ function classTypeLabel(section) {
 const YEAR_LABELS = { 1: "1st Year", 2: "2nd Year", 3: "3rd Year", 4: "4th Year" };
 function yearLabel(n) { return YEAR_LABELS[n] || "—"; }
 
+// requestTimesText(request, slotById) -> "Can't teach: Mon (all day) · Prefers: Wed (all day)"
+// The times a request blocks, plus any "Prefer instead" times it asks for.
+function requestTimesText(r, slotById) {
+  const parts = [];
+  if ((r.slotIds || []).length) parts.push((r.type === "Leave Request" ? "Away: " : "Can't teach: ") + describeSlots(r.slotIds, slotById));
+  if ((r.preferredSlotIds || []).length) parts.push("Prefers: " + describeSlots(r.preferredSlotIds, slotById));
+  return parts.length ? parts.join(" · ") : "No time slots selected";
+}
+
 // describeSlots([30,31,...], slotById) -> "Fri P4–P6 · Sat (all day)"
 // Turns a list of time-slot ids into short readable text, grouped by day.
 // Runs of back-to-back periods are shown as a range (P4–P6).
@@ -254,7 +263,7 @@ function normalizeData(d) {
     program: s.program || ((s.sectionName || "").split("-")[0] || "BSIT"),
   }));
   const rooms = (d.rooms || []).map(r => r.type === "lecture" ? { ...r, type: "laboratory" } : r);
-  const faculty = (d.faculty || []).map(f => ({ ...f, unavailableSlotIds: f.unavailableSlotIds || [] }));
+  const faculty = (d.faculty || []).map(f => ({ ...f, unavailableSlotIds: f.unavailableSlotIds || [], preferredSlotIds: f.preferredSlotIds || [] }));
   const timeSlots = E.buildTimeSlots();
   function fixSchedule(res) {
     if (!res || !res.genes || res.genes.length !== sections.length) return res;
@@ -267,7 +276,7 @@ function normalizeData(d) {
     ...d, sections, rooms, faculty, timeSlots,
     result: fixSchedule(d.result),
     scheduleHistory: (d.scheduleHistory || []).map(fixSchedule),
-    leaveRequests: (d.leaveRequests || []).map(r => ({ ...r, slotIds: r.slotIds || [] })),
+    leaveRequests: (d.leaveRequests || []).map(r => ({ ...r, slotIds: r.slotIds || [], preferredSlotIds: r.preferredSlotIds || [] })),
   };
 }
 
@@ -821,6 +830,10 @@ function FacultyProfileModal({ faculty, sections, result, slotById, onClose }) {
         <div className="text-xs text-slate-400 mb-1">Unavailable Times</div>
         <div className="text-sm text-slate-700">{(faculty.unavailableSlotIds || []).length ? describeSlots(faculty.unavailableSlotIds, slotById) : "None"}</div>
       </div>
+      <div className="mt-3">
+        <div className="text-xs text-slate-400 mb-1">Requested Preferred Times</div>
+        <div className="text-sm text-slate-700">{(faculty.preferredSlotIds || []).length ? describeSlots(faculty.preferredSlotIds, slotById) : "None"}</div>
+      </div>
     </Modal>
   );
 }
@@ -834,7 +847,11 @@ function FacultyProfileModal({ faculty, sections, result, slotById, onClose }) {
 //   • a blue subject code — the teacher currently has a class at that time
 // Clicking a day's name selects/clears that whole day.
 // ---------------------------------------------------------------------
-function SlotPicker({ timeSlots, selected, onToggle, onToggleDay, unavailable, classSlots }) {
+// selected  = times being marked as blocked ("Can't teach" / "Away")
+// preferred = times the teacher would like to teach instead (Availability Change only)
+function SlotPicker({ timeSlots, selected, onToggle, onToggleDay, unavailable, classSlots, preferred, selectedLabel }) {
+  preferred = preferred || [];
+  const selLabel = selectedLabel || "Requested";
   const periods = Array.from({ length: E.PERIODS }, (_, i) => i + 1);
   // slotAt["Fri"][4] -> the slot object for Friday period 4
   const slotAt = {};
@@ -865,17 +882,19 @@ function SlotPicker({ timeSlots, selected, onToggle, onToggleDay, unavailable, c
                   const t = slotAt[d][p];
                   const isBlocked = unavailable.includes(t.id);
                   const isSel = selected.includes(t.id);
+                  const isPref = preferred.includes(t.id);
                   const cls = classSlots[t.id];
-                  let look = "bg-white border-slate-200 hover:bg-rose-50 cursor-pointer";
+                  let look = "bg-white border-slate-200 hover:bg-slate-50 cursor-pointer";
                   if (isBlocked) look = "bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed";
                   else if (isSel) look = "bg-rose-600 border-rose-600 text-white cursor-pointer";
+                  else if (isPref) look = "bg-emerald-700 border-emerald-700 text-white cursor-pointer";
                   return (
                     <td key={d} className="p-0.5">
                       <button type="button" disabled={isBlocked} onClick={() => onToggle(t.id)}
                         className={"w-full h-10 rounded border text-[10px] leading-tight font-medium " + look}
-                        aria-label={t.label + (isSel ? " selected" : "")}>
-                        {isBlocked ? "Unavailable" : isSel ? "Requested" : ""}
-                        {cls && <div className={isSel ? "text-white" : "text-blue-800"}>{cls.join(", ")}</div>}
+                        aria-label={t.label + (isSel ? " " + selLabel : isPref ? " prefer instead" : "")}>
+                        {isBlocked ? "Unavailable" : isSel ? selLabel : isPref ? "Prefer" : ""}
+                        {cls && <div className={isSel || isPref ? "text-white" : "text-blue-800"}>{cls.join(", ")}</div>}
                       </button>
                     </td>
                   );
@@ -886,7 +905,8 @@ function SlotPicker({ timeSlots, selected, onToggle, onToggleDay, unavailable, c
         </tbody>
       </table>
       <div className="flex flex-wrap gap-3 mt-2 text-[11px] text-slate-500">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-600 inline-block" /> Requested</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-600 inline-block" /> {selLabel}</span>
+        {preferred.length > 0 && <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-700 inline-block" /> Prefer instead</span>}
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-200 inline-block" /> Already unavailable</span>
         <span className="flex items-center gap-1"><span className="text-blue-800 font-semibold">IT101</span> Current class</span>
       </div>
@@ -911,8 +931,11 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
   const [description, setDescription] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [slotIds, setSlotIds] = useState([]);
+  const [slotIds, setSlotIds] = useState([]);       // times blocked: "Can't teach" (or "Away" for leave)
+  const [preferIds, setPreferIds] = useState([]);   // "Prefer instead" times (Availability Change only)
+  const [mode, setMode] = useState("block");        // which kind of cell a click marks
   const [error, setError] = useState("");
+  const isChange = type === "Availability Change";
 
   const fac = faculty.find(f => f.id === facultyId);
   const unavailable = fac ? (fac.unavailableSlotIds || []) : [];
@@ -924,14 +947,21 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
   });
   const affected = slotIds.filter(id => classSlots[id]).length;
 
+  // A click marks the cell in the current mode, and clears it from the other mode
+  // (a time can't be both "can't teach" and "prefer instead").
+  const marking = isChange && mode === "prefer";
   function toggle(id) {
-    setSlotIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : prev.concat([id]));
+    const [mine, setMine, setOther] = marking ? [preferIds, setPreferIds, setSlotIds] : [slotIds, setSlotIds, setPreferIds];
+    setMine(mine.includes(id) ? mine.filter(x => x !== id) : mine.concat([id]));
+    setOther(prev => prev.filter(x => x !== id));
   }
-  // Whole-day toggle: if every open slot that day is already picked, clear them; otherwise pick them all.
+  // Whole-day toggle: if every open slot that day is already marked, clear them; otherwise mark them all.
   function toggleDay(day) {
     const daySlots = timeSlots.filter(t => t.day === day && !unavailable.includes(t.id)).map(t => t.id);
-    const allPicked = daySlots.every(id => slotIds.includes(id));
-    setSlotIds(prev => allPicked ? prev.filter(id => !daySlots.includes(id)) : Array.from(new Set(prev.concat(daySlots))));
+    const [mine, setMine, setOther] = marking ? [preferIds, setPreferIds, setSlotIds] : [slotIds, setSlotIds, setPreferIds];
+    const allPicked = daySlots.every(id => mine.includes(id));
+    setMine(allPicked ? mine.filter(id => !daySlots.includes(id)) : Array.from(new Set(mine.concat(daySlots))));
+    if (!allPicked) setOther(prev => prev.filter(id => !daySlots.includes(id)));
   }
   const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
 
@@ -942,13 +972,13 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
           {locked ? (
             <div className="text-sm font-medium text-slate-800 border border-slate-200 rounded-lg px-3 py-2 bg-slate-50">{fac ? fac.name : "—"}</div>
           ) : (
-            <select className={inputCls} value={facultyId} onChange={e => { setFacultyId(Number(e.target.value)); setSlotIds([]); }}>
+            <select className={inputCls} value={facultyId} onChange={e => { setFacultyId(Number(e.target.value)); setSlotIds([]); setPreferIds([]); }}>
               {faculty.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           )}
         </Field>
         <Field label="Request Type">
-          <select className={inputCls} value={type} onChange={e => setType(e.target.value)}>
+          <select className={inputCls} value={type} onChange={e => { setType(e.target.value); if (e.target.value !== "Availability Change") { setPreferIds([]); setMode("block"); } }}>
             <option>Availability Change</option>
             <option>Leave Request</option>
           </select>
@@ -960,13 +990,41 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
           <Field label="Leave until"><input type="date" className={inputCls} value={dateTo} onChange={e => setDateTo(e.target.value)} /></Field>
         </div>
       )}
-      <Field label={type === "Leave Request" ? "Times you'll be away (click cells, or a day name for the whole day)" : "Times you can no longer teach (click cells, or a day name for the whole day)"}>
-        <SlotPicker timeSlots={timeSlots} selected={slotIds} onToggle={toggle} onToggleDay={toggleDay}
-          unavailable={unavailable} classSlots={classSlots} />
+      {isChange && (
+        <div className="mb-3">
+          <div className="text-xs font-medium text-slate-600 mb-1">What does a click mark?</div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setMode("block")} aria-pressed={mode === "block"}
+              className={"text-xs font-semibold px-3 py-1.5 rounded-lg border " + (mode === "block" ? "bg-rose-600 border-rose-600 text-white" : "bg-white border-slate-200 text-slate-700")}>
+              Can't teach (the old times)
+            </button>
+            <button type="button" onClick={() => setMode("prefer")} aria-pressed={mode === "prefer"}
+              className={"text-xs font-semibold px-3 py-1.5 rounded-lg border " + (mode === "prefer" ? "bg-emerald-700 border-emerald-700 text-white" : "bg-white border-slate-200 text-slate-700")}>
+              Prefer instead (the new times)
+            </button>
+          </div>
+          <div className="text-[11px] text-slate-500 mt-1">To move from Monday to Wednesday: mark Monday as <span className="font-semibold">Can't teach</span>, then Wednesday as <span className="font-semibold">Prefer instead</span>.</div>
+        </div>
+      )}
+      <Field label={type === "Leave Request" ? "Times you'll be away (click cells, or a day name for the whole day)" : "Click cells, or a day name for the whole day"}>
+        <SlotPicker timeSlots={timeSlots} selected={slotIds} preferred={preferIds} onToggle={toggle} onToggleDay={toggleDay}
+          unavailable={unavailable} classSlots={classSlots} selectedLabel={isChange ? "Can't teach" : "Away"} />
       </Field>
-      <div className="text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2 mb-3">
-        <span className="font-semibold">Selected:</span> {describeSlots(slotIds, slotById)}
-        {affected > 0 && <div className="text-orange-700 mt-1">{affected} of these time(s) currently have a class. If approved, the schedule will be flagged for regeneration.</div>}
+      <div className="text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2 mb-3 space-y-1">
+        <div><span className="font-semibold">{isChange ? "Can't teach:" : "Away:"}</span> {slotIds.length ? describeSlots(slotIds, slotById) : "none"}</div>
+        {isChange && <div><span className="font-semibold">Prefer instead:</span> {preferIds.length ? describeSlots(preferIds, slotById) : "none"}</div>}
+        {affected > 0 && (
+          <div className="text-orange-700">
+            {affected} of these time(s) currently have a class. If approved, those classes will be moved
+            {preferIds.length ? ", into your preferred times first when they are free." : ". Add \"Prefer instead\" times to choose where they go."}
+          </div>
+        )}
+        {isChange && slotIds.length > 0 && affected === 0 && result && (
+          <div className="text-orange-700">None of your classes are at the times you can't teach, so approving this will not move any class. If these are the times you WANT to teach, switch to <span className="font-semibold">Prefer instead</span>.</div>
+        )}
+        {isChange && slotIds.length === 0 && preferIds.length > 0 && (
+          <div className="text-orange-700">Preferred times only guide where classes go when they have to move. To move classes off a day, also mark it as <span className="font-semibold">Can't teach</span>.</div>
+        )}
       </div>
       <Field label="Reason">
         <textarea className={inputCls} rows={2} value={description} onChange={e => setDescription(e.target.value)}
@@ -977,11 +1035,12 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
         className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-1"
         onClick={() => {
           if (facultyId == null) return setError("Choose a faculty member.");
-          if (slotIds.length === 0) return setError("Pick at least one time slot on the grid.");
+          if (slotIds.length === 0 && preferIds.length === 0) return setError("Pick at least one time slot on the grid.");
           if (!description.trim()) return setError("Please give a reason.");
           onSave({
             id: Date.now(), facultyId, type, description: description.trim(),
             slotIds: slotIds.slice().sort((a, b) => a - b),
+            preferredSlotIds: isChange ? preferIds.slice().sort((a, b) => a - b) : [],
             dateFrom: type === "Leave Request" ? dateFrom : "", dateTo: type === "Leave Request" ? dateTo : "",
             status: "Pending", createdAt: new Date().toISOString(),
           });
@@ -1035,6 +1094,27 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
       if (rows.length === 0) { setError("No data rows found."); return; }
       // Find a column by its header name, so column order in the CSV doesn't matter.
       const idx = (name) => headers.indexOf(name);
+
+      // Reject rows that would silently turn into unschedulable or nameless records.
+      const problems = [];
+      rows.forEach((r, i) => {
+        const line = "Row " + (i + 1) + ": ";
+        if (kind === "faculty") {
+          if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
+          const specs = (r[idx("specializations")] || "").split(";").map(s => s.trim()).filter(Boolean);
+          const bad = specs.filter(s => !E.SPECIALIZATIONS.includes(s));
+          if (specs.length === 0 || bad.length) problems.push(line + (bad.length ? "unknown specialization " + bad.join(", ") : "specialization is missing") + ".");
+        } else if (kind === "subjects") {
+          if (!(r[idx("subjectCode")] || "").trim()) problems.push(line + "subjectCode is missing.");
+          if (!(r[idx("sectionName")] || "").trim()) problems.push(line + "sectionName is missing.");
+          const spec = (r[idx("requiredSpecialization")] || "").trim();
+          if (spec && !E.SPECIALIZATIONS.includes(spec)) problems.push(line + "unknown specialization \"" + spec + "\".");
+          ["units", "enrolledStudents"].forEach(c => { const v = (r[idx(c)] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + c + " must be a positive number."); });
+        } else if (kind === "rooms") {
+          if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
+        }
+      });
+      if (problems.length) { setError("Nothing was imported. " + problems.slice(0, 5).join(" ") + (problems.length > 5 ? " (+" + (problems.length - 5) + " more)" : "")); return; }
 
       if (kind === "faculty") {
         const records = rows.map((r, i) => ({
@@ -1095,27 +1175,6 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
       <Field label="CSV Data">
         <textarea className={inputCls} rows={6} value={text} onChange={e=>setText(e.target.value)} placeholder={templates[kind]} />
       </Field>
-      // Reject rows that would silently turn into unschedulable or nameless records.
-      const problems = [];
-      rows.forEach((r, i) => {
-        const line = "Row " + (i + 1) + ": ";
-        if (kind === "faculty") {
-          if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
-          const specs = (r[idx("specializations")] || "").split(";").map(s => s.trim()).filter(Boolean);
-          const bad = specs.filter(s => !E.SPECIALIZATIONS.includes(s));
-          if (specs.length === 0 || bad.length) problems.push(line + (bad.length ? "unknown specialization " + bad.join(", ") : "specialization is missing") + ".");
-        } else if (kind === "subjects") {
-          if (!(r[idx("subjectCode")] || "").trim()) problems.push(line + "subjectCode is missing.");
-          if (!(r[idx("sectionName")] || "").trim()) problems.push(line + "sectionName is missing.");
-          const spec = (r[idx("requiredSpecialization")] || "").trim();
-          if (spec && !E.SPECIALIZATIONS.includes(spec)) problems.push(line + "unknown specialization \"" + spec + "\".");
-          ["units", "enrolledStudents"].forEach(c => { const v = (r[idx(c)] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + c + " must be a positive number."); });
-        } else if (kind === "rooms") {
-          if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
-        }
-      });
-      if (problems.length) { setError("Nothing was imported. " + problems.slice(0, 5).join(" ") + (problems.length > 5 ? " (+" + (problems.length - 5) + " more)" : "")); return; }
-
       <button className="text-xs text-blue-800 hover:underline mb-3" onClick={() => setText(templates[kind])}>Load example template</button>
       {error && <div className="text-xs text-rose-700 mb-2">{error}</div>}
       <button className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg" onClick={handleImport}>Import</button>
@@ -1526,7 +1585,12 @@ function App() {
       const honoured = triggers.filter(t => t.kind === "blocked").map(t => {
         const fac = faculty.find(f => f.id === t.facultyId);
         const clashes = r.genes.filter(g => g.facultyId === t.facultyId && t.slotIds.includes(g.slotId)).length;
-        return { name: fac ? fac.name : "Faculty", slots: describeSlots(t.slotIds, slotById), clashes };
+        // Of this teacher's classes that moved, how many landed in the "Prefer instead" times?
+        const pref = t.preferredSlotIds || [];
+        const movedHere = r.changes.filter(c => r.genes[c.index].facultyId === t.facultyId);
+        const inPref = movedHere.filter(c => pref.includes(r.genes[c.index].slotId)).length;
+        return { name: fac ? fac.name : "Faculty", slots: describeSlots(t.slotIds, slotById), clashes,
+          prefSlots: pref.length ? describeSlots(pref, slotById) : "", moved: movedHere.length, inPref };
       });
       setGenerating(false);
       if (r.changes.length === 0) {
@@ -1579,6 +1643,27 @@ function App() {
     setScheduleHistory(prev => prev.map(dropK));
   }
 
+  // Delete a teacher or room. Classes that were using it now break a rule, so the
+  // schedule is flagged for an update (otherwise it would still read "conflict-free").
+  function handleDeleteFaculty(id) {
+    const next = faculty.filter(f => f.id !== id);
+    setFaculty(next);
+    const used = result ? result.genes.filter(g => g.facultyId === id).length : 0;
+    if (used > 0) {
+      const f = faculty.find(x => x.id === id);
+      flagForUpdate(next, sections, { kind: "removed", reason: (f ? f.name : "A teacher") + " was removed — " + used + " class(es) need a new teacher." });
+    }
+  }
+  function handleDeleteRoom(id) {
+    const next = rooms.filter(r => r.id !== id);
+    setRooms(next);
+    const used = result ? result.genes.filter(g => g.roomId === id).length : 0;
+    if (used > 0) {
+      const r = rooms.find(x => x.id === id);
+      flagForUpdate(faculty, sections, { kind: "removed", reason: (r ? r.name : "A room") + " was removed — " + used + " class(es) need a new room." }, next);
+    }
+  }
+
   // Manual edit of one class. Arrays in state must not be changed in place,
   // so we copy the genes, change one entry, then re-run the rule checker.
   // Any edit sends the schedule back to "Pending Review".
@@ -1627,7 +1712,7 @@ function App() {
   function handleSubmitRequest(req) {
     setLeaveRequests(prev => [req, ...prev]);
     const fac = faculty.find(f => f.id === req.facultyId);
-    pushNotification("New " + req.type.toLowerCase() + " from " + (fac ? fac.name : "faculty") + ": " + describeSlots(req.slotIds, slotById) + ".");
+    pushNotification("New " + req.type.toLowerCase() + " from " + (fac ? fac.name : "faculty") + ": " + requestTimesText(req, slotById) + ".");
   }
 
   // After a teacher's availability changes, the current schedule may now put
@@ -1643,27 +1728,6 @@ function App() {
     const prev = result.needsRegeneration;
     const triggers = ((prev && prev.triggers) || []).concat([trigger]);
     setResult({ ...result, violations, feasible: violations.total === 0, approvalStatus: "Pending Review",
-  // Delete a teacher or room. Classes that were using it now break a rule, so the
-  // schedule is flagged for an update (otherwise it would still read "conflict-free").
-  function handleDeleteFaculty(id) {
-    const next = faculty.filter(f => f.id !== id);
-    setFaculty(next);
-    const used = result ? result.genes.filter(g => g.facultyId === id).length : 0;
-    if (used > 0) {
-      const f = faculty.find(x => x.id === id);
-      flagForUpdate(next, sections, { kind: "removed", reason: (f ? f.name : "A teacher") + " was removed — " + used + " class(es) need a new teacher." });
-    }
-  }
-  function handleDeleteRoom(id) {
-    const next = rooms.filter(r => r.id !== id);
-    setRooms(next);
-    const used = result ? result.genes.filter(g => g.roomId === id).length : 0;
-    if (used > 0) {
-      const r = rooms.find(x => x.id === id);
-      flagForUpdate(faculty, sections, { kind: "removed", reason: (r ? r.name : "A room") + " was removed — " + used + " class(es) need a new room." }, next);
-    }
-  }
-
       needsRegeneration: { reason: trigger.reason, triggers, at: new Date().toISOString() } });
   }
 
@@ -1677,22 +1741,33 @@ function App() {
     if (!req) return;
     const fac = faculty.find(f => f.id === req.facultyId);
     let addedSlotIds = [];
+    let clashes = 0;
     if (status === "Approved" && fac) {
       const current = fac.unavailableSlotIds || [];
       addedSlotIds = (req.slotIds || []).filter(sid => !current.includes(sid));
-      const updatedFaculty = faculty.map(f => f.id === fac.id ? { ...f, unavailableSlotIds: current.concat(addedSlotIds) } : f);
+      const blockedNow = current.concat(addedSlotIds);
+      // "Prefer instead" times are saved on the teacher (minus any time now blocked).
+      // The engine places this teacher's moved classes there first.
+      const preferredNow = Array.from(new Set((fac.preferredSlotIds || []).concat(req.preferredSlotIds || []))).filter(sid => !blockedNow.includes(sid));
+      const updatedFaculty = faculty.map(f => f.id === fac.id ? { ...f, unavailableSlotIds: blockedNow, preferredSlotIds: preferredNow } : f);
       setFaculty(updatedFaculty);
       // How many of this teacher's current classes now fall in a blocked slot?
-      const clashes = result ? result.genes.filter(g => g.facultyId === fac.id && addedSlotIds.includes(g.slotId)).length : 0;
-      flagForUpdate(updatedFaculty, sections, {
-        kind: "blocked", facultyId: fac.id, slotIds: req.slotIds || [],
-        reason: fac.name + "'s availability changed (" + describeSlots(addedSlotIds, slotById) + ")" +
-          (clashes ? " — " + clashes + " current class(es) now clash." : "."),
-      });
+      clashes = result ? result.genes.filter(g => g.facultyId === fac.id && addedSlotIds.includes(g.slotId)).length : 0;
+      // Flag the schedule ONLY when a class actually has to move. (Before, it was flagged
+      // every time, so "Update affected classes" could run and change nothing.)
+      if (clashes > 0) {
+        flagForUpdate(updatedFaculty, sections, {
+          kind: "blocked", facultyId: fac.id, slotIds: req.slotIds || [], preferredSlotIds: req.preferredSlotIds || [],
+          reason: fac.name + "'s availability changed (" + describeSlots(addedSlotIds, slotById) + ") — " + clashes + " current class(es) now clash.",
+        });
+      }
     }
     setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, status, addedSlotIds, decidedAt: new Date().toISOString() } : r));
     pushNotification(req.type + " for " + (fac ? fac.name : "faculty") + " was " + status.toLowerCase() +
-      (status === "Approved" ? " — schedule needs an update." : "."));
+      (status !== "Approved" ? "." :
+        clashes > 0 ? " — " + clashes + " class(es) must move, so the schedule needs an update." :
+        result ? " — none of their classes are at those times, so the schedule did not need to change." + ((req.preferredSlotIds || []).length ? " Their preferred times are saved and will guide future moves." : "") :
+        "."));
   }
 
   // End an approved leave early/on time: remove ONLY the slots that leave added,
@@ -2238,7 +2313,7 @@ function AdminOverview(props) {
                 return (
                   <li key={r.id} className="py-2 text-sm">
                     <div className="font-medium text-slate-900">{fac ? fac.name : "Unknown"} — {r.type}</div>
-                    <div className="text-xs text-slate-600">{describeSlots(r.slotIds, props.slotById)}</div>
+                    <div className="text-xs text-slate-600">{requestTimesText(r, props.slotById)}</div>
                     <div className="text-xs text-slate-500 truncate">{r.description}</div>
                   </li>
                 );
@@ -2347,7 +2422,7 @@ function ChairOverview(props) {
                   <li key={r.id} className="py-2.5 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-900">{fac ? fac.name : "Unknown"} — {r.type}</div>
-                      <div className="text-xs text-slate-600">{describeSlots(r.slotIds, props.slotById)}</div>
+                      <div className="text-xs text-slate-600">{requestTimesText(r, props.slotById)}</div>
                       <div className="text-xs text-slate-500 truncate">{r.description}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -2497,7 +2572,7 @@ function FacultyOverview(props) {
                       <span className="text-sm font-medium text-slate-900">{r.type}</span>
                       <span className={"text-xs font-medium px-2 py-0.5 rounded-full " + cls}>{r.status}</span>
                     </div>
-                    <div className="text-xs text-slate-600 mt-0.5">{describeSlots(r.slotIds, slotById)}</div>
+                    <div className="text-xs text-slate-600 mt-0.5">{requestTimesText(r, slotById)}</div>
                     <div className="text-xs text-slate-500 mt-0.5">{r.description}</div>
                   </li>
                 );
@@ -2790,7 +2865,7 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
                       <div className="font-medium text-slate-900 text-sm">{fac ? fac.name : "Unknown faculty"} — {r.type}
                         {r.dateFrom && <span className="text-xs font-normal text-slate-500"> · {r.dateFrom}{r.dateTo ? " to " + r.dateTo : ""}</span>}
                       </div>
-                      <div className="text-xs text-slate-700 mt-0.5"><span className="font-medium">Times:</span> {describeSlots(r.slotIds, slotById)}</div>
+                      <div className="text-xs text-slate-700 mt-0.5"><span className="font-medium">Times:</span> {requestTimesText(r, slotById)}</div>
                       <div className="text-sm text-slate-500 mt-0.5">{r.description}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -3436,6 +3511,13 @@ function UpdateSummary({ result, sections, facultyById, slotById }) {
         <div key={i} className={"text-xs rounded-lg px-3 py-1.5 mb-2 " + (h.clashes ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700")}>
           {h.clashes ? "⚠ " + h.name + " still has " + h.clashes + " class(es) in " + h.slots + " — try Full regenerate."
             : "✓ " + h.name + "'s request is respected — no classes in " + h.slots + "."}
+          {!h.clashes && h.prefSlots && h.moved > 0 && (
+            <div className="mt-0.5">
+              {h.inPref === h.moved
+                ? "All " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + ")."
+                : h.inPref + " of " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + "). The rest went elsewhere, because those times were taken by other classes or rooms."}
+            </div>
+          )}
         </div>
       ))}
       <ul className="divide-y divide-slate-50">
@@ -3484,7 +3566,7 @@ function MyAvailabilitySection({ me, leaveRequests, slotById, onNewRequest }) {
                 <div className="text-sm font-medium text-slate-900">{r.type}
                   {r.dateFrom && <span className="text-xs font-normal text-slate-500"> · {r.dateFrom}{r.dateTo ? " to " + r.dateTo : ""}</span>}
                 </div>
-                <div className="text-xs text-slate-600">{describeSlots(r.slotIds, slotById)}</div>
+                <div className="text-xs text-slate-600">{requestTimesText(r, slotById)}</div>
                 <div className="text-xs text-slate-400">{r.description}</div>
               </div>
               <span className={"shrink-0 text-xs font-medium px-2 py-0.5 rounded-full " + statusCls(r.status)}>{r.status}</span>

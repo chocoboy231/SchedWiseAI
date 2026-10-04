@@ -1095,6 +1095,27 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
       <Field label="CSV Data">
         <textarea className={inputCls} rows={6} value={text} onChange={e=>setText(e.target.value)} placeholder={templates[kind]} />
       </Field>
+      // Reject rows that would silently turn into unschedulable or nameless records.
+      const problems = [];
+      rows.forEach((r, i) => {
+        const line = "Row " + (i + 1) + ": ";
+        if (kind === "faculty") {
+          if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
+          const specs = (r[idx("specializations")] || "").split(";").map(s => s.trim()).filter(Boolean);
+          const bad = specs.filter(s => !E.SPECIALIZATIONS.includes(s));
+          if (specs.length === 0 || bad.length) problems.push(line + (bad.length ? "unknown specialization " + bad.join(", ") : "specialization is missing") + ".");
+        } else if (kind === "subjects") {
+          if (!(r[idx("subjectCode")] || "").trim()) problems.push(line + "subjectCode is missing.");
+          if (!(r[idx("sectionName")] || "").trim()) problems.push(line + "sectionName is missing.");
+          const spec = (r[idx("requiredSpecialization")] || "").trim();
+          if (spec && !E.SPECIALIZATIONS.includes(spec)) problems.push(line + "unknown specialization \"" + spec + "\".");
+          ["units", "enrolledStudents"].forEach(c => { const v = (r[idx(c)] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + c + " must be a positive number."); });
+        } else if (kind === "rooms") {
+          if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
+        }
+      });
+      if (problems.length) { setError("Nothing was imported. " + problems.slice(0, 5).join(" ") + (problems.length > 5 ? " (+" + (problems.length - 5) + " more)" : "")); return; }
+
       <button className="text-xs text-blue-800 hover:underline mb-3" onClick={() => setText(templates[kind])}>Load example template</button>
       {error && <div className="text-xs text-rose-700 mb-2">{error}</div>}
       <button className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg" onClick={handleImport}>Import</button>
@@ -1616,12 +1637,33 @@ function App() {
   // `trigger` = { kind, reason, facultyId?, slotIds? } describing WHY. Triggers
   // pile up until the next update, so several approvals can be handled at once,
   // and the update can then confirm each blocked-times request was respected.
-  function flagForUpdate(nextFaculty, nextSections, trigger) {
+  function flagForUpdate(nextFaculty, nextSections, trigger, nextRooms) {
     if (!result) return;
-    const violations = E.countViolations(nextFaculty, rooms, nextSections, timeSlots, result.genes);
+    const violations = E.countViolations(nextFaculty, nextRooms || rooms, nextSections, timeSlots, result.genes);
     const prev = result.needsRegeneration;
     const triggers = ((prev && prev.triggers) || []).concat([trigger]);
     setResult({ ...result, violations, feasible: violations.total === 0, approvalStatus: "Pending Review",
+  // Delete a teacher or room. Classes that were using it now break a rule, so the
+  // schedule is flagged for an update (otherwise it would still read "conflict-free").
+  function handleDeleteFaculty(id) {
+    const next = faculty.filter(f => f.id !== id);
+    setFaculty(next);
+    const used = result ? result.genes.filter(g => g.facultyId === id).length : 0;
+    if (used > 0) {
+      const f = faculty.find(x => x.id === id);
+      flagForUpdate(next, sections, { kind: "removed", reason: (f ? f.name : "A teacher") + " was removed — " + used + " class(es) need a new teacher." });
+    }
+  }
+  function handleDeleteRoom(id) {
+    const next = rooms.filter(r => r.id !== id);
+    setRooms(next);
+    const used = result ? result.genes.filter(g => g.roomId === id).length : 0;
+    if (used > 0) {
+      const r = rooms.find(x => x.id === id);
+      flagForUpdate(faculty, sections, { kind: "removed", reason: (r ? r.name : "A room") + " was removed — " + used + " class(es) need a new room." }, next);
+    }
+  }
+
       needsRegeneration: { reason: trigger.reason, triggers, at: new Date().toISOString() } });
   }
 
@@ -1688,7 +1730,7 @@ function App() {
     const k = kind === "expanded" || kind === "standard" ? kind : datasetKind;
     const label = k === "expanded" ? "the expanded multi-program sample (about 22 faculty, 48 subjects, 10 labs)" : "the standard sample (9 faculty, 18 subjects, 6 labs)";
     if (!confirm("Replace all data with " + label + "? This clears faculty, subjects, rooms, requests, history and the current schedule.")) return;
-    const d = freshData(k);
+    const d = normalizeData(freshData(k));
     setFaculty(d.faculty); setRooms(d.rooms); setSections(d.sections); setResult(null); setLeaveRequests([]); setScheduleHistory([]); setActivityLog([]);
     setDatasetKind(k); setTestLog([]);
     pushNotification("Loaded " + (k === "expanded" ? "the expanded multi-program sample." : "the standard sample."));
@@ -1879,7 +1921,7 @@ function App() {
               tab={facultyTab} setTab={setFacultyTab}
               onAdd={() => setFacultyModal("new")}
               onEdit={f => setFacultyModal(f)}
-              onDelete={id => setFaculty(faculty.filter(f=>f.id!==id))}
+              onDelete={handleDeleteFaculty}
               onViewProfile={f => setFacultyProfileModal(f)}
               onViewSchedule={f => { setSelectedFacultyId(f.id); setScheduleTab("faculty"); setPage("schedules"); }}
               onNewRequest={() => openRequestPicker(null)}
@@ -1905,7 +1947,7 @@ function App() {
               onImport={() => setCsvImportKind("rooms")}
               onAdd={() => setRoomModal("new")}
               onEdit={r => setRoomModal(r)}
-              onDelete={id => setRooms(rooms.filter(r=>r.id!==id))}
+              onDelete={handleDeleteRoom}
             />
           )}
 

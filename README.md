@@ -117,7 +117,7 @@ Then open the address it prints. Without Node.js, use the **Live Server** extens
 1. Enter any name, choose a role, and press **Sign In**.
 2. Use the **Viewing as** dropdown at the bottom of the sidebar to switch roles without signing out.
 3. Open **Class Schedules → Generate Schedule**.
-4. To start over, use **Reset Demo Data** in the sidebar.
+4. To start over, an Administrator or IT user can use **Reset Demo Data** in the sidebar (other roles do not see it).
 
 > **Tip:** to test as a specific teacher, sign in with the **Faculty Member** role and type that teacher's name exactly as it appears in the Faculty list. Otherwise the first teacher in the list is used.
 
@@ -249,7 +249,7 @@ No Node.js? Serve the folder (for example with VS Code Live Server) and open `te
 - Everything you enter is stored in your own browser's `localStorage` (key `schedwiseai_prototype_v1`). **Nothing is sent to a server**, and each browser or device has its own separate data.
 - **Do not commit real faculty, student or schedule data** to this repository.
 - To keep a copy of your data, or move it to another browser, use **Settings → Backup and restore**. Backup files contain everything you entered, so treat them like the data itself.
-- To clear everything: use **Reset Demo Data**, or clear this site's storage in your browser's developer tools.
+- To clear everything: an Administrator or IT user can use **Reset Demo Data**, or clear this site's storage in your browser's developer tools.
 
 ---
 

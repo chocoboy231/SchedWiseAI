@@ -49,7 +49,7 @@ A step-by-step manual test plan for the whole system. It is written for responde
 | Faculty Member | *Faculty Member* | Overview and Class Schedules only |
 | IT Professional / Staff | *IT Professional/Staff* | Same as Administrator |
 
-Every role also has **Settings**, **Reset Demo Data** and **Sign Out** in the Account part of the sidebar. In Settings, only Administrator and IT see *Backup and restore* and *Testing tools*.
+Every role also has **Settings** and **Sign Out** in the Account part of the sidebar. Only Administrator and IT also see **Reset Demo Data** there, and *Backup and restore* and *Testing tools* in Settings.
 
 Sign-in takes any name and no password. A Faculty Member is matched by name: type the exact name of a teacher from the Faculty list. If no name matches, the app uses the first teacher in the list.
 
@@ -79,7 +79,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 **A2. Sidebar pages per role**
 1. For each role, compare the sidebar with the table in section 1.
 
-*Expected:* Faculty Member sees only Overview and Class Schedules. Department Chair has no Departments. Administrator and IT see all ten pages.
+*Expected:* Faculty Member sees only Overview and Class Schedules. Department Chair has no Departments. Administrator and IT see all ten pages. **Reset Demo Data** is shown only to Administrator and IT.
 ☐ Pass ☐ Fail
 
 **A3. Titles in names**
@@ -493,7 +493,7 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 ☐ Pass ☐ Fail
 
 **K6. Reset Demo Data**
-1. Press **Reset Demo Data** in the sidebar and confirm.
+1. As Administrator or IT, press **Reset Demo Data** in the sidebar and confirm.
 
 *Expected:* New sample data of the same kind replaces everything: no schedule, no history and no requests. Cancelling the confirmation changes nothing.
 ☐ Pass ☐ Fail

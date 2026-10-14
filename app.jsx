@@ -1910,6 +1910,7 @@ function App() {
   // Replace all data with fresh sample data (asks for confirmation first).
   // `kind` = "standard" or "expanded"; the sidebar's Reset keeps whichever sample is loaded.
   function resetDemoData(kind) {
+    if (!canManageData) return;      // Chair and Faculty cannot wipe the data (the button is hidden for them too)
     const k = kind === "expanded" || kind === "standard" ? kind : datasetKind;
     const label = k === "expanded" ? "the expanded multi-program sample (about 22 faculty, 48 subjects, 10 labs)" : "the standard sample (9 faculty, 18 subjects, 6 labs)";
     if (!confirm("Replace all data with " + label + "? This clears faculty, subjects, rooms, requests, history and the current schedule.")) return;
@@ -1986,6 +1987,9 @@ function App() {
   // Who "I" am when signed in as Faculty: the faculty record whose name matches
   // the login name; if none matches (it's a prototype), the first faculty member.
   const myFaculty = faculty.find(f => f.name === userName) || faculty[0] || null;
+  // Only Administrator and IT may replace all data (Reset Demo Data), the same roles that see
+  // Backup and restore and Testing tools in Settings. It stops accidental clicks; it is not real security.
+  const canManageData = role === "admin" || role === "it";
   const currentUserName = role === "faculty" && myFaculty ? myFaculty.name : userName;
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -2047,9 +2051,11 @@ function App() {
 
           <div className="px-5 pb-2 pt-6 text-[11px] tracking-wide text-slate-500 font-medium">Account</div>
           <nav className="px-3 space-y-0.5">
-            <button onClick={() => resetDemoData()} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
-              <IconRefresh size={17} /><span>Reset Demo Data</span>
-            </button>
+            {canManageData && (
+              <button onClick={() => resetDemoData()} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
+                <IconRefresh size={17} /><span>Reset Demo Data</span>
+              </button>
+            )}
             <button onClick={() => goToPage("settings")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
               <IconSettings size={17} /><span>Settings</span>
             </button>

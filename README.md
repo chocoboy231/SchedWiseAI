@@ -91,7 +91,7 @@ There are four roles, matching the study's respondent groups. Access is controll
 
 - A modern browser (Chrome, Edge, Firefox or Safari)
 - **An internet connection**: React, Babel, Tailwind CSS and the Inter font are loaded from CDNs
-- To run a local server with `npx serve`: [Node.js](https://nodejs.org) 16 or newer *(optional)*
+- To run `npx serve` or the Node test command: [Node.js](https://nodejs.org) 16 or newer *(optional)*
 
 ### Option A: publish with GitHub Pages (recommended)
 
@@ -175,7 +175,10 @@ schedwiseai/
 ├── index.html              Entry page: loads libraries, engine.js, then app.jsx
 ├── engine.js               The scheduling engine (Genetic Algorithm, rule checker, update logic)
 ├── app.jsx                 The user interface (React): all pages, forms and state
-└── styles.css              Global styles, colours and print rules
+├── styles.css              Global styles, colours and print rules
+└── tests/
+    ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
+    └── run.html            Runs those tests in a browser page
 ```
 
 Every file has detailed explanatory comments. Start with the header comment in `engine.js` (the algorithm) and `app.jsx` (a map of the whole UI file and a short React primer).
@@ -223,9 +226,15 @@ Every file has detailed explanatory comments. Start with the header comment in `
 
 ## Testing
 
-Automated engine tests and a written manual test plan are planned but are **not in this repository yet**.
+**Automated (engine):** 27 tests in `tests/engine.test.js` cover the time slots, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
 
-For now, test inside the app: open **Settings → Testing tools** (Admin and IT roles) to load the standard or the expanded multi-program sample, generate a schedule, and create deliberate conflicts of each kind to check that Conflict Detection and **Update affected classes** respond correctly. Mobile layout, printing, file downloads and loading the libraries from the internet must be checked by hand in real browsers.
+```bash
+node tests/engine.test.js        # needs Node.js; ends with "27 passed, 0 failed"
+```
+
+No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs the same tests and prints the results on the page.
+
+A written manual test plan is **not in this repository yet**. Meanwhile, test the whole app by hand: open **Settings → Testing tools** (Admin and IT roles) to load the standard or the expanded multi-program sample, generate a schedule, and create deliberate conflicts of each kind to check that Conflict Detection and **Update affected classes** respond correctly. Mobile layout, printing, file downloads and loading the libraries from the internet must be checked by hand in real browsers.
 
 ---
 
@@ -264,7 +273,7 @@ This is a research prototype. Please read this list before relying on it.
 - **React 18** (UMD build) with **Babel Standalone**, so there is no build step
 - **Tailwind CSS** (CDN) and the **Inter** font
 - Plain JavaScript for the engine; charts are hand-drawn SVG
-- The app itself needs only a web browser; Node.js is optional and only used for `npx serve`
+- The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and `node tests/engine.test.js`
 - The whole system is written in **HTML, CSS and JavaScript**, with no server code and no database
 
 ---

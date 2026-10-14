@@ -177,9 +177,11 @@ schedwiseai/
 ├── engine.js               The scheduling engine (Genetic Algorithm, rule checker, update logic)
 ├── app.jsx                 The user interface (React): all pages, forms and state
 ├── styles.css              Global styles, colours and print rules
-└── tests/
-    ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
-    └── run.html            Runs those tests in a browser page
+├── tests/
+│   ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
+│   └── run.html            Runs those tests in a browser page
+└── docs/
+    └── TESTING_GUIDE.md    Step-by-step manual test plan, with a results sheet
 ```
 
 Every file has detailed explanatory comments. Start with the header comment in `engine.js` (the algorithm) and `app.jsx` (a map of the whole UI file and a short React primer).
@@ -236,7 +238,7 @@ node tests/engine.test.js        # needs Node.js; ends with "27 passed, 0 failed
 
 No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs the same tests and prints the results on the page.
 
-A written manual test plan is **not in this repository yet**. Meanwhile, test the whole app by hand: open **Settings → Testing tools** (Admin and IT roles) to load the standard or the expanded multi-program sample, generate a schedule, and create deliberate conflicts of each kind to check that Conflict Detection and **Update affected classes** respond correctly. Mobile layout, printing, file downloads and loading the libraries from the internet must be checked by hand in real browsers.
+**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It has 72 step-by-step test cases with expected results for all four roles (sign-in and access, generation and approval, conflicts, editing, faculty, subjects and rooms, CSV, workload, availability and leave, history and reports, backup and reset, phone and browser checks), four end-to-end scenarios, a mapping to the ISO/IEC 25010 quality characteristics, and a results sheet and defect log. Mobile layout, printing, file downloads and loading the libraries from the internet must be checked by hand in real browsers. The Settings page has **Testing tools** (Admin and IT) to load the standard or the expanded sample and to create deliberate conflicts.
 
 ---
 

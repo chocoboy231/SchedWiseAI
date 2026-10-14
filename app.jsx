@@ -458,6 +458,69 @@ function saveState(data) {
   catch (e) { console.warn("localStorage write failed", e); }
 }
 
+/* ---------------------------------------------------------------------
+   4b. BACKUP & RESTORE (Settings → Backup and restore)
+   All data lives in ONE browser's localStorage, so clearing the browser's data
+   would lose it. A backup is a small .json file the user keeps. It holds the
+   data (faculty, subjects, rooms, schedule, history, requests, notifications)
+   but NOT who is signed in. parseBackup() checks a chosen file thoroughly BEFORE
+   anything is replaced, so a wrong or damaged file can never break the app.
+   --------------------------------------------------------------------- */
+const BACKUP_APP = "SchedWiseAI";
+const BACKUP_VERSION = 1;
+const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
+const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "curriculumAware", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind"];
+
+// makeBackup(state): the object that is written to the .json file.
+function makeBackup(state) {
+  const data = {};
+  BACKUP_KEYS.forEach(k => { data[k] = state[k] === undefined ? null : state[k]; });
+  return { app: BACKUP_APP, backupVersion: BACKUP_VERSION, exportedAt: new Date().toISOString(), data };
+}
+
+// downloadJSON(filename, object): same idea as downloadCSV, for a .json file.
+function downloadJSON(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 1)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// parseBackup(text) -> { error } or { data, counts, exportedAt }.
+// `data` has been through normalizeData(), exactly like data loaded at startup.
+function parseBackup(text) {
+  if (typeof text !== "string" || text.length > BACKUP_MAX_BYTES) return { error: "That file is empty or too large to be a SchedWiseAI backup." };
+  let b;
+  try { b = JSON.parse(text); } catch (e) { return { error: "That file is not valid JSON, so it cannot be a SchedWiseAI backup." }; }
+  if (!b || b.app !== BACKUP_APP || !b.data || typeof b.data !== "object") return { error: "That file is not a SchedWiseAI backup." };
+  if (!(b.backupVersion >= 1) || b.backupVersion > BACKUP_VERSION) return { error: "That backup was made by a newer version of SchedWiseAI and cannot be read by this one." };
+  const d = {};
+  BACKUP_KEYS.forEach(k => { if (b.data[k] !== undefined) d[k] = b.data[k]; });
+  const num = Number.isFinite, obj = x => x && typeof x === "object" && !Array.isArray(x);
+  const lists = { faculty: "faculty", rooms: "rooms", sections: "subjects" };
+  for (const k of Object.keys(lists)) {
+    if (!Array.isArray(d[k])) return { error: "The backup has no valid " + lists[k] + " list." };
+    if (!d[k].every(x => obj(x) && num(x.id))) return { error: "The " + lists[k] + " list in the backup has an entry without a valid id." };
+    if (new Set(d[k].map(x => x.id)).size !== d[k].length) return { error: "The " + lists[k] + " list in the backup has repeated ids." };
+  }
+  if (!d.faculty.every(f => typeof f.name === "string" && Array.isArray(f.specializations) && num(f.maxUnits))) return { error: "A faculty entry in the backup is incomplete." };
+  if (!d.rooms.every(r => typeof r.type === "string" && num(r.capacity))) return { error: "A room entry in the backup is incomplete." };
+  if (!d.sections.every(s => typeof s.requiredSpecialization === "string" && typeof s.roomTypeRequired === "string" && num(s.units) && num(s.enrolledStudents))) return { error: "A subject entry in the backup is incomplete." };
+  for (const k of ["leaveRequests", "notifications", "scheduleHistory", "activityLog"]) {
+    if (d[k] != null && !Array.isArray(d[k])) return { error: "The " + k + " part of the backup is damaged." };
+    d[k] = d[k] || [];
+  }
+  const goodGenes = (g, n) => Array.isArray(g) && g.length === n && g.every(x => obj(x) && num(x.facultyId) && num(x.roomId) && num(x.slotId));
+  if (d.result != null && !(obj(d.result) && goodGenes(d.result.genes, d.sections.length) && Array.isArray(d.result.convergence) && num(d.result.fitness))) return { error: "The saved schedule in the backup does not match its subject list, or is damaged." };
+  if (!d.scheduleHistory.every(h => obj(h) && goodGenes(h.genes, d.sections.length) && obj(h.violations))) return { error: "A schedule version in the backup's history does not match its subject list." };
+  if (d.result && !obj(d.result.violations)) d.result.violations = E.countViolations(d.faculty, d.rooms, d.sections, E.buildTimeSlots(), d.result.genes);
+  const data = normalizeData(d);
+  return { data, exportedAt: b.exportedAt || null,
+    counts: { faculty: data.faculty.length, sections: data.sections.length, rooms: data.rooms.length, hasSchedule: !!data.result, versions: data.scheduleHistory.length } };
+}
+
 // freshData(): creates a brand-new sample dataset (9 faculty, 18 sections, 6 rooms)
 // with a random seed, used on first visit and by "Reset Demo Data".
 function freshData(kind) {
@@ -1836,6 +1899,35 @@ function App() {
     pushNotification("Loaded " + (k === "expanded" ? "the expanded multi-program sample." : "the standard sample."));
   }
 
+  // Backup: download everything as a .json file (see section 4b above).
+  function handleDownloadBackup() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadJSON("schedwiseai-backup-" + stamp + ".json",
+      makeBackup({ faculty, rooms, sections, result, leaveRequests, curriculumAware, notifications, scheduleHistory, activityLog, chairDept, datasetKind }));
+    logActivity("Backup", "schedwiseai-backup-" + stamp + ".json (" + faculty.length + " faculty, " + sections.length + " subjects)");
+    return { ok: true, message: "Backup downloaded. Keep the file somewhere safe (for example a USB drive or cloud folder)." };
+  }
+  // Restore: the file is fully checked first; nothing changes unless it is valid AND the user confirms.
+  // Replaces the data only. Who is signed in, and as which role, stays as it is.
+  function handleRestoreBackup(text, fileName) {
+    const p = parseBackup(text);
+    if (p.error) return { ok: false, message: p.error };
+    const c = p.counts;
+    const when = p.exportedAt ? new Date(p.exportedAt).toLocaleString() : "an unknown date";
+    if (!confirm("Restore \"" + fileName + "\" (saved " + when + ")?\n\nIt contains " + c.faculty + " faculty, " + c.sections + " subjects, " + c.rooms + " rooms"
+      + (c.hasSchedule ? ", a schedule and " + c.versions + " saved version(s)" : ", and no schedule") + ".\n\nThis REPLACES all current data in this browser and cannot be undone. Download a backup first if you want to keep it.")) {
+      return { ok: false, message: "Restore cancelled. Nothing was changed." };
+    }
+    const n = p.data;
+    setFaculty(n.faculty); setRooms(n.rooms); setSections(n.sections); setResult(n.result || null);
+    setLeaveRequests(n.leaveRequests); setCurriculumAware(!!n.curriculumAware); setNotifications(n.notifications);
+    setScheduleHistory(n.scheduleHistory); setActivityLog(n.activityLog); setChairDept(n.chairDept || "All");
+    setDatasetKind(n.datasetKind === "expanded" ? "expanded" : "standard");
+    setTestLog([]); setSelectedFacultyId(null);
+    pushNotification("Restored data from backup \"" + fileName + "\".");
+    return { ok: true, message: "Restored " + c.faculty + " faculty, " + c.sections + " subjects and " + c.rooms + " rooms from \"" + fileName + "\"." };
+  }
+
   // Testing tools: deliberately add a conflict (or all of them) to the current schedule.
   // The result is recounted, sent back to "Pending Review", and flagged so testers can
   // try "Update affected classes" on it. Each step is logged and notified.
@@ -2080,6 +2172,7 @@ function App() {
             <SettingsPage role={role} hasSchedule={!!result} datasetKind={datasetKind}
               violationsTotal={result ? result.violations.total : 0}
               onLoadDataset={resetDemoData} onCreateTestConflict={handleCreateTestConflict}
+              onDownloadBackup={handleDownloadBackup} onRestoreBackup={handleRestoreBackup}
               testLog={testLog} onGoTo={goToPage} />
           )}
 
@@ -4171,8 +4264,19 @@ function ReportsPage({ faculty, rooms, sections, result, slotById }) {
 //   • Sample data: load the standard or the expanded multi-program sample.
 //   • Create test conflicts: break one rule on purpose (see makeTestConflict),
 //     then check Conflict Detection and try "Update affected classes".
-function SettingsPage({ role, hasSchedule, datasetKind, violationsTotal, onLoadDataset, onCreateTestConflict, testLog, onGoTo }) {
+function SettingsPage({ role, hasSchedule, datasetKind, violationsTotal, onLoadDataset, onCreateTestConflict, onDownloadBackup, onRestoreBackup, testLog, onGoTo }) {
   const canTest = role === "admin" || role === "it";
+  const [backupMsg, setBackupMsg] = useState(null);     // { ok, message } shown under the backup buttons
+  // Reads the chosen file as text and hands it to the app, which checks and restores it.
+  function onPickBackup(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";                                 // lets the same file be chosen again later
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setBackupMsg(onRestoreBackup(String(reader.result || ""), file.name));
+    reader.onerror = () => setBackupMsg({ ok: false, message: "The file could not be read." });
+    reader.readAsText(file);
+  }
   const btn = "text-left border border-slate-200 hover:border-amber-400 hover:bg-amber-50 rounded-lg px-3 py-2 text-sm text-slate-800 disabled:opacity-50 disabled:hover:bg-white";
   return (
     <div className="space-y-5 max-w-3xl">
@@ -4188,6 +4292,32 @@ function SettingsPage({ role, hasSchedule, datasetKind, violationsTotal, onLoadD
           Department Chair, Faculty Member, or IT Professional/Staff.
         </p>
       </div>
+
+      {canTest && (
+        <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-4">
+          <div>
+            <h2 className="font-semibold text-slate-900">Backup and restore</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Your data is stored only in this browser. Clearing the browser's site data, or using another browser or computer, loses it.
+              A backup is a small file you can keep or move to another browser.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button className={btn} onClick={() => setBackupMsg(onDownloadBackup())}>
+              <div className="font-medium">Download backup</div>
+              <div className="text-xs text-slate-500">Saves faculty, subjects, rooms, the schedule, history and requests as a .json file.</div>
+            </button>
+            <label className={btn + " cursor-pointer block focus-within:border-amber-400 focus-within:bg-amber-50"}>
+              <div className="font-medium">Restore from backup file…</div>
+              <div className="text-xs text-slate-500">Replaces all current data with a backup. The file is checked first.</div>
+              <input type="file" accept=".json,application/json" onChange={onPickBackup} className="sr-only" aria-label="Choose a backup file to restore" />
+            </label>
+          </div>
+          {backupMsg && (
+            <div role="status" className={"text-sm rounded-lg px-3 py-2 " + (backupMsg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800")}>{backupMsg.message}</div>
+          )}
+        </div>
+      )}
 
       {canTest && (
         <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-6">

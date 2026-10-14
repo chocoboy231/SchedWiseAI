@@ -62,6 +62,7 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 | **Notifications** | Bell icon with unread count for schedule, approval, request and import events. |
 | **Role-specific Overview pages** | A different landing page for each role showing what that role acts on. |
 | **Bulk CSV import/export** | Faculty, subjects and rooms. Each import page has a built-in example template. |
+| **Backup and restore** (Settings, Admin and IT) | Download all data (faculty, subjects, rooms, schedule, history, requests) as one `.json` file and restore it later, in the same or another browser. A restore file is fully checked first, and nothing changes unless it is valid and you confirm. Who is signed in is not part of a backup. |
 | **Mobile-friendly** | Collapsible sidebar and scrolling tables and pop-ups on phones. |
 
 ---
@@ -220,6 +221,7 @@ Every file has detailed explanatory comments. Start with the header comment in `
 | `generateExpandedData()` (engine) | The expanded multi-program sample. Seeded, so the same seed gives the same data. |
 | `loadStatusFor()`, `LOAD_RULES` | The single rule for a teacher's workload status: Overloaded (above maximum), Near capacity (80% or more), Underloaded (0 units), Light load (fewer than half the average units per teacher), otherwise Balanced. Every page uses it, so they always agree. |
 | `normalizeData()` | Upgrades data saved by older versions so nothing is lost. |
+| `makeBackup()`, `parseBackup()` | Build the backup file, and check a chosen file before it replaces any data. |
 | `downloadCSV()`, `parseCSV()` | CSV export and import helpers. |
 
 ---
@@ -243,6 +245,7 @@ A written manual test plan is **not in this repository yet**. Meanwhile, test th
 - All sample data is **synthetic**. Faculty names are randomly generated.
 - Everything you enter is stored in your own browser's `localStorage` (key `schedwiseai_prototype_v1`). **Nothing is sent to a server**, and each browser or device has its own separate data.
 - **Do not commit real faculty, student or schedule data** to this repository.
+- To keep a copy of your data, or move it to another browser, use **Settings → Backup and restore**. Backup files contain everything you entered, so treat them like the data itself.
 - To clear everything: use **Reset Demo Data**, or clear this site's storage in your browser's developer tools.
 
 ---

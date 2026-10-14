@@ -61,8 +61,8 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 | **Schedule History** | Keeps up to 20 versions (full and update) with a fitness comparison chart. Any version can be restored. |
 | **Notifications** | Bell icon with unread count for schedule, approval, request and import events. |
 | **Role-specific Overview pages** | A different landing page for each role showing what that role acts on. |
-| **Bulk CSV import/export** | Faculty, subjects and rooms. Each import page has a built-in example template. |
-| **Backup and restore** (Settings, Admin and IT) | Download all data (faculty, subjects, rooms, schedule, history, requests) as one `.json` file and restore it later, in the same or another browser. A restore file is fully checked first, and nothing changes unless it is valid and you confirm. Who is signed in is not part of a backup. |
+| **Bulk CSV import/export** | Faculty, subjects and rooms. Each import page has a built-in example template. Exported text that starts with `=`, `+`, `-` or `@` gets a leading apostrophe, so Excel or Google Sheets shows it as text instead of running it as a formula. |
+| **Backup and restore** (Settings, Admin and IT) | Download all data (faculty, subjects, rooms, schedule, history, requests) as one `.json` file and restore it later, in the same or another browser. A restore file is fully checked first (every entry and every displayed field), and nothing changes unless it is valid and you confirm. If saved data is ever damaged anyway, the app shows a recovery screen (download the saved data, or reset) instead of a blank page. Who is signed in is not part of a backup. |
 | **Mobile-friendly** | Collapsible sidebar and scrolling tables and pop-ups on phones. |
 
 ---

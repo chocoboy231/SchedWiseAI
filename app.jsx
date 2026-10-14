@@ -146,10 +146,15 @@ const NAV_ITEMS = [
 // Values containing commas, quotes, or line breaks are wrapped in quotes
 // (the standard CSV escaping rule). After downloading, it announces a
 // "schedwise:export" event so the IT overview can log the export.
+// Text that starts with = + - @ (or a tab / carriage return) would be run as a FORMULA by
+// Excel or Google Sheets (for example a teacher named =HYPERLINK(...)). Such text gets a
+// leading apostrophe, which spreadsheets hide and which makes them show it as plain text.
+// Real numbers are left alone, so -5 stays a number.
 function downloadCSV(filename, headers, rows) {
   const escape = (v) => {
-    const s = String(v == null ? "" : v);
-    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    let s = String(v == null ? "" : v);
+    if (typeof v !== "number" && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const lines = [headers.map(escape).join(",")].concat(rows.map(r => r.map(escape).join(",")));
   const csv = lines.join("\r\n");
@@ -498,23 +503,60 @@ function parseBackup(text) {
   if (!(b.backupVersion >= 1) || b.backupVersion > BACKUP_VERSION) return { error: "That backup was made by a newer version of SchedWiseAI and cannot be read by this one." };
   const d = {};
   BACKUP_KEYS.forEach(k => { if (b.data[k] !== undefined) d[k] = b.data[k]; });
-  const num = Number.isFinite, obj = x => x && typeof x === "object" && !Array.isArray(x);
-  const lists = { faculty: "faculty", rooms: "rooms", sections: "subjects" };
-  for (const k of Object.keys(lists)) {
-    if (!Array.isArray(d[k])) return { error: "The backup has no valid " + lists[k] + " list." };
-    if (!d[k].every(x => obj(x) && num(x.id))) return { error: "The " + lists[k] + " list in the backup has an entry without a valid id." };
-    if (new Set(d[k].map(x => x.id)).size !== d[k].length) return { error: "The " + lists[k] + " list in the backup has repeated ids." };
+  // Every field a page DISPLAYS is checked for the right type, because one wrong type
+  // (for example a notification whose message is an object) would stop the whole app
+  // from drawing, on every reload, until the browser's site data was cleared.
+  const num = Number.isFinite, str = x => typeof x === "string", obj = x => !!x && typeof x === "object" && !Array.isArray(x);
+  const opt = test => x => x == null || test(x);
+  const arrOf = test => x => Array.isArray(x) && x.every(test);
+  const optStr = opt(str), optNum = opt(num), numArr = arrOf(num), optNumArr = opt(numArr), strArr = arrOf(str);
+  const id = x => num(x) || str(x);
+  const gene = x => obj(x) && num(x.facultyId) && num(x.roomId) && num(x.slotId);
+  const slotId = x => x == null || (Number.isInteger(x) && x >= 0 && x < E.DAYS.length * E.PERIODS);
+  const checks = {
+    faculty: f => num(f.id) && str(f.name) && strArr(f.specializations) && num(f.maxUnits) && opt(strArr)(f.preferredDays)
+      && optNumArr(f.unavailableSlotIds) && optNumArr(f.preferredSlotIds) && optStr(f.employmentStatus) && optStr(f.academicRank),
+    rooms: r => num(r.id) && str(r.name) && str(r.type) && num(r.capacity),
+    sections: s => num(s.id) && str(s.subjectCode) && optStr(s.subjectName) && str(s.sectionName) && str(s.requiredSpecialization)
+      && ["online", "laboratory", "lecture"].includes(s.roomTypeRequired) && num(s.units) && num(s.enrolledStudents)
+      && optNum(s.yearLevel) && optStr(s.semester) && slotId(s.fixedSlotId) && optStr(s.prerequisiteCode)
+      && optStr(s.program) && optStr(s.schoolYear) && optStr(s.category),
+    leaveRequests: r => id(r.id) && num(r.facultyId) && str(r.type) && str(r.status) && optNumArr(r.slotIds) && optNumArr(r.preferredSlotIds)
+      && optNumArr(r.addedSlotIds) && optNumArr(r.addedPreferredSlotIds) && optStr(r.description) && optStr(r.dateFrom) && optStr(r.dateTo)
+      && optStr(r.decidedAt) && optStr(r.endedAt),
+    notifications: n => id(n.id) && str(n.message) && optStr(n.timestamp) && opt(x => typeof x === "boolean")(n.read),
+    activityLog: a => id(a.id) && str(a.kind) && str(a.detail) && optStr(a.timestamp),
+  };
+  const names = { faculty: "faculty", rooms: "room", sections: "subject", leaveRequests: "request", notifications: "notification", activityLog: "activity log" };
+  for (const k of ["leaveRequests", "notifications", "scheduleHistory", "activityLog"]) d[k] = d[k] == null ? [] : d[k];
+  for (const k of Object.keys(checks)) {
+    if (!Array.isArray(d[k])) return { error: "The " + names[k] + " list in the backup is missing or damaged." };
+    const bad = d[k].findIndex(x => !obj(x) || !checks[k](x));
+    if (bad >= 0) return { error: "Entry " + (bad + 1) + " of the " + names[k] + " list in the backup is damaged." };
   }
-  if (!d.faculty.every(f => typeof f.name === "string" && Array.isArray(f.specializations) && num(f.maxUnits))) return { error: "A faculty entry in the backup is incomplete." };
-  if (!d.rooms.every(r => typeof r.type === "string" && num(r.capacity))) return { error: "A room entry in the backup is incomplete." };
-  if (!d.sections.every(s => typeof s.requiredSpecialization === "string" && typeof s.roomTypeRequired === "string" && num(s.units) && num(s.enrolledStudents))) return { error: "A subject entry in the backup is incomplete." };
-  for (const k of ["leaveRequests", "notifications", "scheduleHistory", "activityLog"]) {
-    if (d[k] != null && !Array.isArray(d[k])) return { error: "The " + k + " part of the backup is damaged." };
-    d[k] = d[k] || [];
+  for (const k of ["faculty", "rooms", "sections"]) {
+    if (new Set(d[k].map(x => x.id)).size !== d[k].length) return { error: "The " + names[k] + " list in the backup has repeated ids." };
   }
-  const goodGenes = (g, n) => Array.isArray(g) && g.length === n && g.every(x => obj(x) && num(x.facultyId) && num(x.roomId) && num(x.slotId));
-  if (d.result != null && !(obj(d.result) && goodGenes(d.result.genes, d.sections.length) && Array.isArray(d.result.convergence) && num(d.result.fitness))) return { error: "The saved schedule in the backup does not match its subject list, or is damaged." };
-  if (!d.scheduleHistory.every(h => obj(h) && goodGenes(h.genes, d.sections.length) && obj(h.violations))) return { error: "A schedule version in the backup's history does not match its subject list." };
+  d.faculty = d.faculty.map(f => ({ ...f, preferredDays: f.preferredDays || [] }));
+  // A schedule (the current one or a saved version): its classes must match the subject list,
+  // and every value the Schedules, History and Reports pages show must have the right type.
+  const n = d.sections.length;
+  const trigger = t => obj(t) && optStr(t.kind) && optStr(t.reason) && optNum(t.facultyId) && optNumArr(t.slotIds) && optNumArr(t.preferredSlotIds);
+  const honoured = h => obj(h) && optStr(h.name) && optStr(h.slots) && optStr(h.prefSlots) && optNum(h.clashes) && optNum(h.moved) && optNum(h.inPref);
+  const change = c => obj(c) && Number.isInteger(c.index) && c.index >= 0 && c.index < n && gene(c.from) && gene(c.to);
+  const summary = u => obj(u) && arrOf(change)(u.changes) && optNum(u.moved) && optNum(u.unchanged) && optNum(u.shifted)
+    && opt(arrOf(honoured))(u.honoured) && opt(strArr)(u.reasons);
+  const schedule = s => obj(s) && Array.isArray(s.genes) && s.genes.length === n && s.genes.every(gene)
+    && arrOf(c => obj(c) && num(c.best) && num(c.avg))(s.convergence) && num(s.fitness)
+    && opt(v => obj(v) && Object.values(v).every(num) && num(v.total))(s.violations)
+    && optStr(s.approvalStatus) && optStr(s.approvalComment) && optStr(s.generatedAt) && optStr(s.kind) && opt(id)(s.id)
+    && optNum(s.elapsedMs) && optNum(s.curriculumConflicts) && opt(obj)(s.settings)
+    && opt(r => obj(r) && optStr(r.reason) && opt(arrOf(trigger))(r.triggers))(s.needsRegeneration)
+    && opt(summary)(s.updateSummary);
+  if (d.result != null && !schedule(d.result)) return { error: "The saved schedule in the backup does not match its subject list, or is damaged." };
+  const badVersion = d.scheduleHistory.findIndex(h => !schedule(h) || !obj(h.violations));
+  if (badVersion >= 0) return { error: "Version " + (badVersion + 1) + " in the backup's schedule history does not match its subject list, or is damaged." };
+  if (!optStr(d.chairDept) || !optStr(d.datasetKind)) return { error: "The settings part of the backup is damaged." };
   if (d.result && !obj(d.result.violations)) d.result.violations = E.countViolations(d.faculty, d.rooms, d.sections, E.buildTimeSlots(), d.result.genes);
   const data = normalizeData(d);
   return { data, exportedAt: b.exportedAt || null,
@@ -4406,5 +4448,48 @@ function SettingsPage({ role, hasSchedule, datasetKind, violationsTotal, onLoadD
   );
 }
 
+// AppErrorBoundary: if the app ever fails to draw (for example because saved data is
+// damaged), React would otherwise show a blank page on every reload. Instead this shows
+// a recovery screen: download the saved data as it is, then reset to fresh sample data.
+// It uses plain inline styles so it still looks right if something else failed.
+class AppErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("SchedWiseAI could not start:", error, info && info.componentStack); }
+  downloadRaw() {
+    let raw = null;
+    try { raw = localStorage.getItem("schedwiseai_prototype_v1"); } catch (e) { /* storage blocked */ }
+    const blob = new Blob([raw || "{}"], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "schedwiseai-saved-data-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  reset() {
+    if (!confirm("Delete the saved data in this browser and start again with fresh sample data?\n\nDownload the saved data first if you may need it.")) return;
+    try { localStorage.removeItem("schedwiseai_prototype_v1"); } catch (e) { /* storage blocked */ }
+    location.reload();
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    const btn = { padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontSize: 14, cursor: "pointer", margin: "4px 8px 4px 0" };
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#eef1f8", padding: 16, fontFamily: "system-ui, sans-serif" }}>
+        <div role="alert" style={{ background: "#fff", borderRadius: 16, padding: 24, maxWidth: 480, width: "100%", boxShadow: "0 1px 3px rgba(0,0,0,.1)", color: "#0f172a" }}>
+          <h1 style={{ fontSize: 18, fontWeight: 600, margin: "0 0 8px" }}>SchedWiseAI could not start</h1>
+          <p style={{ fontSize: 14, color: "#475569", lineHeight: 1.5, margin: "0 0 16px" }}>
+            The data saved in this browser seems to be damaged, possibly by a faulty backup file. Download the saved data
+            (to keep a copy, or to send to whoever supports this system), then reset to fresh sample data.
+          </p>
+          <button style={btn} onClick={() => this.downloadRaw()}>Download saved data</button>
+          <button style={{ ...btn, background: "#fbbf24", borderColor: "#fbbf24", fontWeight: 600 }} onClick={() => this.reset()}>Reset to sample data</button>
+          <button style={btn} onClick={() => location.reload()}>Try again</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 // Start the app: draw <App /> inside the <div id="root"> in index.html.
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<AppErrorBoundary><App /></AppErrorBoundary>);

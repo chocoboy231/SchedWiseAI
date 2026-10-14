@@ -125,7 +125,7 @@ Then open the address it prints. Without Node.js, use the **Live Server** extens
 
 ## How the AI works
 
-*The first step builds a starting schedule with a greedy method that respects the rules wherever it can. The Genetic Algorithm then improves a whole group of candidate schedules.*
+*The first step builds a starting schedule with a greedy method that respects the rules wherever it can. The Genetic Algorithm then improves a whole group of candidate schedules. Step-by-step flowcharts of full generation, scoring and the incremental update are in [`docs/FLOWCHART.md`](docs/FLOWCHART.md).*
 
 ### Representation
 
@@ -153,6 +153,7 @@ A schedule is a list of **genes**, one per subject section. Each gene is `{ facu
 | Each hard-rule violation | −1000 |
 | Variance of teaching units between teachers | −2 × variance |
 | Share of classes on the teacher's preferred days | +50 × share |
+| Share of classes in times a teacher asked for in an approved "prefer instead" request (0 if nobody has) | +60 × share |
 | Average empty seats per class (online classes count as 0) | −0.5 × average |
 | Same-program, same-year/semester overlap (curriculum-aware only) | −150 each |
 
@@ -162,7 +163,7 @@ Because 1000 is far larger than every other term, the algorithm always prefers a
 
 1. Find the classes that now break a rule (`findConflictingIndices`). If none, nothing changes.
 2. **Freeze** every other class.
-3. Re-place each affected class greedily, keeping the same teacher and room whenever possible. If no free spot exists, shift the single class blocking the best option and undo if that fails.
+3. Re-place each affected class greedily, keeping the same teacher and room whenever possible. If no free spot exists, move the one or two classes blocking the best option (the teacher's and the room's) to free spots of their own, and undo if that fails.
 4. Run a small Genetic Algorithm on **only** those classes, with a *stability penalty* that prefers the smallest change.
 
 In one check on 40 generated sample datasets (955 classes in total), where one teacher blocked a whole day, 77 classes had to move. The update moved exactly those 77 and respected the request in all 40 datasets, whereas a full regeneration moved 819 classes. Exact numbers vary from run to run because the algorithm is random.
@@ -182,6 +183,7 @@ schedwiseai/
 │   ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
 │   └── run.html            Runs those tests in a browser page
 └── docs/
+    ├── FLOWCHART.md        Flowcharts of the optimization engine (full generation, scoring, update)
     └── TESTING_GUIDE.md    Step-by-step manual test plan, with a results sheet
 ```
 

@@ -22,16 +22,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SchedWiseAI Prototype</title>
 
-<!-- Styling -->
-<script src="https://cdn.tailwindcss.com"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Styling. Every third-party file comes from the vendor/ folder (see vendor/README.md),
+     so the app works with NO internet connection. -->
+<script src="vendor/tailwind-3.4.17.js"></script>
+<link rel="stylesheet" href="vendor/inter.css">
 <link rel="stylesheet" href="styles.css">
 
 <!-- React + Babel (lets the browser run the .jsx file directly, no build step needed) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
 </head>
 <body>
 <!-- React renders the entire application inside this empty div. -->

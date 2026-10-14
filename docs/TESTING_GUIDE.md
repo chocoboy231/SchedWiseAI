@@ -30,7 +30,7 @@ A step-by-step manual test plan for the whole system. It is written for responde
 
 **What you need**
 
-- A modern browser (Chrome, Edge, Firefox or Safari) and an internet connection. The app loads React, Tailwind and a font from the internet.
+- A modern browser (Chrome, Edge, Firefox or Safari). No internet connection is needed once the app is being served: its libraries and font are stored in the `vendor/` folder.
 - The app open in the browser. Use the published site, or serve the folder and open it (see the README, *Getting started*). Opening `index.html` by double-clicking usually does not work.
 - For section M only: Node.js, or the `tests/run.html` page.
 
@@ -528,10 +528,10 @@ These must be checked by hand in real browsers and on a real phone.
 *Expected:* Controls can be reached and used. The focused control is visible.
 ☐ Pass ☐ Fail
 
-**L5. Without internet**
-1. Turn the internet off and reload.
+**L5. Works without internet**
+1. Serve the app on the same computer (for example with Live Server or `npx serve`), then switch the internet off (airplane mode or unplug the cable) and reload the page. Sign in and generate a schedule.
 
-*Expected:* The app does not load (it needs the internet for its libraries). This is a known limit; note what you see.
+*Expected:* The app loads fully styled in the Inter font and everything works as normal. (A copy published on the web needs the internet to reach the page itself; the libraries are not the problem.)
 ☐ Pass ☐ Fail
 
 ---
@@ -600,7 +600,7 @@ If your study evaluates the system against the ISO/IEC 25010 product quality mod
 
 ## Known limits (do not report these)
 
-Please read the README section *Limitations and known issues*. Examples: it needs the internet to load its libraries, data lives only in one browser, and sign-in has no password.
+Please read the README section *Limitations and known issues*. Examples: data lives only in one browser, and sign-in has no password.
 
 ---
 

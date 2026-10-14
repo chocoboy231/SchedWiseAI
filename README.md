@@ -91,7 +91,7 @@ There are four roles, matching the study's respondent groups. Access is controll
 ### Requirements
 
 - A modern browser (Chrome, Edge, Firefox or Safari)
-- **An internet connection**: React, Babel, Tailwind CSS and the Inter font are loaded from CDNs
+- **No internet needed to run the app** once it is being served: React, Babel, Tailwind CSS and the Inter font are stored in the `vendor/` folder
 - To run `npx serve` or the Node test command: [Node.js](https://nodejs.org) 16 or newer *(optional)*
 
 ### Option A: publish with GitHub Pages (recommended)
@@ -177,6 +177,7 @@ schedwiseai/
 ├── engine.js               The scheduling engine (Genetic Algorithm, rule checker, update logic)
 ├── app.jsx                 The user interface (React): all pages, forms and state
 ├── styles.css              Global styles, colours and print rules
+├── vendor/                 Third-party libraries and the Inter font, stored locally so the app works offline
 ├── tests/
 │   ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
 │   └── run.html            Runs those tests in a browser page
@@ -238,7 +239,7 @@ node tests/engine.test.js        # needs Node.js; ends with "27 passed, 0 failed
 
 No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs the same tests and prints the results on the page.
 
-**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It has 72 step-by-step test cases with expected results for all four roles (sign-in and access, generation and approval, conflicts, editing, faculty, subjects and rooms, CSV, workload, availability and leave, history and reports, backup and reset, phone and browser checks), four end-to-end scenarios, a mapping to the ISO/IEC 25010 quality characteristics, and a results sheet and defect log. Mobile layout, printing, file downloads and loading the libraries from the internet must be checked by hand in real browsers. The Settings page has **Testing tools** (Admin and IT) to load the standard or the expanded sample and to create deliberate conflicts.
+**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It has 72 step-by-step test cases with expected results for all four roles (sign-in and access, generation and approval, conflicts, editing, faculty, subjects and rooms, CSV, workload, availability and leave, history and reports, backup and reset, phone and browser checks), four end-to-end scenarios, a mapping to the ISO/IEC 25010 quality characteristics, and a results sheet and defect log. Mobile layout, printing, file downloads and running with the internet switched off must be checked by hand in real browsers. The Settings page has **Testing tools** (Admin and IT) to load the standard or the expanded sample and to create deliberate conflicts.
 
 ---
 
@@ -275,7 +276,7 @@ This is a research prototype. Please read this list before relying on it.
 ## Technology
 
 - **React 18** (UMD build) with **Babel Standalone**, so there is no build step
-- **Tailwind CSS** (CDN) and the **Inter** font
+- **Tailwind CSS** (in-browser build) and the **Inter** font. These and React and Babel are stored in `vendor/` (see `vendor/README.md` for versions and licenses), so the app works offline
 - Plain JavaScript for the engine; charts are hand-drawn SVG
 - The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and `node tests/engine.test.js`
 - The whole system is written in **HTML, CSS and JavaScript**, with no server code and no database

@@ -678,13 +678,15 @@ function FacultyModal({ initial, onSave, onClose }) {
         className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
           if (!name.trim() || specs.length === 0) return;
+          // Start from the existing record, so fields this form does not edit are kept:
+          // unavailable times and "prefer instead" times from approved requests.
           onSave({
+            ...(initial || { unavailableSlotIds: [], preferredSlotIds: [] }),
             id: initial ? initial.id : Date.now(),
             name: name.trim(),
             specializations: specs,
             maxUnits,
             preferredDays,
-            unavailableSlotIds: initial ? initial.unavailableSlotIds : [],
             employmentStatus,
             academicRank,
           });

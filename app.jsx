@@ -994,7 +994,7 @@ function SlotPicker({ timeSlots, selected, onToggle, onToggleDay, unavailable, c
 // picking time slots on the weekly grid.
 //   Availability Change = a lasting change to the teacher's weekly hours.
 //   Leave Request       = temporary; once approved the slots are blocked
-//                         until an admin/chair presses "End Leave".
+//                         until an admin/chair presses "End Leave" (an availability change: "Undo change").
 // If lockedFacultyId is set (Faculty role) the request is for that person
 // only; otherwise a dropdown lets an admin file on someone's behalf.
 // Nothing changes until an Admin/Chair approves — see handleRequestDecision in App().
@@ -1829,6 +1829,7 @@ function App() {
     if (!req) return;
     const fac = faculty.find(f => f.id === req.facultyId);
     let addedSlotIds = [];
+    let addedPreferredSlotIds = [];
     let clashes = 0;
     if (status === "Approved" && fac) {
       const current = fac.unavailableSlotIds || [];
@@ -1837,6 +1838,8 @@ function App() {
       // "Prefer instead" times are saved on the teacher (minus any time now blocked).
       // The engine places this teacher's moved classes there first.
       const preferredNow = Array.from(new Set((fac.preferredSlotIds || []).concat(req.preferredSlotIds || []))).filter(sid => !blockedNow.includes(sid));
+      // Remember which preferred times THIS request added, so undoing it can take back exactly those.
+      addedPreferredSlotIds = preferredNow.filter(sid => !(fac.preferredSlotIds || []).includes(sid));
       const updatedFaculty = faculty.map(f => f.id === fac.id ? { ...f, unavailableSlotIds: blockedNow, preferredSlotIds: preferredNow } : f);
       setFaculty(updatedFaculty);
       // How many of this teacher's current classes now fall in a blocked slot?
@@ -1850,7 +1853,7 @@ function App() {
         });
       }
     }
-    setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, status, addedSlotIds, decidedAt: new Date().toISOString() } : r));
+    setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, status, addedSlotIds, addedPreferredSlotIds, decidedAt: new Date().toISOString() } : r));
     pushNotification(req.type + " for " + (fac ? fac.name : "faculty") + " was " + status.toLowerCase() +
       (status !== "Approved" ? "." :
         clashes > 0 ? " — " + clashes + " class(es) must move, so the schedule needs an update." :
@@ -1858,24 +1861,41 @@ function App() {
         "."));
   }
 
-  // End an approved leave early/on time: remove ONLY the slots that leave added,
-  // then flag the schedule so the teacher can be given classes in those times again.
-  function handleEndLeave(id) {
+  // End an approved request: a LEAVE that is over, or an AVAILABILITY CHANGE that is undone.
+  // Removes ONLY what that request added (its blocked times and the preferred times it
+  // saved), so the teacher can be given classes in those times by the next full regenerate.
+  // A time that another still-approved request of the same teacher also blocks stays blocked.
+  function handleEndRequest(id) {
     const req = leaveRequests.find(r => r.id === id);
-    if (!req) return;
+    if (!req || req.status !== "Approved") return;
+    const isLeave = req.type === "Leave Request";
     const fac = faculty.find(f => f.id === req.facultyId);
+    const stillBlocked = new Set();
+    leaveRequests.forEach(o => { if (o.id !== id && o.facultyId === req.facultyId && o.status === "Approved") (o.slotIds || []).forEach(s => stillBlocked.add(s)); });
+    const remove = (req.addedSlotIds || []).filter(sid => !stillBlocked.has(sid));
+    const removePref = req.addedPreferredSlotIds || [];
+    // A time kept because another approved request also blocks it now belongs to THAT request,
+    // so ending that one later frees it (otherwise it would stay blocked for good).
+    const handOver = {};
+    (req.addedSlotIds || []).filter(sid => stillBlocked.has(sid)).forEach(sid => {
+      const o = leaveRequests.find(x => x.id !== id && x.facultyId === req.facultyId && x.status === "Approved" && (x.slotIds || []).includes(sid));
+      if (o) (handOver[o.id] = handOver[o.id] || []).push(sid);
+    });
+    if (!confirm((isLeave ? "End this leave" : "Undo this availability change") + (fac ? " for " + fac.name : "") + "?\n\n"
+      + (remove.length ? describeSlots(remove, slotById) + " will be available again." : "No times will be freed (another approved request still blocks them).")
+      + "\nThe current schedule is not changed. Use Full Regenerate if you want the AI to use these times again.")) return;
     if (fac) {
-      const remove = req.addedSlotIds || [];
       const updatedFaculty = faculty.map(f => f.id === fac.id
-        ? { ...f, unavailableSlotIds: (f.unavailableSlotIds || []).filter(sid => !remove.includes(sid)) } : f);
+        ? { ...f, unavailableSlotIds: (f.unavailableSlotIds || []).filter(sid => !remove.includes(sid)),
+            preferredSlotIds: (f.preferredSlotIds || []).filter(sid => !removePref.includes(sid)) } : f);
       setFaculty(updatedFaculty);
-      flagForUpdate(updatedFaculty, sections, {
-        kind: "freed", facultyId: fac.id, slotIds: remove,
-        reason: fac.name + " is back from leave (" + describeSlots(remove, slotById) + " available again).",
-      });
+      // The schedule is NOT flagged: freeing a time cannot create a conflict, so "Update affected
+      // classes" would have nothing to move. A full regenerate is what can use the freed times.
     }
-    setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, status: "Ended" } : r));
-    pushNotification("Leave ended for " + (fac ? fac.name : "faculty") + " — schedule can be updated.");
+    setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, status: "Ended", endedAt: new Date().toISOString() }
+      : handOver[r.id] ? { ...r, addedSlotIds: (r.addedSlotIds || []).concat(handOver[r.id]) } : r));
+    pushNotification((isLeave ? "Leave ended for " : "Availability change undone for ") + (fac ? fac.name : "faculty")
+      + (result ? ". The current schedule is unchanged; use Full Regenerate if you want the AI to use the freed times." : "."));
   }
 
   // Opens the picker. lockedId = the only faculty member the request may be for
@@ -2118,7 +2138,7 @@ function App() {
               onViewSchedule={f => { setSelectedFacultyId(f.id); setScheduleTab("faculty"); setPage("schedules"); }}
               onNewRequest={() => openRequestPicker(null)}
               onUpdateRequestStatus={handleRequestDecision}
-              onEndLeave={handleEndLeave}
+              onEndRequest={handleEndRequest}
               slotById={slotById}
             />
           )}
@@ -2908,7 +2928,7 @@ function loadStatusFor(facultyMember, sections, result, faculty) {
 //   "Leave & Availability" — all requests with the requested time slots.
 //                            Admin/Chair can Approve (blocks those slots for the
 //                            teacher), Deny, or End an approved leave.
-function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onImport, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus, onEndLeave, slotById }) {
+function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onImport, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus, onEndRequest, slotById }) {
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   return (
     <div className="space-y-4">
@@ -2994,9 +3014,12 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
                           <button onClick={()=>onUpdateRequestStatus(r.id, "Denied")} className="text-xs font-medium text-rose-700 hover:underline">Deny</button>
                         </>
                       )}
-                      {/* An approved LEAVE can be ended; this makes its time slots available again. */}
-                      {role !== "faculty" && r.status === "Approved" && r.type === "Leave Request" && (
-                        <button onClick={()=>onEndLeave(r.id)} className="text-xs font-medium text-slate-600 hover:underline">End Leave</button>
+                      {/* An approved request can be ended: a LEAVE is ended, an AVAILABILITY CHANGE is undone.
+                          Either way its time slots become available again. */}
+                      {role !== "faculty" && r.status === "Approved" && (
+                        <button onClick={()=>onEndRequest(r.id)} className="text-xs font-medium text-slate-600 hover:underline">
+                          {r.type === "Leave Request" ? "End Leave" : "Undo change"}
+                        </button>
                       )}
                     </div>
                   </div>

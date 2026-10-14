@@ -47,7 +47,19 @@
    ===================================================================== */
 
 // Pull React's "hooks" out of the global React object (loaded from a CDN in index.html).
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useMemo } = React;
+
+// stripTitle(name): drops leading titles so "Dr. Maria Cruz" -> "Maria Cruz".
+// firstName(name): the first real name ("Maria"); initials(name): up to two letters.
+// Without this, a sign-in name like "Dr. Maria" greeted the user as just "Dr.".
+const NAME_TITLES = /^(dr|dra|engr|prof|mr|mrs|ms|mx|atty|sir|madam|ma'am)\.?$/i;
+function stripTitle(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  const i = parts.findIndex(p => !NAME_TITLES.test(p));
+  return (i === -1 ? parts : parts.slice(i)).join(" ");   // a name that is ALL titles is left as typed
+}
+function firstName(name) { return stripTitle(name).split(" ")[0]; }
+function initials(name) { return stripTitle(name).split(" ").map(p => p[0]).slice(0, 2).join(""); }
 // Shortcut to the scheduling engine defined in engine.js (E.runGA, E.DAYS, etc.).
 const E = window.SchedEngine;
 
@@ -797,7 +809,7 @@ function FacultyProfileModal({ faculty, sections, result, slotById, onClose }) {
     <Modal title="Faculty Profile" onClose={onClose}>
       <div className="flex items-center gap-3 mb-4">
         <div className="w-12 h-12 rounded-full bg-amber-400 flex items-center justify-center text-[#0b1d4a] font-semibold text-lg shrink-0">
-          {faculty.name.split(" ").map(p=>p[0]).slice(0,2).join("")}
+          {initials(faculty.name)}
         </div>
         <div>
           <div className="font-semibold text-slate-900">{faculty.name}</div>
@@ -1462,7 +1474,18 @@ function App() {
   const [rooms, setRooms] = useState(init.rooms);
   const [sections, setSections] = useState(init.sections);
   const [timeSlots] = useState(init.timeSlots);   // Mon–Sat × 6 periods (from normalizeData)
-  const [result, setResult] = useState(init.result);      // the CURRENT schedule (output of the GA), or null
+  const [storedResult, setResult] = useState(init.result);   // the CURRENT schedule (output of the GA), or null
+  // `result` is what every page reads. Its conflict counts are recalculated from the
+  // CURRENT teachers, rooms and subjects, so editing any of them (a maximum, a
+  // specialization, a room's type or size...) updates the "Conflict-free" label and
+  // the Conflicts page straight away instead of only after the next generate/edit.
+  // The check is skipped if the schedule and subject list are out of step (the saved
+  // counts are kept), because the rule checker reads sections[i] for every gene.
+  const result = useMemo(() => {
+    if (!storedResult || !storedResult.genes || storedResult.genes.length !== sections.length) return storedResult;
+    const violations = E.countViolations(faculty, rooms, sections, timeSlots, storedResult.genes);
+    return { ...storedResult, violations, feasible: violations.total === 0 };
+  }, [storedResult, faculty, rooms, sections, timeSlots]);
   const [role, setRole] = useState(init.role || "admin"); // which role is signed in
   const [page, setPage] = useState("dashboard");          // which page is on screen
 
@@ -1525,10 +1548,10 @@ function App() {
   // Keep the matching history entry in sync with the live schedule, so approvals and
   // manual edits are preserved when a version is restored later.
   useEffect(() => {
-    if (result && result.id) {
-      setScheduleHistory(prev => prev.map(h => (h.id === result.id ? result : h)));
+    if (storedResult && storedResult.id) {
+      setScheduleHistory(prev => prev.map(h => (h.id === storedResult.id ? storedResult : h)));
     }
-  }, [result]);
+  }, [storedResult]);
 
   // Adds a new unread notification to the top of the bell list.
   // Math.random() is added to the id so two notifications in the same
@@ -1559,10 +1582,12 @@ function App() {
       setScheduleHistory(prev => [stamped, ...prev].slice(0, 20));
       setGenerating(false);
       setPage("schedules");
+      const overloaded = faculty.filter(f => assignedUnits(f, sections, stamped) > f.maxUnits).length;
       pushNotification(
-        stamped.feasible
-          ? "New schedule generated — fully conflict-free, awaiting approval."
-          : "New schedule generated with " + stamped.violations.total + " unresolved conflict(s)."
+        (stamped.feasible
+          ? "New schedule generated — no rule conflicts, awaiting approval."
+          : "New schedule generated with " + stamped.violations.total + " unresolved conflict(s).")
+        + (overloaded ? " " + overloaded + " teacher(s) are over their maximum units." : "")
       );
     }, 60);
   }
@@ -1930,7 +1955,7 @@ function App() {
           </select>
           <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-white/5">
             <div className="w-8 h-8 rounded-full bg-amber-400 flex items-center justify-center text-[#0b1d4a] font-semibold text-xs shrink-0">
-              {currentUserName.split(" ").map(p=>p[0]).slice(0,2).join("")}
+              {initials(currentUserName)}
             </div>
             <div className="min-w-0">
               <div className="text-white text-[13px] font-medium leading-tight truncate">{currentUserName}</div>
@@ -2272,7 +2297,7 @@ function AdminOverview(props) {
 
   return (
     <div className="space-y-6">
-      <OverviewHero eyebrow="Academic Administrator" title={"Welcome back, " + userName.split(" ")[0]}
+      <OverviewHero eyebrow="Academic Administrator" title={"Welcome back, " + firstName(userName)}
         subtitle="Here's what needs your attention across the institution today.">
         <GenerateButton generating={generating} onGenerate={onGenerate} />
         {result && <span className="text-sm text-slate-200 flex items-center gap-2">Current schedule: <ApprovalBadge status={result.approvalStatus} /></span>}
@@ -2365,7 +2390,7 @@ function ChairOverview(props) {
 
   return (
     <div className="space-y-6">
-      <OverviewHero eyebrow="Department Chair" title={"Welcome back, " + userName.split(" ")[0]}
+      <OverviewHero eyebrow="Department Chair" title={"Welcome back, " + firstName(userName)}
         subtitle="Review schedules and faculty requests for your department in one place.">
         <GenerateButton generating={generating} onGenerate={onGenerate} />
         <label className="flex items-center gap-2 text-sm text-slate-200">
@@ -2497,7 +2522,7 @@ function FacultyOverview(props) {
 
   return (
     <div className="space-y-6">
-      <OverviewHero eyebrow="Faculty Member" title={"Welcome back, " + myFaculty.name.split(" ")[0]}
+      <OverviewHero eyebrow="Faculty Member" title={"Welcome back, " + firstName(myFaculty.name)}
         subtitle={myFaculty.academicRank ? myFaculty.academicRank + " · " + (myFaculty.employmentStatus || "") : "Your teaching schedule and requests at a glance."}>
         <button onClick={() => onNavigate("schedules")}
           className="bg-amber-400 text-[#0b1d4a] font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-amber-300 transition-colors flex items-center gap-2">
@@ -2608,7 +2633,7 @@ function ITOverview(props) {
 
   return (
     <div className="space-y-6">
-      <OverviewHero eyebrow="IT Professional / Staff" title={"Welcome back, " + userName.split(" ")[0]}
+      <OverviewHero eyebrow="IT Professional / Staff" title={"Welcome back, " + firstName(userName)}
         subtitle="System health, AI engine performance, and data operations.">
         <GenerateButton generating={generating} onGenerate={onGenerate} />
         <button onClick={() => onNavigate("reports")}
@@ -3207,7 +3232,7 @@ function DepartmentsPage({ faculty, sections, result }) {
                             <div>
                               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Workload Distribution</h4>
                               <BarChart
-                                data={stats.facultyStats.map(fs => ({ label: fs.faculty.name.split(" ")[0], value: fs.assigned }))}
+                                data={stats.facultyStats.map(fs => ({ label: firstName(fs.faculty.name), value: fs.assigned }))}
                                 colorFn={(d, i) => "#1e3a8a"}
                               />
                             </div>
@@ -3464,15 +3489,20 @@ function CurriculumToggle({ curriculumAware, setCurriculumAware }) {
 //   "Full regenerate"         — builds a brand-new schedule from scratch.
 // Faculty are only told that an update is coming.
 function RegenerationBanner({ result, canEdit, generating, onGenerate, onUpdate }) {
-  if (!result || !result.needsRegeneration) return null;
-  const n = (result.needsRegeneration.triggers || []).length;
+  // Also shown when the live conflict count is above zero but nothing flagged a change
+  // (for example a teacher or room was edited directly), so the fix is one click away.
+  const flagged = !!(result && result.needsRegeneration);
+  if (!result || (!flagged && result.violations.total === 0)) return null;
+  const n = flagged ? (result.needsRegeneration.triggers || []).length : 0;
   return (
     <div className="no-print bg-orange-50 border border-orange-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div className="flex items-start gap-2 text-sm text-orange-900">
         <IconAlertCircle size={18} className="text-orange-700 shrink-0 mt-0.5" />
         <div>
-          <div className="font-semibold">Schedule needs an update</div>
-          <div>{result.needsRegeneration.reason}{n > 1 ? " (+" + (n - 1) + " earlier change" + (n > 2 ? "s" : "") + ")" : ""}</div>
+          <div className="font-semibold">{flagged ? "Schedule needs an update" : "Conflicts found in this schedule"}</div>
+          <div>{flagged
+            ? result.needsRegeneration.reason + (n > 1 ? " (+" + (n - 1) + " earlier change" + (n > 2 ? "s" : "") + ")" : "")
+            : result.violations.total + " rule violation(s) in this schedule. Update affected classes moves only the classes involved."}</div>
         </div>
       </div>
       {canEdit ? (
@@ -3637,6 +3667,9 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
 
   const periods = Array.from({length: E.PERIODS}, (_,i) => i+1);
   const unscheduledCount = result.violations.unscheduled || 0;
+  // Overload is not one of the hard rules the engine fixes, so it is flagged here
+  // instead: "Conflict-free" no longer hides a teacher who is over their maximum.
+  const overloadedTeachers = faculty.filter(f => assignedUnits(f, sections, result) > f.maxUnits);
   // Classes moved by the last "Update affected classes" get an amber outline in the grid.
   const movedSet = new Set(result.kind === "update" && result.updateSummary ? result.updateSummary.changes.map(c => c.index) : []);
 
@@ -3649,6 +3682,12 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
           <span className={"text-sm font-medium px-3 py-1.5 rounded-lg " + (result.feasible ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>
             {result.feasible ? "✓ Conflict-free" : "⚠ " + result.violations.total + " conflicts remaining"}
           </span>
+          {overloadedTeachers.length > 0 && (
+            <span className="text-sm font-medium px-3 py-1.5 rounded-lg bg-orange-50 text-orange-700"
+              title={overloadedTeachers.map(f => f.name).join(", ")}>
+              ⚠ {overloadedTeachers.length} teacher{overloadedTeachers.length > 1 ? "s" : ""} over maximum units
+            </span>
+          )}
           {result.curriculumAware && (
             <span className={"text-sm font-medium px-3 py-1.5 rounded-lg " + (result.curriculumConflicts === 0 ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700")}>
               Curriculum: {result.curriculumConflicts === 0 ? "no overlaps" : result.curriculumConflicts + " overlaps"}
@@ -4047,7 +4086,7 @@ function ReportsPage({ faculty, rooms, sections, result, slotById }) {
   const unitsByFaculty = {};
   faculty.forEach(f => unitsByFaculty[f.id] = 0);
   result.genes.forEach((g,i) => { if (g.facultyId !== -1) unitsByFaculty[g.facultyId] = (unitsByFaculty[g.facultyId]||0) + sections[i].units; });
-  const workloadData = faculty.map(f => ({ label: f.name.split(" ")[0], value: unitsByFaculty[f.id] || 0 }));
+  const workloadData = faculty.map(f => ({ label: firstName(f.name), value: unitsByFaculty[f.id] || 0 }));
 
   const roomUsage = {};
   rooms.forEach(r => roomUsage[r.id] = 0);

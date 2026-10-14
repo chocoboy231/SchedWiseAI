@@ -249,13 +249,12 @@ This is a research prototype. Please read this list before relying on it.
 - Access control is enforced in the interface only, and data lives in the browser, so this is **not a security model**.
 
 **Behaviour to be aware of**
-- **Conflict counts are a snapshot.** The "Conflict-free" label and the Conflict Detection page reflect the last time the schedule was generated, edited or updated. Editing a teacher (for example their maximum units or specializations) or a room updates the Faculty, Workload and Departments pages immediately, but the conflict counts only refresh after the next generate, edit or update.
+- **Conflict counts are live.** The "Conflict-free" label and the Conflict Detection page are recalculated whenever a teacher, room or subject changes. If an edit creates a conflict, the schedule page shows a banner with **Update affected classes**. (The counts saved in *Schedule History* are a snapshot from when each version was made.)
 - **Fixed times can make a schedule impossible.** If more subjects are pinned to the same day and period than there are qualified teachers, the schedule shows teacher double-booking conflicts. The app reports this rather than hiding it.
 - **Load status mixes two comparisons.** Overloaded and Near capacity compare a teacher with their own maximum; Light load compares them with colleagues (fewer than half the average units per teacher). The 80% cutoff and the "half the average" line are prototype settings, and only teaching units are counted. The Workload page explains the rules with the current numbers.
-- **Overload is reported but not treated as a conflict.** A teacher above their maximum units shows as *Overloaded* on the Workload, Faculty and Departments pages, but the schedule can still be labelled *Conflict-free*. This does not occur with the default sample data, but does when there are too few teachers for the number of subjects.
+- **Overload is a warning, not a conflict.** A teacher above their maximum units shows as *Overloaded* on the Workload, Faculty and Departments pages, and the schedule page adds an orange "teachers over maximum units" badge next to the *Conflict-free* label. The engine does not try to remove overload, so it can still occur when there are too few teachers for the number of subjects. This does not happen with the default sample data.
 - IT staff can approve or deny leave requests, although schedule approval is limited to administrators and chairs.
 - Approved *availability changes* cannot be undone from the interface (only *leave* has **End Leave**). Use **Reset Demo Data** to start over.
-- If the sign-in name starts with a title ("Dr. Maria"), the greeting shows only "Dr.".
 - CSV import rejects rows with a missing code or name, an unknown specialization or an invalid number. A blank specialization list is still accepted and stays empty (IT's *Data Health* panel flags it).
 
 ---

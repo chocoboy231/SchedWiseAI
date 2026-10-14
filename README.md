@@ -22,7 +22,6 @@ Instead of scheduling by hand, an administrator presses **Generate Schedule**. A
 - [Testing](#testing)
 - [Data and privacy](#data-and-privacy)
 - [Limitations and known issues](#limitations-and-known-issues)
-- [Optional Python engine](#optional-python-engine)
 - [Technology](#technology)
 - [Authors](#authors)
 - [License](#license)
@@ -48,14 +47,15 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 | **AI Schedule Generation** | Builds a full Monday–Saturday timetable (6 periods per day, 07:00–16:00, no classes on Sunday) using constraint-based seeding and a Genetic Algorithm. Shows a convergence chart for every run: the best and average score per generation, each on its own labelled scale, with a plain-language caption. |
 | **Incremental Update** | After an approved availability change or leave, a new or edited subject, or an import, **Update affected classes** moves only the classes that now break a rule. Everything else stays exactly where it was, and a "What changed" panel lists each move. *Full Regenerate* is still available. |
 | **Faculty Management** | Add, edit and delete faculty with specializations, preferred days, maximum units, employment status and academic rank. Profile view, current load and workload status per person. |
-| **Workload Management** | Load % (assigned ÷ maximum units) with a bar, comparison with the group average, summary cards (teachers per status, units vs. capacity, average load, highest-to-lowest gap), each teacher's classes on click, and a built-in explanation of how the status is calculated. |
+| **Workload Management** | Load % (assigned ÷ maximum units) with a bar, comparison with the group average, summary cards (teachers per status, units vs. capacity, average load, highest-to-lowest gap), each teacher's classes on click with how many subjects they can teach, and a built-in explanation of how the status is calculated and why a load can be low. |
+| **Testing tools** (Settings, Admin and IT) | Load the standard sample (9 faculty, 18 subjects, 6 labs) or an expanded multi-program sample (22 faculty including part-time, 48 subjects across BSIT, BSCS and BSIS, 10 labs), and create deliberate conflicts of seven kinds (plus teacher overload) to test conflict detection and repair. The expanded subject list is illustrative test data, not an official curriculum. |
 | **Availability and Leave** | Faculty request a change of availability or a leave with a **day-and-period picker**. When a chair or administrator approves it, those times are saved as the teacher's unavailable times and the schedule is flagged for update. Approved leave can be ended later. |
 | **Subject Management** | School year, Major/Minor category, academic year level, semester, class type (**Online** or **Laboratory**), optional **fixed day/period** (for subjects whose time is set by another department, such as GE, PE or NSTP), and optional prerequisite with sequence checking. |
 | **Room Management** | Laboratory rooms with capacity. Online classes need no room. |
-| **Curriculum-aware scheduling** | Optional. Avoids overlapping classes that share the same year level and semester. |
+| **Curriculum-aware scheduling** | Optional. Avoids overlapping classes that share the same program, year level and semester (different programs may share a time). |
 | **Manual editing** | Click any scheduled class to change its teacher, room or time, or remove it. Conflicts are re-checked immediately. |
 | **Approval workflow** | Every generated or changed schedule starts as *Pending Review*. Administrators and chairs approve or reject it with a comment. |
-| **Conflict Detection** | Reports eight constraint categories: teacher double-booking, room double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, room capacity, and overload. |
+| **Conflict Detection** | Reports seven constraint categories: teacher double-booking, room double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, and room capacity. Overload is shown separately on the Workload, Faculty and Departments pages (see Limitations). |
 | **Departments** | Each specialization is treated as a department, with summary cards, teaching load %, overload and conflict counts, expandable workload charts, and an *Issues Requiring Attention* list. |
 | **Reports** | Faculty Teaching Load, Room Utilization (with room × day heatmap), Department Summary, and Conflict Report. Every report exports to CSV; everything can be printed or saved as PDF. |
 | **Schedule History** | Keeps up to 20 versions (full and update) with a fitness comparison chart. Any version can be restored. |
@@ -91,7 +91,7 @@ There are four roles, matching the study's respondent groups. Access is controll
 
 - A modern browser (Chrome, Edge, Firefox or Safari)
 - **An internet connection**: React, Babel, Tailwind CSS and the Inter font are loaded from CDNs
-- To run the tests: [Node.js](https://nodejs.org) 16 or newer *(optional)*
+- To run a local server with `npx serve`: [Node.js](https://nodejs.org) 16 or newer *(optional)*
 
 ### Option A: publish with GitHub Pages (recommended)
 
@@ -105,12 +105,11 @@ There are four roles, matching the study's respondent groups. Access is controll
 The app must be **served over HTTP**. Opening `index.html` by double-clicking usually fails, because the browser blocks the separate `app.jsx` file from loading.
 
 ```bash
-# from the repository folder
-python3 -m http.server 8000
-# or:  npx serve
+# from the repository folder (needs Node.js)
+npx serve
 ```
 
-Then open <http://localhost:8000>.
+Then open the address it prints. Without Node.js, use the **Live Server** extension in VS Code, or copy the folder into XAMPP's `htdocs` folder (Apache serves the files as they are).
 
 ### First use
 
@@ -125,9 +124,7 @@ Then open <http://localhost:8000>.
 
 ## How the AI works
 
-![AI Optimization Engine flowchart](docs/ai_optimization_engine_flowchart.png)
-
-*The flowchart shows the Python reference engine, which uses Google OR-Tools CP-SAT for the seeding step. The **browser prototype** uses a simpler greedy constraint-based seeding heuristic for that step and is otherwise the same.*
+*The first step builds a starting schedule with a greedy method that respects the rules wherever it can. The Genetic Algorithm then improves a whole group of candidate schedules.*
 
 ### Representation
 
@@ -156,7 +153,7 @@ A schedule is a list of **genes**, one per subject section. Each gene is `{ facu
 | Variance of teaching units between teachers | −2 × variance |
 | Share of classes on the teacher's preferred days | +50 × share |
 | Average empty seats per class (online classes count as 0) | −0.5 × average |
-| Same-year/semester overlap (curriculum-aware only) | −150 each |
+| Same-program, same-year/semester overlap (curriculum-aware only) | −150 each |
 
 Because 1000 is far larger than every other term, the algorithm always prefers a conflict-free schedule first and only then optimizes fairness and preferences.
 
@@ -178,13 +175,7 @@ schedwiseai/
 ├── index.html              Entry page: loads libraries, engine.js, then app.jsx
 ├── engine.js               The scheduling engine (Genetic Algorithm, rule checker, update logic)
 ├── app.jsx                 The user interface (React): all pages, forms and state
-├── styles.css              Global styles, colours and print rules
-├── tests/
-│   └── engine.test.js      Automated tests for the engine (Node.js, no dependencies)
-├── docs/
-│   ├── TESTING_GUIDE.md    Step-by-step manual test plan for every function
-│   └── ai_optimization_engine_flowchart.png
-└── python-engine/          Optional Python reference engine (FastAPI + OR-Tools)
+└── styles.css              Global styles, colours and print rules
 ```
 
 Every file has detailed explanatory comments. Start with the header comment in `engine.js` (the algorithm) and `app.jsx` (a map of the whole UI file and a short React primer).
@@ -222,7 +213,9 @@ Every file has detailed explanatory comments. Start with the header comment in `
 | `AvailabilityRequestModal`, `SlotPicker` | The day-and-period request form. |
 | `FacultyPage`, `SubjectsPage`, `RoomsPage` | Data tables with import/export. |
 | `DepartmentsPage`, `WorkloadPage`, `ReportsPage`, `HistoryPage`, `ConflictsPage` | Analysis pages. |
-| `loadStatusFor()`, `LOAD_RULES` | The single rule for a teacher's workload status (Overloaded, Near capacity at 80% or more, Underloaded at 0 units, otherwise Balanced). Every page uses it, so they always agree. |
+| `makeTestConflict()` | Testing tools: breaks one rule in the current schedule on purpose, without undoing earlier test conflicts, and explains what it changed. |
+| `generateExpandedData()` (engine) | The expanded multi-program sample. Seeded, so the same seed gives the same data. |
+| `loadStatusFor()`, `LOAD_RULES` | The single rule for a teacher's workload status: Overloaded (above maximum), Near capacity (80% or more), Underloaded (0 units), Light load (fewer than half the average units per teacher), otherwise Balanced. Every page uses it, so they always agree. |
 | `normalizeData()` | Upgrades data saved by older versions so nothing is lost. |
 | `downloadCSV()`, `parseCSV()` | CSV export and import helpers. |
 
@@ -230,17 +223,9 @@ Every file has detailed explanatory comments. Start with the header comment in `
 
 ## Testing
 
-**Automated (engine):**
+Automated engine tests and a written manual test plan are planned but are **not in this repository yet**.
 
-```bash
-node tests/engine.test.js
-```
-
-17 tests covering time slots, the rule checker, full generation on 25 different datasets, online rooms, unavailable times, fixed times, curriculum-aware mode, and incremental update. It takes about 30 to 40 seconds, because it generates dozens of schedules. Expected output ends with `17 passed, 0 failed`.
-
-**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It explains every function and gives step-by-step test cases with expected results for all four roles, end-to-end scenarios, mobile and browser checks, and a mapping to the ISO/IEC 25010 quality characteristics used in this study.
-
-Most of the expected results in that guide were also checked by script against the running app in a *simulated* browser. That does not replace testing in real browsers: **mobile layout, printing, file downloads, and loading the libraries from the internet must still be checked by hand** (guide sections 7.2 and 4.14).
+For now, test inside the app: open **Settings → Testing tools** (Admin and IT roles) to load the standard or the expanded multi-program sample, generate a schedule, and create deliberate conflicts of each kind to check that Conflict Detection and **Update affected classes** respond correctly. Mobile layout, printing, file downloads and loading the libraries from the internet must be checked by hand in real browsers.
 
 ---
 
@@ -266,30 +251,12 @@ This is a research prototype. Please read this list before relying on it.
 **Behaviour to be aware of**
 - **Conflict counts are a snapshot.** The "Conflict-free" label and the Conflict Detection page reflect the last time the schedule was generated, edited or updated. Editing a teacher (for example their maximum units or specializations) or a room updates the Faculty, Workload and Departments pages immediately, but the conflict counts only refresh after the next generate, edit or update.
 - **Fixed times can make a schedule impossible.** If more subjects are pinned to the same day and period than there are qualified teachers, the schedule shows teacher double-booking conflicts. The app reports this rather than hiding it.
-- **Load status compares each teacher only with their own maximum.** "Balanced" covers 1 unit up to just below 80%. The 80% cutoff is a prototype setting, and only teaching units are counted. The Workload page explains the rule and adds a comparison with the group average.
+- **Load status mixes two comparisons.** Overloaded and Near capacity compare a teacher with their own maximum; Light load compares them with colleagues (fewer than half the average units per teacher). The 80% cutoff and the "half the average" line are prototype settings, and only teaching units are counted. The Workload page explains the rules with the current numbers.
 - **Overload is reported but not treated as a conflict.** A teacher above their maximum units shows as *Overloaded* on the Workload, Faculty and Departments pages, but the schedule can still be labelled *Conflict-free*. This does not occur with the default sample data, but does when there are too few teachers for the number of subjects.
 - IT staff can approve or deny leave requests, although schedule approval is limited to administrators and chairs.
 - Approved *availability changes* cannot be undone from the interface (only *leave* has **End Leave**). Use **Reset Demo Data** to start over.
-- Deleting a teacher or room that is used in the current schedule does not flag the schedule for update. Use **Full Regenerate** afterwards.
 - If the sign-in name starts with a title ("Dr. Maria"), the greeting shows only "Dr.".
-- CSV import does not validate rows: an invalid number falls back to a default, and a blank specialization list stays empty (IT's *Data Health* panel flags it). No error is shown.
-
-**Prototype seeding vs. Python engine:** the browser prototype uses a greedy constraint-based seed. The Python engine uses OR-Tools CP-SAT. See below.
-
----
-
-## Optional Python engine
-
-`python-engine/` is a standalone **FastAPI** service that runs the same idea with **Google OR-Tools CP-SAT** for the constraint-satisfaction seed. It is intended to be called from a separate web application (for example a Laravel back office) over HTTP.
-
-```bash
-cd python-engine
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000     # API docs at http://localhost:8000/docs
-pytest                                        # 8 tests
-```
-
-It uses the **earlier data model** (Monday–Friday, lecture and laboratory rooms). It does not yet include Saturday, online classes, fixed times, or the incremental update. Its CP-SAT solver is configured with one worker and a fixed seed so that identical input always gives the identical starting schedule.
+- CSV import rejects rows with a missing code or name, an unknown specialization or an invalid number. A blank specialization list is still accepted and stays empty (IT's *Data Health* panel flags it).
 
 ---
 
@@ -298,7 +265,8 @@ It uses the **earlier data model** (Monday–Friday, lecture and laboratory room
 - **React 18** (UMD build) with **Babel Standalone**, so there is no build step
 - **Tailwind CSS** (CDN) and the **Inter** font
 - Plain JavaScript for the engine; charts are hand-drawn SVG
-- Optional: **Python 3**, **FastAPI**, **Google OR-Tools**, **pytest**
+- The app itself needs only a web browser; Node.js is optional and only used for `npx serve`
+- The whole system is written in **HTML, CSS and JavaScript**, with no server code and no database
 
 ---
 

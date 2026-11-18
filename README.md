@@ -46,7 +46,7 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 |---|---|
 | **AI Schedule Generation** | Builds a full Monday–Saturday timetable (6 periods per day, 07:00–16:00, no classes on Sunday) using constraint-based seeding and a Genetic Algorithm. Shows a convergence chart for every run: the best and average score per generation, each on its own labelled scale, with a plain-language caption. |
 | **Incremental Update** | After an approved availability change or leave, a new or edited subject, or an import, **Update affected classes** moves only the classes that now break a rule. Everything else stays exactly where it was, and a "What changed" panel lists each move. *Full Regenerate* is still available. |
-| **Faculty Management** | Add, edit and delete faculty with specializations, preferred days, maximum units, employment status and academic rank. Profile view, current load and workload status per person. |
+| **Faculty Management** | Add, edit and delete faculty with specializations, preferred days, maximum units, employment status and academic rank. Profile view, current load and workload status per person. Forms say what is wrong (missing name, a number out of range, a duplicate name, subject or room) instead of silently refusing to save. |
 | **Workload Management** | Load % (assigned ÷ maximum units) with a bar, comparison with the group average, summary cards (teachers per status, units vs. capacity, average load, highest-to-lowest gap), each teacher's classes on click with how many subjects they can teach, and a built-in explanation of how the status is calculated and why a load can be low. |
 | **Testing tools** (Settings, Admin and IT) | Load the standard sample (9 faculty, 18 subjects, 6 labs) or an expanded multi-program sample (22 faculty including part-time, 48 subjects across BSIT, BSCS and BSIS, 10 labs), and create deliberate conflicts of seven kinds (plus teacher overload) to test conflict detection and repair. The expanded subject list is illustrative test data, not an official curriculum. |
 | **Availability and Leave** | Faculty request a change of availability or a leave with a **day-and-period picker**. When a chair or administrator approves it, those times are saved as the teacher's unavailable times and the schedule is flagged for update. An approved leave can be ended, and an approved availability change can be undone, which makes those times available again (the current schedule is left as it is; use Full Regenerate to use them). |
@@ -59,6 +59,7 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 | **Departments** | Each specialization is treated as a department, with summary cards, teaching load %, overload and conflict counts, expandable workload charts, and an *Issues Requiring Attention* list. |
 | **Reports** | Faculty Teaching Load, Room Utilization (with room × day heatmap), Department Summary, and Conflict Report. Every report exports to CSV; everything can be printed or saved as PDF. |
 | **Schedule History** | Keeps up to 20 versions (full and update) with a fitness comparison chart. Any version can be restored. |
+| **Search** | The search box in the top bar finds faculty, subjects and rooms as you type and opens the one you pick (keyboard: arrows, Enter, Esc). A Faculty Member searches their own classes. |
 | **Notifications** | Bell icon with unread count for schedule, approval, request and import events. |
 | **Role-specific Overview pages** | A different landing page for each role showing what that role acts on. |
 | **Bulk CSV import/export** | Faculty, subjects and rooms. Each import page has a built-in example template. Exported text that starts with `=`, `+`, `-` or `@` gets a leading apostrophe, so Excel or Google Sheets shows it as text instead of running it as a formula. |
@@ -103,7 +104,7 @@ There are four roles, matching the study's respondent groups. Access is controll
 
 ### Option B: run locally
 
-The app must be **served over HTTP**. Opening `index.html` by double-clicking usually fails, because the browser blocks the separate `app.jsx` file from loading.
+The app must be **served over HTTP**. Opening `index.html` by double-clicking usually fails, because the browser blocks the separate interface files from loading.
 
 ```bash
 # from the repository folder (needs Node.js)
@@ -174,11 +175,15 @@ In one check on 40 generated sample datasets (955 classes in total), where one t
 
 ```
 schedwiseai/
-├── index.html              Entry page: loads libraries, engine.js, then app.jsx
+├── index.html              Entry page: loads libraries, engine.js, then loader.js
 ├── engine.js               The scheduling engine (Genetic Algorithm, rule checker, update logic)
-├── app.jsx                 The user interface (React): all pages, forms and state
+├── app.jsx                 The user interface (React): all pages, forms and state. EDIT THIS ONE.
+├── app.js                  app.jsx compiled to plain JavaScript by tools/build.html (do not edit)
+├── loader.js               Starts the interface: app.js if it is up to date, otherwise compiles app.jsx
 ├── styles.css              Global styles, colours and print rules
 ├── vendor/                 Third-party libraries and the Inter font, stored locally so the app works offline
+├── tools/
+│   └── build.html          Rebuilds app.js after app.jsx changes (runs in a browser, no Node.js needed)
 ├── tests/
 │   ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
 │   └── run.html            Runs those tests in a browser page
@@ -188,6 +193,15 @@ schedwiseai/
 ```
 
 Every file has detailed explanatory comments. Start with the header comment in `engine.js` (the algorithm) and `app.jsx` (a map of the whole UI file and a short React primer).
+
+### After you change `app.jsx`
+
+The app starts from `app.js`, a ready-compiled copy of `app.jsx`, because compiling JSX in the browser on every visit made the first screen take several seconds. After editing `app.jsx`:
+
+1. Serve the folder and open `/tools/build.html`.
+2. Press **Build app.js** and save the downloaded `app.js` into the project folder, replacing the old one.
+
+If you forget, nothing breaks: `loader.js` sees that `app.js` was built from an older `app.jsx`, compiles `app.jsx` in the browser instead (a slower start), and says so in the browser console. The build page also tells you whether `app.js` is up to date.
 
 ---
 
@@ -225,6 +239,9 @@ Every file has detailed explanatory comments. Start with the header comment in `
 | `makeTestConflict()` | Testing tools: breaks one rule in the current schedule on purpose, without undoing earlier test conflicts, and explains what it changed. |
 | `generateExpandedData()` (engine) | The expanded multi-program sample. Seeded, so the same seed gives the same data. |
 | `loadStatusFor()`, `LOAD_RULES` | The single rule for a teacher's workload status: Overloaded (above maximum), Near capacity (80% or more), Underloaded (0 units), Light load (fewer than half the average units per teacher), otherwise Balanced. Every page uses it, so they always agree. |
+| `GlobalSearch` | The top-bar search: faculty, subjects and rooms (own classes for a Faculty Member). |
+| `Modal`, `Field`, `FormError`, `wholeNumberError()` | Pop-up dialogs (Esc closes, focus is managed), labelled form fields, and the form error messages and number checks. |
+| `AppErrorBoundary` | Shows a recovery screen instead of a blank page if the app cannot start. |
 | `normalizeData()` | Upgrades data saved by older versions so nothing is lost. |
 | `makeBackup()`, `parseBackup()` | Build the backup file, and check a chosen file before it replaces any data. |
 | `downloadCSV()`, `parseCSV()` | CSV export and import helpers. |
@@ -277,7 +294,7 @@ This is a research prototype. Please read this list before relying on it.
 
 ## Technology
 
-- **React 18** (UMD build) with **Babel Standalone**, so there is no build step
+- **React 18** (UMD build). The interface is written in JSX (`app.jsx`) and compiled to `app.js` with **Babel Standalone** in the browser by `tools/build.html`, so no Node.js build tools are needed
 - **Tailwind CSS** (in-browser build) and the **Inter** font. These and React and Babel are stored in `vendor/` (see `vendor/README.md` for versions and licenses), so the app works offline
 - Plain JavaScript for the engine; charts are hand-drawn SVG
 - The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and `node tests/engine.test.js`

@@ -579,16 +579,33 @@ function freshData(kind) {
 
 // Modal: a pop-up dialog. Clicking the dark background closes it;
 // clicking inside the white box does not (stopPropagation).
+// Keyboard and screen-reader support: Esc closes the pop-up, focus moves into it when it
+// opens (first box, else the close button) and goes back to whatever was focused before
+// when it closes, and it is announced as a dialog with its title.
 function Modal({ title, onClose, children, wide }) {
+  const boxRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;                       // always the latest onClose, without re-running the effect
+  const titleId = React.useId();
+  useEffect(() => {
+    const before = document.activeElement;
+    const box = boxRef.current;
+    const first = box && box.querySelector("input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea");
+    (first || (box && box.querySelector("button")) || box).focus();
+    const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); closeRef.current(); } };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); if (before && before.focus && document.contains(before)) before.focus(); };
+  }, []);
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
       {/* max-h + overflow-y-auto: long forms scroll inside the pop-up instead of running off small screens.
           `wide` gives extra room for the weekly time picker. */}
-      <div className={"bg-white rounded-2xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto " + (wide ? "max-w-3xl" : "max-w-md")}
+      <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
+        className={"bg-white rounded-2xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto focus:outline-none " + (wide ? "max-w-3xl" : "max-w-md")}
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-lg text-slate-900">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><IconX size={18}/></button>
+          <h3 id={titleId} className="font-semibold text-lg text-slate-900">{title}</h3>
+          <button onClick={onClose} aria-label="Close" title="Close" className="text-slate-400 hover:text-slate-600"><IconX size={18}/></button>
         </div>
         {children}
       </div>
@@ -596,17 +613,40 @@ function Modal({ title, onClose, children, wide }) {
   );
 }
 
-// Field: a label placed above any input.
+// Field: a label placed above any input. When the field holds ONE input, select or
+// textarea, the label is linked to it (htmlFor/id), so clicking the label focuses
+// the box and screen readers announce the label.
 function Field({ label, children }) {
+  const autoId = React.useId();
+  const single = React.isValidElement(children) && ["input", "select", "textarea"].includes(children.type);
+  const id = single ? (children.props.id || autoId) : undefined;
   return (
     <div className="mb-3">
-      <label className="block text-xs font-medium text-slate-500 mb-1">{label}</label>
-      {children}
+      <label htmlFor={id} className="block text-xs font-medium text-slate-500 mb-1">{label}</label>
+      {single ? React.cloneElement(children, { id }) : children}
     </div>
   );
 }
 // Shared Tailwind CSS classes so every text box and dropdown looks the same.
 const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400";
+
+// wholeNumberError(text, min, max, what): "" if `text` is a whole number from min to max,
+// otherwise a message saying what is wrong. Forms keep number boxes as TEXT while the user
+// types (so a box can be cleared and retyped) and check them only when Save is pressed.
+function wholeNumberError(text, min, max, what) {
+  const s = String(text).trim();
+  if (!/^\d+$/.test(s)) return what + " must be a whole number.";
+  const n = Number(s);
+  if (n < min || n > max) return what + " must be between " + min + " and " + max + ".";
+  return "";
+}
+// FormError: the red message shown above a form's Save button when something is missing
+// or wrong (before, the form silently refused to save). role="alert" makes screen readers say it.
+function FormError({ message }) {
+  return message ? <div role="alert" className="text-sm text-rose-700 bg-rose-50 rounded-lg px-3 py-2 mt-2">{message}</div> : null;
+}
+// Same text, ignoring capitals and extra spaces: used to spot duplicate names.
+const sameText = (a, b) => String(a || "").trim().replace(/\s+/g, " ").toLowerCase() === String(b || "").trim().replace(/\s+/g, " ").toLowerCase();
 
 // CheckboxGroup: a grid of checkboxes for picking several options
 // (used for Specializations and Preferred Days).
@@ -633,7 +673,8 @@ function CheckboxGroup({ options, selected, onToggle, columns = 2 }) {
 
 // FacultyModal: add/edit a faculty member (specializations, preferred days,
 // max units, employment status, academic rank).
-function FacultyModal({ initial, onSave, onClose }) {
+function FacultyModal({ initial, allFaculty, onSave, onClose }) {
+  const [error, setError] = useState("");
   const [name, setName] = useState(initial ? initial.name : "");
   const [specs, setSpecs] = useState(initial ? initial.specializations : ["Programming"]);
   const [maxUnits, setMaxUnits] = useState(initial ? initial.maxUnits : 21);
@@ -661,7 +702,7 @@ function FacultyModal({ initial, onSave, onClose }) {
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Maximum Teaching Units">
-          <input type="number" className={inputCls} value={maxUnits} onChange={e=>setMaxUnits(Number(e.target.value))} />
+          <input type="number" min="1" max="40" className={inputCls} value={maxUnits} onChange={e=>setMaxUnits(e.target.value)} />
         </Field>
         <Field label="Employment Status">
           <select className={inputCls} value={employmentStatus} onChange={e=>setEmploymentStatus(e.target.value)}>
@@ -674,10 +715,16 @@ function FacultyModal({ initial, onSave, onClose }) {
           {E.ACADEMIC_RANKS.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
       </Field>
+      <FormError message={error} />
       <button
         className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
-          if (!name.trim() || specs.length === 0) return;
+          // Faculty sign in by name, so two teachers must not share one.
+          const problem = !name.trim() ? "Enter the teacher's full name."
+            : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because faculty sign in by name."
+            : specs.length === 0 ? "Tick at least one specialization."
+            : wholeNumberError(maxUnits, 1, 40, "Maximum teaching units");
+          if (problem) { setError(problem); return; }
           // Start from the existing record, so fields this form does not edit are kept:
           // unavailable times and "prefer instead" times from approved requests.
           onSave({
@@ -685,7 +732,7 @@ function FacultyModal({ initial, onSave, onClose }) {
             id: initial ? initial.id : Date.now(),
             name: name.trim(),
             specializations: specs,
-            maxUnits,
+            maxUnits: Number(maxUnits),
             preferredDays,
             employmentStatus,
             academicRank,
@@ -701,6 +748,7 @@ function FacultyModal({ initial, onSave, onClose }) {
 // year level, semester, class type (Online or Laboratory), an optional FIXED
 // day/period (the AI must schedule it exactly then), and an optional prerequisite.
 function SectionModal({ initial, allSections, onSave, onClose }) {
+  const [error, setError] = useState("");
   const [subjectCode, setSubjectCode] = useState(initial ? initial.subjectCode : "");
   const [subjectName, setSubjectName] = useState(initial ? initial.subjectName : "");
   const [sectionName, setSectionName] = useState(initial ? initial.sectionName : "");
@@ -753,8 +801,8 @@ function SectionModal({ initial, allSections, onSave, onClose }) {
       <Field label="Subject Name"><input className={inputCls} value={subjectName} onChange={e=>setSubjectName(e.target.value)} placeholder="Introduction to Computing" /></Field>
       <Field label="Section Name"><input className={inputCls} value={sectionName} onChange={e=>setSectionName(e.target.value)} placeholder="BSIT-2A" /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Units"><input type="number" className={inputCls} value={units} onChange={e=>setUnits(Number(e.target.value))} /></Field>
-        <Field label="Enrolled Students"><input type="number" className={inputCls} value={enrolled} onChange={e=>setEnrolled(Number(e.target.value))} /></Field>
+        <Field label="Units"><input type="number" min="1" max="10" className={inputCls} value={units} onChange={e=>setUnits(e.target.value)} /></Field>
+        <Field label="Enrolled Students"><input type="number" min="1" max="300" className={inputCls} value={enrolled} onChange={e=>setEnrolled(e.target.value)} /></Field>
       </div>
       <Field label="Required Specialization">
         <select className={inputCls} value={spec} onChange={e=>setSpec(e.target.value)}>
@@ -803,14 +851,20 @@ function SectionModal({ initial, allSections, onSave, onClose }) {
           {uniqueSubjectCodes.map(code => <option key={code} value={code}>{code}</option>)}
         </select>
       </Field>
+      <FormError message={error} />
       <button
         className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
-          if (!subjectCode.trim() || !sectionName.trim()) return;
+          const problem = !subjectCode.trim() ? "Enter the subject code (for example IT101)."
+            : !sectionName.trim() ? "Enter the section name (for example BSIT-2A)."
+            : (allSections || []).some(s => (!initial || s.id !== initial.id) && sameText(s.subjectCode, subjectCode) && sameText(s.sectionName, sectionName))
+              ? subjectCode.trim() + " is already offered to section " + sectionName.trim() + "."
+            : wholeNumberError(units, 1, 10, "Units") || wholeNumberError(enrolled, 1, 300, "Enrolled students");
+          if (problem) { setError(problem); return; }
           onSave({
             id: initial ? initial.id : Date.now(),
             subjectCode: subjectCode.trim(), subjectName: subjectName.trim(), sectionName: sectionName.trim(),
-            units, requiredSpecialization: spec, roomTypeRequired: roomType, enrolledStudents: enrolled,
+            units: Number(units), requiredSpecialization: spec, roomTypeRequired: roomType, enrolledStudents: Number(enrolled),
             yearLevel, semester, prerequisiteCode: prerequisiteCode || null,
             schoolYear, category, program,
             fixedSlotId: fixedDay ? allSlots.find(t => t.day === fixedDay && t.period === fixedPeriod).id : null,
@@ -825,19 +879,24 @@ function SectionModal({ initial, allSections, onSave, onClose }) {
 // RoomModal: add/edit a room. Since lecture classes are now held online, the
 // only physical rooms the scheduler needs are laboratories, so every room
 // is saved with type "laboratory".
-function RoomModal({ initial, onSave, onClose }) {
+function RoomModal({ initial, allRooms, onSave, onClose }) {
+  const [error, setError] = useState("");
   const [name, setName] = useState(initial ? initial.name : "");
   const type = "laboratory";
   const [capacity, setCapacity] = useState(initial ? initial.capacity : 40);
   return (
     <Modal title={initial ? "Edit Room" : "Add Room"} onClose={onClose}>
       <Field label="Room Name"><input className={inputCls} value={name} onChange={e=>setName(e.target.value)} placeholder="Room 305" /></Field>
-      <Field label="Capacity"><input type="number" className={inputCls} value={capacity} onChange={e=>setCapacity(Number(e.target.value))} /></Field>
+      <Field label="Capacity"><input type="number" min="1" max="300" className={inputCls} value={capacity} onChange={e=>setCapacity(e.target.value)} /></Field>
+      <FormError message={error} />
       <button
         className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
-          if (!name.trim()) return;
-          onSave({ id: initial ? initial.id : Date.now(), name: name.trim(), type, capacity });
+          const problem = !name.trim() ? "Enter the room name."
+            : (allRooms || []).some(r => (!initial || r.id !== initial.id) && sameText(r.name, name)) ? "There is already a room called \"" + name.trim() + "\"."
+            : wholeNumberError(capacity, 1, 300, "Capacity");
+          if (problem) { setError(problem); return; }
+          onSave({ id: initial ? initial.id : Date.now(), name: name.trim(), type, capacity: Number(capacity) });
           onClose();
         }}
       >Save</button>
@@ -911,7 +970,7 @@ function FacultyProfileModal({ faculty, sections, result, slotById, onClose }) {
   const assignedUnits = result
     ? result.genes.reduce((sum, g, i) => g.facultyId === faculty.id ? sum + sections[i].units : sum, 0)
     : 0;
-  const loadPct = Math.round((assignedUnits / faculty.maxUnits) * 100);
+  const loadPct = faculty.maxUnits > 0 ? Math.round((assignedUnits / faculty.maxUnits) * 100) : 0;   // guard: a maximum of 0 would show NaN%
   return (
     <Modal title="Faculty Profile" onClose={onClose}>
       <div className="flex items-center gap-3 mb-4">
@@ -1223,6 +1282,7 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
           const specs = (r[idx("specializations")] || "").split(";").map(s => s.trim()).filter(Boolean);
           const bad = specs.filter(s => !E.SPECIALIZATIONS.includes(s));
           if (specs.length === 0 || bad.length) problems.push(line + (bad.length ? "unknown specialization " + bad.join(", ") : "specialization is missing") + ".");
+          { const v = (r[idx("maxUnits")] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + "maxUnits must be a positive number."); }
         } else if (kind === "subjects") {
           if (!(r[idx("subjectCode")] || "").trim()) problems.push(line + "subjectCode is missing.");
           if (!(r[idx("sectionName")] || "").trim()) problems.push(line + "sectionName is missing.");
@@ -1231,6 +1291,7 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
           ["units", "enrolledStudents"].forEach(c => { const v = (r[idx(c)] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + c + " must be a positive number."); });
         } else if (kind === "rooms") {
           if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
+          { const v = (r[idx("capacity")] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + "capacity must be a positive number."); }
         }
       });
       if (problems.length) { setError("Nothing was imported. " + problems.slice(0, 5).join(" ") + (problems.length > 5 ? " (+" + (problems.length - 5) + " more)" : "")); return; }
@@ -1336,6 +1397,76 @@ function LoginScreen({ onLogin }) {
         >Sign In</button>
         <p className="text-xs text-slate-400 mt-4 text-center">This is a prototype — any name works, no password required.</p>
       </div>
+    </div>
+  );
+}
+
+// GlobalSearch: the search box in the top bar. As the user types it lists matching
+// faculty (open their profile), subjects (open the subject) and rooms (open the room),
+// up to 5 of each. Arrow keys move through the results, Enter opens one, Esc clears.
+// A Faculty Member only searches their OWN classes, and a result opens their schedule.
+function GlobalSearch({ role, faculty, sections, rooms, result, myFacultyId, onOpenFaculty, onOpenSection, onOpenRoom, onOpenMySchedule }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const listId = React.useId();
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (...texts) => { const t = texts.join(" ").toLowerCase(); return words.every(w => t.includes(w)); };
+  let groups = [];
+  if (words.length) {
+    if (role === "faculty") {
+      const mine = result ? sections.filter((s, i) => result.genes[i] && result.genes[i].facultyId === myFacultyId) : [];
+      groups = [{ title: "My classes", items: mine.filter(s => hit(s.subjectCode, s.subjectName, s.sectionName)).slice(0, 8)
+        .map(s => ({ key: "s" + s.id, label: s.subjectCode + " · " + (s.subjectName || ""), sub: s.sectionName, go: () => onOpenMySchedule() })) }];
+    } else {
+      groups = [
+        { title: "Faculty", items: faculty.filter(f => hit(f.name, f.specializations.join(" "))).slice(0, 5)
+          .map(f => ({ key: "f" + f.id, label: f.name, sub: f.specializations.join(", "), go: () => onOpenFaculty(f) })) },
+        { title: "Subjects", items: sections.filter(s => hit(s.subjectCode, s.subjectName, s.sectionName, s.program)).slice(0, 5)
+          .map(s => ({ key: "s" + s.id, label: s.subjectCode + " · " + (s.subjectName || ""), sub: s.sectionName, go: () => onOpenSection(s) })) },
+        { title: "Rooms", items: rooms.filter(r => hit(r.name)).slice(0, 5)
+          .map(r => ({ key: "r" + r.id, label: r.name, sub: r.capacity + " seats", go: () => onOpenRoom(r) })) },
+      ];
+    }
+    groups = groups.filter(g => g.items.length);
+  }
+  const flat = groups.flatMap(g => g.items);
+  const choose = item => { item.go(); setQ(""); setOpen(false); };
+  function onKeyDown(e) {
+    if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive(a => Math.min(a + 1, flat.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
+    else if (e.key === "Enter" && flat[active]) { e.preventDefault(); choose(flat[active]); }
+    else if (e.key === "Escape") { setQ(""); setOpen(false); }
+  }
+  const showList = open && words.length > 0;
+  let n = -1;
+  return (
+    <div className="flex-1 relative max-w-xl min-w-0">
+      <IconSearch size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+      <input value={q} placeholder={role === "faculty" ? "Search my classes..." : "Search faculty, subjects, rooms..."}
+        role="combobox" aria-expanded={showList} aria-controls={listId} aria-autocomplete="list" aria-label="Search"
+        aria-activedescendant={showList && flat[active] ? listId + "-" + active : undefined}
+        onChange={e => { setQ(e.target.value); setOpen(true); setActive(0); }} onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} onKeyDown={onKeyDown}
+        className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+      {showList && (
+        <div id={listId} role="listbox" className="absolute left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-slate-100 z-50 max-h-96 overflow-y-auto py-1">
+          {flat.length === 0 && <div className="px-4 py-3 text-sm text-slate-500">No matches for "{q.trim()}".</div>}
+          {groups.map(g => (
+            <div key={g.title} role="group" aria-label={g.title}>
+              <div className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{g.title}</div>
+              {g.items.map(item => { n++; const i = n; return (
+                <div key={item.key} id={listId + "-" + i} role="option" aria-selected={i === active}
+                  onMouseDown={e => { e.preventDefault(); choose(item); }} onMouseEnter={() => setActive(i)}
+                  className={"px-4 py-2 cursor-pointer " + (i === active ? "bg-amber-50" : "")}>
+                  <div className="text-sm text-slate-900 truncate">{item.label}</div>
+                  {item.sub && <div className="text-xs text-slate-500 truncate">{item.sub}</div>}
+                </div>
+              ); })}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1664,7 +1795,8 @@ function App() {
   // Math.random() is added to the id so two notifications in the same
   // millisecond still get unique ids.
   function pushNotification(message) {
-    setNotifications(prev => [{ id: Date.now() + Math.random(), message, timestamp: new Date().toISOString(), read: false }, ...prev]);
+    // Newest first; the oldest are dropped after 100, so a long session cannot fill the browser's storage.
+    setNotifications(prev => [{ id: Date.now() + Math.random(), message, timestamp: new Date().toISOString(), read: false }, ...prev].slice(0, 100));
   }
 
   // ------------------------------------------------------------------
@@ -2129,14 +2261,13 @@ function App() {
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="no-print bg-white border-b border-slate-100 px-4 sm:px-8 py-3.5 flex items-center gap-3 sm:gap-4">
-          <button onClick={() => setSidebarOpen(true)} className="md:hidden shrink-0 w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center">
+          <button onClick={() => setSidebarOpen(true)} aria-label="Open menu" className="md:hidden shrink-0 w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center">
             <IconMenu size={18} className="text-slate-600" />
           </button>
-          <div className="flex-1 relative max-w-xl min-w-0">
-            <IconSearch size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input readOnly placeholder="Search faculty, subjects, rooms..."
-              className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none" />
-          </div>
+          <GlobalSearch role={role} faculty={faculty} sections={sections} rooms={rooms} result={result}
+            myFacultyId={myFaculty ? myFaculty.id : null}
+            onOpenFaculty={f => setFacultyProfileModal(f)} onOpenSection={s => setSectionModal(s)} onOpenRoom={r => setRoomModal(r)}
+            onOpenMySchedule={() => { setScheduleTab("faculty"); goToPage("schedules"); }} />
           <div className="relative shrink-0">
             <button onClick={() => setNotificationsOpen(o => !o)} aria-label="Notifications"
               className="relative w-9 h-9 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
@@ -2250,7 +2381,7 @@ function App() {
       </div>
 
       {facultyModal && (
-        <FacultyModal initial={facultyModal === "new" ? null : facultyModal}
+        <FacultyModal initial={facultyModal === "new" ? null : facultyModal} allFaculty={faculty}
           onSave={f => setFaculty(facultyModal === "new" ? [...faculty, f] : faculty.map(x=>x.id===f.id?f:x))}
           onClose={() => setFacultyModal(null)} />
       )}
@@ -2260,7 +2391,7 @@ function App() {
           onClose={() => setSectionModal(null)} />
       )}
       {roomModal && (
-        <RoomModal initial={roomModal === "new" ? null : roomModal}
+        <RoomModal initial={roomModal === "new" ? null : roomModal} allRooms={rooms}
           onSave={r => setRooms(roomModal === "new" ? [...rooms, r] : rooms.map(x=>x.id===r.id?r:x))}
           onClose={() => setRoomModal(null)} />
       )}

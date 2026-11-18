@@ -112,49 +112,49 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 1. Open **Class Schedules** and press **Generate Schedule**.
 
 *Expected:* A weekly timetable appears (Monday to Saturday, 6 periods a day). The header shows **✓ Conflict-free**, a fitness score, and "Pending Review" as the approval status. A notification says a new schedule was generated.
-☐ Pass ☐ Fail
+☐ Pass
 
 **B2. Convergence chart**
 1. Under the timetable, find "GA Convergence". Press **How to read this chart**, then **Hide chart** and show it again.
 
 *Expected:* A chart with a best-score line (left scale) and an average line (right scale), and a plain-language sentence such as "Best: … → … · Average: … → …". The help text opens and closes.
-☐ Pass ☐ Fail
+☐ Pass
 
 **B3. Grid and By Faculty views**
 1. Switch between **Weekly Grid** and **By Faculty**. In By Faculty, choose different teachers.
 
 *Expected:* The grid shows every class once. By Faculty shows only the chosen teacher's classes. Nothing is placed on Sunday.
-☐ Pass ☐ Fail
+☐ Pass
 
 **B4. Curriculum-aware option**
 1. Tick **Use curriculum (avoid overlaps…)**. Press **Full Regenerate**.
 
 *Expected:* The header shows a "Curriculum" badge: "no overlaps", or a count. The schedule stays conflict-free.
-☐ Pass ☐ Fail
+☐ Pass
 
 **B5. Approve a schedule**
 1. In the approval panel, type a comment and press **Approve**.
 
 *Expected:* The status changes to **Approved** and your comment is shown. A notification says the schedule was approved.
-☐ Pass ☐ Fail
+☐ Pass
 
 **B6. Reject a schedule**
 1. Type a comment and press **Reject**.
 
 *Expected:* The status changes to **Rejected** with your comment, and a notification says so.
-☐ Pass ☐ Fail
+☐ Pass
 
 **B7. A change returns the schedule to Pending Review**
 1. Approve the schedule. Then edit one class (see D1).
 
 *Expected:* The status goes back to **Pending Review**.
-☐ Pass ☐ Fail
+☐ Pass 
 
 **B8. Full Regenerate**
 1. Press **Full Regenerate**.
 
 *Expected:* A new schedule replaces the old one and the status is Pending Review. In **Schedule History** there is one more version.
-☐ Pass ☐ Fail
+☐ Pass 
 
 ---
 
@@ -166,40 +166,40 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 1. Open **Conflict Detection**.
 
 *Expected:* The page lists the rule categories (teacher double-booking, room double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, room capacity) and the total is 0.
-☐ Pass ☐ Fail
+☐ Pass
 
 **C2. Create a conflict by hand and watch the count update**
 1. In **Class Schedules**, click any class (see D1) and move it to a time when that teacher already has another class.
 2. Save.
 
 *Expected:* The header changes to **⚠ 1 conflicts remaining** straight away, with no regenerate needed. The Conflict Detection page and the sidebar badge show the same number.
-☐ Pass ☐ Fail
+☐ Pass 
 
 **C3. Test conflicts (all seven kinds)**
 1. Open **Settings → Testing tools**. Under "Create test conflicts" press each button one at a time, then **Create all of them**.
 
 *Expected:* Each button says exactly what it changed. After each one, Conflict Detection shows that kind counted. The "Teacher overload" button is labelled *(not a conflict)* and does not add to the conflict total. Earlier test conflicts are not undone by later ones.
-☐ Pass ☐ Fail
+☐ Pass
 
 **C4. Update affected classes**
 1. With conflicts present, open **Class Schedules**. Press **Update affected classes** in the orange banner.
 
 *Expected:* Only the classes that broke a rule move. A "What changed" panel lists each move (from → to) and how many classes stayed put. The header returns to **✓ Conflict-free**.
-☐ Pass ☐ Fail
+☐ Pass
 
 **C5. Banner when nothing was flagged**
 1. Edit a teacher (E2) so that one of their classes becomes unqualified.
 2. Open **Class Schedules**.
 
 *Expected:* A banner "Conflicts found in this schedule" appears with the violation count and an **Update affected classes** button.
-☐ Pass ☐ Fail
+☐ Pass
 
 **C6. Overload warning**
 1. In **Faculty**, edit a teacher who has classes and set **Maximum Teaching Units** to 1. Save.
 2. Open **Class Schedules**.
 
 *Expected:* An orange badge "⚠ 1 teacher over maximum units" appears next to **✓ Conflict-free** (overload is a warning, not a conflict). Hover the badge to see the teacher's name. The Workload page shows that teacher as **Overloaded**.
-☐ Pass ☐ Fail
+☐ Pass
 
 ---
 
@@ -210,7 +210,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 2. Change the **Time Slot**, then press **Save Changes**.
 
 *Expected:* The class moves. The conflict count is recalculated at once and the status becomes Pending Review.
-☐ Pass ☐ Fail
+☐ Pass
 
 **D2. Only suitable choices are offered**
 1. Open the edit dialog for a laboratory class and for an online class.
@@ -222,13 +222,13 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 1. Make a subject with a fixed day and period (F2), regenerate, then open its edit dialog.
 
 *Expected:* The time slot cannot be changed: it shows "📌 Fixed: <time> — change it in Subjects".
-☐ Pass ☐ Fail
+☐ Pass
 
 **D4. Remove a class**
 1. In the edit dialog, press **Remove**.
 
 *Expected:* The class disappears from the grid. The header shows "1 unscheduled (manually removed)". It is **not** counted as a conflict.
-☐ Pass ☐ Fail
+☐ Pass
 
 ---
 
@@ -238,32 +238,32 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 1. Open **Faculty → Add Faculty**. Enter a name, tick at least one specialization and some preferred days, set the maximum units, then save.
 
 *Expected:* The teacher appears in the list with 0 units and the status **Underloaded** (or "No assignment yet" if no schedule exists).
-☐ Pass ☐ Fail
+☐ Pass
 
 **E2. Edit a teacher and see conflicts update**
 1. With a generated schedule, edit a teacher who has classes. Untick their specializations and tick only one they do not teach. Save.
 2. Open **Class Schedules** and **Conflict Detection**.
 
 *Expected:* The conflict count rises straight away ("Unqualified" rows), and the banner from C5 appears.
-☐ Pass ☐ Fail
+☐ Pass
 
 **E3. Validation**
 1. In the Add Faculty form, leave the name empty or untick every specialization, then try to save.
 
 *Expected:* The form does not save and the dialog stays open.
-☐ Pass ☐ Fail
+☐ Pass
 
 **E4. Delete a teacher who has classes**
 1. Delete a teacher who is teaching in the current schedule.
 
 *Expected:* The teacher is removed. The schedule is flagged ("… was removed — N class(es) need a new teacher") and the count shows conflicts. **Update affected classes** gives those classes a new teacher.
-☐ Pass ☐ Fail
+☐ Pass
 
 **E5. Profile and schedule links**
 1. In the Faculty list, press **View Profile**, then **View Schedule** for a teacher.
 
 *Expected:* The profile shows employment status, rank, maximum units, current load, specializations, preferred days, unavailable times and requested preferred times. View Schedule opens Class Schedules on that teacher.
-☐ Pass ☐ Fail
+☐ Pass
 
 ---
 

@@ -1,0 +1,82 @@
+<!doctype html>
+<!--
+  SchedWiseAI — BUILD PAGE (tools/build.html)
+  Rebuilds app.js (the ready-compiled interface) from app.jsx. Do this after
+  every change to app.jsx, so the app keeps starting quickly.
+
+  How to use: serve the project folder (for example with VS Code Live Server
+  or `npx serve`), open /tools/build.html, press "Build app.js", and save the
+  downloaded app.js into the project folder, replacing the old one.
+  If you forget, nothing breaks: the app notices app.js is out of date and
+  compiles app.jsx in the browser instead (slower start).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build app.js</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 24px 16px; background: #eef1f8; color: #0f172a; }
+  main { max-width: 620px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 8px; border: 0; background: #fbbf24; color: #0b1d4a; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .ok { color: #047857; } .warn { color: #b45309; } .err { color: #be123c; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+  #status { margin: 16px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Build app.js</h1>
+  <p>Compiles <code>app.jsx</code> into <code>app.js</code>, the ready-to-run copy the app starts from. Run it after every change to <code>app.jsx</code>, then save the downloaded <code>app.js</code> into the project folder, replacing the old one.</p>
+  <div id="status">Checking the current app.js…</div>
+  <button id="build" disabled>Build app.js</button>
+</main>
+<script src="../vendor/babel.min.js"></script>
+<script src="../loader.js"></script>   <!-- only for its sourceHash(); it starts nothing on this page -->
+<script>
+  const statusEl = document.getElementById("status"), buildBtn = document.getElementById("build");
+  const say = (html, cls) => { statusEl.className = cls || ""; statusEl.innerHTML = html; };
+  async function text(url) { const r = await fetch(url, { cache: "no-store" }); if (!r.ok) throw new Error(url + " returned " + r.status); return r.text(); }
+
+  // Same Babel settings the app uses when it compiles app.jsx in the browser.
+  function compile(source) {
+    const code = Babel.transform(source, { presets: ["react"] }).code;
+    return "/* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.\n" +
+           "   Built " + new Date().toISOString() + " with Babel " + Babel.version + ". source-hash: " + SchedWiseSourceHash(source) + " */\n" + code + "\n";
+  }
+
+  async function check() {
+    try {
+      const source = await text("../app.jsx");
+      let built = null; try { built = await text("../app.js"); } catch (e) { /* not built yet */ }
+      const m = built && built.match(/source-hash: ([0-9a-f]+)/);
+      if (!built) say("There is no app.js yet. Press <b>Build app.js</b>.", "warn");
+      else if (m && m[1] === SchedWiseSourceHash(source)) say("✓ app.js is up to date with app.jsx. You only need to build again after changing app.jsx.", "ok");
+      else say("app.js is <b>out of date</b>: app.jsx has changed since it was built. Press <b>Build app.js</b>.", "warn");
+      buildBtn.disabled = false;
+    } catch (e) {
+      say("Could not read app.jsx (" + e.message + "). Open this page through a web server, not by double-clicking it.", "err");
+    }
+  }
+
+  buildBtn.onclick = async () => {
+    buildBtn.disabled = true; say("Compiling…");
+    try {
+      const output = compile(await text("../app.jsx"));
+      const url = URL.createObjectURL(new Blob([output], { type: "application/javascript" }));
+      const a = document.createElement("a"); a.href = url; a.download = "app.js";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      window.lastBuild = output;
+      say("✓ Built. Save the downloaded <code>app.js</code> into the project folder (next to <code>app.jsx</code>), replacing the old one, then reload the app.", "ok");
+    } catch (e) {
+      say("Build failed: " + e.message + (e.loc ? " (line " + e.loc.line + ")" : ""), "err");
+    }
+    buildBtn.disabled = false;
+  };
+  check();
+</script>
+</body>
+</html>

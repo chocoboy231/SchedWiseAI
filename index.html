@@ -4,16 +4,17 @@
   This is the file the browser opens. It loads, in order:
     1. Styling: Tailwind CSS (utility classes like "bg-white rounded-2xl"),
        the Inter font, and our own styles.css.
-    2. Libraries: React (builds the UI), ReactDOM (puts it on the page),
-       and Babel (converts app.jsx's JSX syntax into plain JavaScript
-       inside the browser, so no build tools are needed).
-    3. engine.js  — the scheduling AI; must load BEFORE app.jsx, because
-                    app.jsx uses window.SchedEngine which engine.js creates.
-    4. app.jsx    — the user interface, which draws itself into <div id="root">.
+    2. Libraries: React (builds the UI) and ReactDOM (puts it on the page).
+    3. engine.js  — the scheduling AI; must load BEFORE the interface, because
+                    it uses window.SchedEngine which engine.js creates.
+    4. loader.js  — starts the interface (app.jsx). It runs app.js, the
+                    ready-compiled copy, when that is up to date (fast), and
+                    otherwise compiles app.jsx in the browser with Babel (slower).
+                    See the comment at the top of loader.js.
 
   IMPORTANT: open this through a web server (Netlify, GitHub Pages, school
-  hosting, or a local server). Opening it by double-clicking may be blocked
-  by some browsers, because app.jsx is loaded as a separate file.
+  hosting, or a local server). Opening it by double-clicking does not work,
+  because the interface files are loaded separately.
 -->
 <html lang="en">
 <head>
@@ -21,6 +22,10 @@
 <!-- Makes the layout scale properly on phones instead of showing a zoomed-out desktop page. -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SchedWiseAI Prototype</title>
+<!-- Browser-tab icon (an amber calendar), built in so there is no extra file to load. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23fbbf24'/%3E%3Crect x='7' y='9' width='18' height='16' rx='2' fill='none' stroke='%230b1d4a' stroke-width='2.2'/%3E%3Cpath d='M7 14h18M12 6v5M20 6v5' stroke='%230b1d4a' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+<meta name="description" content="SchedWiseAI: conflict-free class schedules and balanced faculty workloads, built with a Genetic Algorithm.">
+<meta name="theme-color" content="#0b1d4a">
 
 <!-- Styling. Every third-party file comes from the vendor/ folder (see vendor/README.md),
      so the app works with NO internet connection. -->
@@ -28,10 +33,9 @@
 <link rel="stylesheet" href="vendor/inter.css">
 <link rel="stylesheet" href="styles.css">
 
-<!-- React + Babel (lets the browser run the .jsx file directly, no build step needed) -->
+<!-- React -->
 <script src="vendor/react.production.min.js"></script>
 <script src="vendor/react-dom.production.min.js"></script>
-<script src="vendor/babel.min.js"></script>
 </head>
 <body>
 <!-- React renders the entire application inside this empty div. -->
@@ -40,7 +44,7 @@
 <!-- Scheduling engine: Genetic Algorithm + constraint-based seeding (plain JavaScript) -->
 <script src="engine.js"></script>
 
-<!-- Application UI (React/JSX, transpiled in-browser by Babel) -->
-<script type="text/babel" data-presets="react" src="app.jsx"></script>
+<!-- Starts the interface: app.js if it is up to date, otherwise app.jsx compiled in the browser -->
+<script src="loader.js"></script>
 </body>
 </html>

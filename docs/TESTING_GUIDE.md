@@ -544,7 +544,7 @@ The engine (`engine.js`) has its own tests that you can run in seconds.
 1. With Node.js: from the project folder run `node tests/engine.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`.
 
-*Expected:* A list of `ok` lines and a last line `27 passed, 0 failed`. A line starting `FAIL` shows which check broke.
+*Expected:* A list of `ok` lines and a last line `30 passed, 0 failed`. A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 ---

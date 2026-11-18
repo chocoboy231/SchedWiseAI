@@ -1859,7 +1859,9 @@ function App() {
       setGenerating(false);
       if (r.changes.length === 0) {
         // Nothing had to move (e.g. a leave ended): keep this version, just clear the flag.
-        setResult({ ...result, violations: r.violations, feasible: r.feasible, needsRegeneration: null });
+        // Keep r.genes: it has one entry per subject, including a new subject that could not be
+        // placed. (The old genes would be shorter than the subject list, which stops the live count.)
+        setResult({ ...result, genes: r.genes, violations: r.violations, feasible: r.feasible, needsRegeneration: null });
         pushNotification("Schedule checked — no classes needed to move.");
         return;
       }
@@ -1896,6 +1898,8 @@ function App() {
   function handleDeleteSection(id) {
     const k = sections.findIndex(x => x.id === id);
     if (k < 0) return;
+    const s = sections[k];
+    if (!confirm("Delete " + s.subjectCode + " (" + s.sectionName + ")?\n\nIts class is also removed from the current schedule and from saved versions. This cannot be undone.")) return;
     const next = sections.filter(x => x.id !== id);
     setSections(next);
     const dropK = (res) => (res && res.genes && res.genes.length > k) ? { ...res, genes: res.genes.filter((_, i) => i !== k), updateSummary: null } : res;
@@ -1910,6 +1914,9 @@ function App() {
   // Delete a teacher or room. Classes that were using it now break a rule, so the
   // schedule is flagged for an update (otherwise it would still read "conflict-free").
   function handleDeleteFaculty(id) {
+    const who = faculty.find(x => x.id === id);
+    const teaching = result ? result.genes.filter(g => g.facultyId === id).length : 0;
+    if (!confirm("Delete " + (who ? who.name : "this teacher") + "?\n\n" + (teaching ? "They teach " + teaching + " class(es) in the current schedule; those classes will need a new teacher (Update affected classes). " : "") + "This cannot be undone.")) return;
     const next = faculty.filter(f => f.id !== id);
     setFaculty(next);
     const used = result ? result.genes.filter(g => g.facultyId === id).length : 0;
@@ -1919,6 +1926,9 @@ function App() {
     }
   }
   function handleDeleteRoom(id) {
+    const room = rooms.find(x => x.id === id);
+    const inUse = result ? result.genes.filter(g => g.roomId === id).length : 0;
+    if (!confirm("Delete " + (room ? room.name : "this room") + "?\n\n" + (inUse ? inUse + " class(es) use it in the current schedule; they will need a new room (Update affected classes). " : "") + "This cannot be undone.")) return;
     const next = rooms.filter(r => r.id !== id);
     setRooms(next);
     const used = result ? result.genes.filter(g => g.roomId === id).length : 0;
@@ -2202,7 +2212,7 @@ function App() {
                 <div className="text-slate-400 text-[11px] leading-tight">World Citi Colleges</div>
               </div>
             </div>
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white p-1">
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden text-slate-400 hover:text-white p-1">
               <IconX size={18} />
             </button>
           </div>
@@ -2365,7 +2375,7 @@ function App() {
             <HistoryPage history={scheduleHistory} currentId={result ? result.id : null} onRestore={handleRestoreHistory} />
           )}
 
-          {page === "conflicts" && <ConflictsPage result={result} onGenerate={handleGenerate} generating={generating} />}
+          {page === "conflicts" && <ConflictsPage result={result} sections={sections} faculty={faculty} rooms={rooms} onGenerate={handleGenerate} generating={generating} />}
 
           {page === "reports" && <ReportsPage faculty={faculty} rooms={rooms} sections={sections} result={result} slotById={slotById} />}
 
@@ -3316,8 +3326,8 @@ function SubjectsPage({ sections, onImport, onAdd, onEdit, onDelete }) {
                   <td className="px-6 py-3 text-slate-500">{s.prerequisiteCode || "—"}</td>
                   <td className="px-6 py-3 text-slate-500">{s.enrolledStudents}</td>
                   <td className="px-6 py-3 text-right whitespace-nowrap">
-                    <button onClick={()=>onEdit(s)} className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
-                    <button onClick={()=>onDelete(s.id)} className="text-slate-400 hover:text-rose-700 p-1"><IconTrash size={15}/></button>
+                    <button onClick={()=>onEdit(s)} title="Edit" aria-label={"Edit " + s.subjectCode + " " + s.sectionName} className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
+                    <button onClick={()=>onDelete(s.id)} title="Delete" aria-label={"Delete " + s.subjectCode + " " + s.sectionName} className="text-slate-400 hover:text-rose-700 p-1"><IconTrash size={15}/></button>
                   </td>
                 </tr>
               ))}
@@ -3347,8 +3357,8 @@ function RoomsPage({ rooms, onImport, onAdd, onEdit, onDelete }) {
                 <td className="px-6 py-3 font-medium text-slate-900">{r.name}</td>
                 <td className="px-6 py-3 text-slate-500">{r.capacity}</td>
                 <td className="px-6 py-3 text-right whitespace-nowrap">
-                  <button onClick={()=>onEdit(r)} className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
-                  <button onClick={()=>onDelete(r.id)} className="text-slate-400 hover:text-rose-700 p-1"><IconTrash size={15}/></button>
+                  <button onClick={()=>onEdit(r)} title="Edit" aria-label={"Edit " + r.name} className="text-slate-400 hover:text-blue-600 p-1"><IconEdit size={15}/></button>
+                  <button onClick={()=>onDelete(r.id)} title="Delete" aria-label={"Delete " + r.name} className="text-slate-400 hover:text-rose-700 p-1"><IconTrash size={15}/></button>
                 </td>
               </tr>
             ))}
@@ -3791,18 +3801,24 @@ function RegenerationBanner({ result, canEdit, generating, onGenerate, onUpdate 
   const flagged = !!(result && result.needsRegeneration);
   if (!result || (!flagged && result.violations.total === 0)) return null;
   const n = flagged ? (result.needsRegeneration.triggers || []).length : 0;
+  // Subjects that cannot be placed at all (no qualified teacher / no big-enough lab) are not
+  // fixed by an update, so when they are the ONLY problem the banner says what to change instead.
+  const impossible = result.violations.unplaceable || 0;
+  const onlyImpossible = !flagged && impossible > 0 && result.violations.total === impossible;
   return (
     <div className="no-print bg-orange-50 border border-orange-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div className="flex items-start gap-2 text-sm text-orange-900">
         <IconAlertCircle size={18} className="text-orange-700 shrink-0 mt-0.5" />
         <div>
-          <div className="font-semibold">{flagged ? "Schedule needs an update" : "Conflicts found in this schedule"}</div>
+          <div className="font-semibold">{flagged ? "Schedule needs an update" : onlyImpossible ? "Some subjects cannot be scheduled" : "Conflicts found in this schedule"}</div>
           <div>{flagged
             ? result.needsRegeneration.reason + (n > 1 ? " (+" + (n - 1) + " earlier change" + (n > 2 ? "s" : "") + ")" : "")
-            : result.violations.total + " rule violation(s) in this schedule. Update affected classes moves only the classes involved."}</div>
+            : onlyImpossible
+              ? impossible + " subject(s) have no qualified teacher or no laboratory big enough. Conflict Detection lists them and what to change."
+              : result.violations.total + " rule violation(s) in this schedule. Update affected classes moves only the classes involved."}</div>
         </div>
       </div>
-      {canEdit ? (
+      {onlyImpossible ? null : canEdit ? (
         <div className="flex flex-col items-stretch sm:items-end gap-1.5 shrink-0">
           <button onClick={onUpdate} disabled={generating}
             className="flex items-center justify-center gap-1.5 bg-orange-700 hover:bg-orange-800 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-60">
@@ -3957,7 +3973,7 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
   E.DAYS.forEach(d => grid[d] = {});
   result.genes.forEach((g, i) => {
     const slot = slotById[g.slotId];
-    if (!slot) return;
+    if (!slot || g.facultyId === -1) return;   // removed or impossible classes have no place in the grid
     (grid[slot.day][slot.period] = grid[slot.day][slot.period] || []).push(
       { section: sections[i], faculty: facultyById[g.facultyId], roomId: g.roomId, index: i });
   });
@@ -4021,7 +4037,7 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
           <div className="flex items-center gap-2">
             <button onClick={() => {
                 const rows = result.genes.map((g, i) => {
-                  const sec = sections[i], fac = facultyById[g.facultyId], slot = slotById[g.slotId];
+                  const sec = sections[i], fac = facultyById[g.facultyId], slot = g.facultyId === -1 ? null : slotById[g.slotId];
                   if (!sec) return null;   // safety: a gene with no matching subject is skipped
                   return [slot ? slot.day : "Unscheduled", slot ? slot.label : "", sec.program || "", sec.subjectCode, sec.subjectName, sec.sectionName, yearLabel(sec.yearLevel), classTypeLabel(sec), fac ? fac.name : "", g.roomId === -1 ? "" : roomLabel(g.roomId, roomById)];
                 }).filter(Boolean);
@@ -4241,7 +4257,7 @@ function HistoryPage({ history, currentId, onRestore }) {
 
 // ConflictsPage: the hard-constraint report from countViolations(), one row
 // per rule, with a plain-language description.
-function ConflictsPage({ result, onGenerate, generating }) {
+function ConflictsPage({ result, sections, faculty, rooms, onGenerate, generating }) {
   if (!result) {
     return (
       <div className="bg-white rounded-2xl p-12 shadow-sm border border-slate-100 text-center">
@@ -4263,8 +4279,14 @@ function ConflictsPage({ result, onGenerate, generating }) {
     ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"],
     ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"],
     ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"],
-    ["Faculty overload (units)", v.overload, "Total units assigned beyond a faculty member's maximum load"],
+    ["Cannot be scheduled", v.unplaceable || 0, "No qualified teacher for the subject, or no laboratory big enough for the class, so no schedule can place it"],
   ];
+  // Which subjects cannot be placed, and why, so the user knows what to change.
+  const impossible = (sections || []).map((s, i) => ({ s, g: result.genes[i] }))
+    .filter(({ s, g }) => s && (!g || g.facultyId === -1) && !E.canBePlaced(faculty, rooms, s))
+    .map(({ s }) => ({ s, why: E.qualifiedFaculty(faculty, s).length === 0
+      ? "No teacher has the " + s.requiredSpecialization + " specialization. Add one in Faculty, or change the subject's required specialization."
+      : "No laboratory seats " + s.enrolledStudents + " students. Add a larger lab in Rooms, split the section, or make it an online class." }));
   return (
     <div className="space-y-5">
       <div className={"rounded-2xl p-6 border " + (result.feasible ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100")}>
@@ -4276,6 +4298,25 @@ function ConflictsPage({ result, onGenerate, generating }) {
           </div>
         </div>
       </div>
+      {impossible.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-rose-100">
+          <h3 className="font-semibold text-slate-900 mb-1">Subjects that cannot be scheduled</h3>
+          <p className="text-sm text-slate-500 mb-3">Regenerating or updating cannot fix these. Change the data as suggested, then press <span className="font-medium">Update affected classes</span> or <span className="font-medium">Full Regenerate</span>.</p>
+          <ul className="space-y-2">
+            {impossible.map(({ s, why }) => (
+              <li key={s.id} className="text-sm bg-rose-50 rounded-lg px-3 py-2">
+                <span className="font-medium text-slate-900">{s.subjectCode} · {s.sectionName}</span>
+                <span className="text-slate-600"> — {why}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {v.overload > 0 && (
+        <div className="bg-orange-50 border border-orange-100 rounded-2xl px-5 py-3 text-sm text-orange-800">
+          <span className="font-semibold">Warning, not a conflict:</span> {v.overload} unit(s) are assigned above teachers' maximum loads. See Workload Management.
+        </div>
+      )}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <table className="w-full text-sm">
           <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
@@ -4451,7 +4492,8 @@ function ReportsPage({ faculty, rooms, sections, result, slotById }) {
           ["Room type mismatch", result.violations.roomTypeMismatch],
           ["Fixed time not respected", result.violations.fixedSlot || 0],
           ["Room capacity exceeded", result.violations.capacityViol],
-          ["Faculty overload (units)", result.violations.overload],
+          ["Cannot be scheduled (no qualified teacher or big-enough lab)", result.violations.unplaceable || 0],
+          ["Faculty overload (units; a warning, not a conflict)", result.violations.overload],
           ["Unscheduled (manually removed)", result.violations.unscheduled || 0],
         ])}>
         <div className="text-sm text-slate-600">

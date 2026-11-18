@@ -47,7 +47,7 @@ flowchart TD
     L --> M{Next generation full?<br/>50 schedules}
     M -- No --> I
     M -- Yes --> N[Record best and average score<br/>for the convergence chart]
-    N --> O{Best score unchanged for 20 generations<br/>AND best score above -1000?}
+    N --> O{Best score unchanged for 20 generations<br/>AND best schedule breaks no hard rule?}
     O -- Yes --> Q
     O -- No --> P{Reached 140 generations?}
     P -- No --> H
@@ -75,7 +75,7 @@ flowchart TD
 | 14 | Rectangle | **Evaluate** the child (chart 2). |
 | 15 | Diamond | Is the next generation full (50)? **No** → step 11. **Yes** → step 16. |
 | 16 | Rectangle | Record the generation's best and average score (shown as the convergence chart). |
-| 17 | Diamond | **Early stop**: has the best score stayed the same for 20 generations *and* is it above −1000 (which normally means no hard-rule violation)? **Yes** → step 19. **No** → step 18. |
+| 17 | Diamond | **Early stop**: has the best score stayed the same for 20 generations *and* does the best schedule break no hard rule? (A subject that cannot be placed at all, see chart 2, does not count: no schedule can fix it.) **Yes** → step 19. **No** → step 18. |
 | 18 | Diamond | Reached 140 generations? **No** → next generation (step 10). **Yes** → step 19. |
 | 19 | Rectangle | Take the best schedule found in any generation. |
 | 20 | Rectangle | Count the rule violations. The schedule is *conflict-free* if the total is 0. |
@@ -106,7 +106,7 @@ flowchart TD
 
 | Step | Term | Effect on the score |
 |---|---|---|
-| F1–F2 | **Hard rules.** Each violation of: teacher qualified for the subject; teacher not double-booked; teacher not in an unavailable time; room not double-booked (online classes need no room); laboratory class in a laboratory, online class with no room; enough seats; fixed day/period respected. | −1000 each |
+| F1–F2 | **Hard rules.** Each violation of: teacher qualified for the subject; teacher not double-booked; teacher not in an unavailable time; room not double-booked (online classes need no room); laboratory class in a laboratory, online class with no room; enough seats; fixed day/period respected; and every subject can be placed at all (it has a qualified teacher and, for a laboratory class, a lab big enough). | −1000 each |
 | F3 | **Workload balance**: variance of total teaching units per teacher (0 = perfectly even). | −2 × variance |
 | F4 | **Preferred days**: share of classes on the teacher's preferred days (0 to 1). | +50 × share |
 | F5 | **Requested times**: share of classes placed in times a teacher asked for in an approved "prefer instead" request. It is 0 when no teacher has such times. | +60 × share |
@@ -174,5 +174,5 @@ flowchart TD
 | Elitism | best 10% (5 schedules) | best 10% (4 schedules) |
 | Tournament size | 4 | 4 |
 | Crossover | single point | single point |
-| Early stop | best score unchanged for 20 generations and above −1000 | same |
+| Early stop | best score unchanged for 20 generations and no hard-rule violation (except subjects that cannot be placed at all) | same |
 | Genes that may change | all | only the re-placed classes |

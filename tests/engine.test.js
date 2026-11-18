@@ -170,6 +170,16 @@
     eq(v.unscheduled, 1); eq(v.total, 0);
   });
 
+  test("countViolations: a class that CANNOT be placed is a violation, not 'manually removed'", () => {
+    const d = mini();
+    d.sections.push(sec({ requiredSpecialization: "AI/ML" }));            // nobody teaches AI/ML
+    d.sections.push(sec({ enrolledStudents: 99 }));                         // no lab seats 99
+    const genes = clone(CLEAN).concat([{ facultyId: -1, roomId: -1, slotId: 3 }, { facultyId: -1, roomId: -1, slotId: 4 }]);
+    const v = count(d, genes);
+    eq(v.unplaceable, 2, "both impossible classes"); eq(v.unscheduled, 0); eq(v.total, 2, "they make the schedule not conflict-free");
+    assert(!E.canBePlaced(d.faculty, d.rooms, d.sections[3]) && !E.canBePlaced(d.faculty, d.rooms, d.sections[4]) && E.canBePlaced(d.faculty, d.rooms, d.sections[0]), "canBePlaced");
+  });
+
   test("countViolations: overload is reported but not added to total", () => {
     const d = mini(); d.faculty[0].maxUnits = 3;                                           // teacher 0 has 6 units
     const v = count(d, CLEAN);
@@ -257,6 +267,25 @@
     eq(brokenRules(d, r.genes).length, 0, "hard rules");
     eq(r.curriculumConflicts, overlaps(d.sections, r.genes), "reported overlaps should match an independent count");
     assert(r.curriculumConflicts <= 3, "curriculum-aware mode left " + r.curriculumConflicts + " overlaps");
+  });
+
+  test("runGA: a subject nobody can teach is reported (not 'conflict-free'), the rest still scheduled", () => {
+    const d = E.generateSyntheticData(9, 18, 6, 5);
+    const faculty = d.faculty.map(f => Object.assign({}, f, { specializations: f.specializations.filter(s => s !== "AI/ML") }));
+    const sections = d.sections.filter(s => s.requiredSpecialization !== "AI/ML")
+      .concat([Object.assign({}, d.sections[0], { id: 901, requiredSpecialization: "AI/ML", roomTypeRequired: "online" })]);
+    const r = E.runGA(faculty, d.rooms, sections, d.timeSlots, GA);
+    assert(!r.feasible, "must not be called conflict-free");
+    eq(r.violations.unplaceable, 1); eq(r.violations.total, 1, "the impossible subject is the only problem");
+    eq(brokenRules({ faculty, rooms: d.rooms, sections }, r.genes).length, 0, "every other class follows the rules");
+    assert(r.convergence.length < GA.generations, "the engine still stops early: the impossible subject cannot get better");
+  });
+
+  test("runGA: a laboratory class bigger than every lab is reported", () => {
+    const d = E.generateSyntheticData(9, 18, 6, 6);
+    const sections = d.sections.concat([Object.assign({}, d.sections[0], { id: 902, roomTypeRequired: "laboratory", enrolledStudents: 99 })]);
+    const r = E.runGA(d.faculty, d.rooms, sections, d.timeSlots, GA);
+    assert(!r.feasible, "must not be called conflict-free"); eq(r.violations.unplaceable, 1);
   });
 
   test("runGA: the expanded multi-program sample can be scheduled without conflicts", () => {

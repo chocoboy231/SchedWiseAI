@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-18T23:04:30.475Z with Babel 7.23.5. source-hash: 86eb80d6cf47 */
+   Built 2026-11-18T23:23:02.196Z with Babel 7.23.5. source-hash: 14ff63b02a5c61 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -2938,8 +2938,11 @@ function App() {
       setGenerating(false);
       if (r.changes.length === 0) {
         // Nothing had to move (e.g. a leave ended): keep this version, just clear the flag.
+        // Keep r.genes: it has one entry per subject, including a new subject that could not be
+        // placed. (The old genes would be shorter than the subject list, which stops the live count.)
         setResult({
           ...result,
+          genes: r.genes,
           violations: r.violations,
           feasible: r.feasible,
           needsRegeneration: null
@@ -3003,6 +3006,8 @@ function App() {
   function handleDeleteSection(id) {
     const k = sections.findIndex(x => x.id === id);
     if (k < 0) return;
+    const s = sections[k];
+    if (!confirm("Delete " + s.subjectCode + " (" + s.sectionName + ")?\n\nIts class is also removed from the current schedule and from saved versions. This cannot be undone.")) return;
     const next = sections.filter(x => x.id !== id);
     setSections(next);
     const dropK = res => res && res.genes && res.genes.length > k ? {
@@ -3025,6 +3030,9 @@ function App() {
   // Delete a teacher or room. Classes that were using it now break a rule, so the
   // schedule is flagged for an update (otherwise it would still read "conflict-free").
   function handleDeleteFaculty(id) {
+    const who = faculty.find(x => x.id === id);
+    const teaching = result ? result.genes.filter(g => g.facultyId === id).length : 0;
+    if (!confirm("Delete " + (who ? who.name : "this teacher") + "?\n\n" + (teaching ? "They teach " + teaching + " class(es) in the current schedule; those classes will need a new teacher (Update affected classes). " : "") + "This cannot be undone.")) return;
     const next = faculty.filter(f => f.id !== id);
     setFaculty(next);
     const used = result ? result.genes.filter(g => g.facultyId === id).length : 0;
@@ -3037,6 +3045,9 @@ function App() {
     }
   }
   function handleDeleteRoom(id) {
+    const room = rooms.find(x => x.id === id);
+    const inUse = result ? result.genes.filter(g => g.roomId === id).length : 0;
+    if (!confirm("Delete " + (room ? room.name : "this room") + "?\n\n" + (inUse ? inUse + " class(es) use it in the current schedule; they will need a new room (Update affected classes). " : "") + "This cannot be undone.")) return;
     const next = rooms.filter(r => r.id !== id);
     setRooms(next);
     const used = result ? result.genes.filter(g => g.roomId === id).length : 0;
@@ -3452,6 +3463,7 @@ function App() {
     className: "text-slate-400 text-[11px] leading-tight"
   }, "World Citi Colleges"))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setSidebarOpen(false),
+    "aria-label": "Close menu",
     className: "md:hidden text-slate-400 hover:text-white p-1"
   }, /*#__PURE__*/React.createElement(IconX, {
     size: 18
@@ -3677,6 +3689,9 @@ function App() {
     onRestore: handleRestoreHistory
   }), page === "conflicts" && /*#__PURE__*/React.createElement(ConflictsPage, {
     result: result,
+    sections: sections,
+    faculty: faculty,
+    rooms: rooms,
     onGenerate: handleGenerate,
     generating: generating
   }), page === "reports" && /*#__PURE__*/React.createElement(ReportsPage, {
@@ -4962,11 +4977,15 @@ function SubjectsPage({
     className: "px-6 py-3 text-right whitespace-nowrap"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => onEdit(s),
+    title: "Edit",
+    "aria-label": "Edit " + s.subjectCode + " " + s.sectionName,
     className: "text-slate-400 hover:text-blue-600 p-1"
   }, /*#__PURE__*/React.createElement(IconEdit, {
     size: 15
   })), /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(s.id),
+    title: "Delete",
+    "aria-label": "Delete " + s.subjectCode + " " + s.sectionName,
     className: "text-slate-400 hover:text-rose-700 p-1"
   }, /*#__PURE__*/React.createElement(IconTrash, {
     size: 15
@@ -5012,11 +5031,15 @@ function RoomsPage({
     className: "px-6 py-3 text-right whitespace-nowrap"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => onEdit(r),
+    title: "Edit",
+    "aria-label": "Edit " + r.name,
     className: "text-slate-400 hover:text-blue-600 p-1"
   }, /*#__PURE__*/React.createElement(IconEdit, {
     size: 15
   })), /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(r.id),
+    title: "Delete",
+    "aria-label": "Delete " + r.name,
     className: "text-slate-400 hover:text-rose-700 p-1"
   }, /*#__PURE__*/React.createElement(IconTrash, {
     size: 15
@@ -5634,6 +5657,10 @@ function RegenerationBanner({
   const flagged = !!(result && result.needsRegeneration);
   if (!result || !flagged && result.violations.total === 0) return null;
   const n = flagged ? (result.needsRegeneration.triggers || []).length : 0;
+  // Subjects that cannot be placed at all (no qualified teacher / no big-enough lab) are not
+  // fixed by an update, so when they are the ONLY problem the banner says what to change instead.
+  const impossible = result.violations.unplaceable || 0;
+  const onlyImpossible = !flagged && impossible > 0 && result.violations.total === impossible;
   return /*#__PURE__*/React.createElement("div", {
     className: "no-print bg-orange-50 border border-orange-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
   }, /*#__PURE__*/React.createElement("div", {
@@ -5643,7 +5670,7 @@ function RegenerationBanner({
     className: "text-orange-700 shrink-0 mt-0.5"
   }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "font-semibold"
-  }, flagged ? "Schedule needs an update" : "Conflicts found in this schedule"), /*#__PURE__*/React.createElement("div", null, flagged ? result.needsRegeneration.reason + (n > 1 ? " (+" + (n - 1) + " earlier change" + (n > 2 ? "s" : "") + ")" : "") : result.violations.total + " rule violation(s) in this schedule. Update affected classes moves only the classes involved."))), canEdit ? /*#__PURE__*/React.createElement("div", {
+  }, flagged ? "Schedule needs an update" : onlyImpossible ? "Some subjects cannot be scheduled" : "Conflicts found in this schedule"), /*#__PURE__*/React.createElement("div", null, flagged ? result.needsRegeneration.reason + (n > 1 ? " (+" + (n - 1) + " earlier change" + (n > 2 ? "s" : "") + ")" : "") : onlyImpossible ? impossible + " subject(s) have no qualified teacher or no laboratory big enough. Conflict Detection lists them and what to change." : result.violations.total + " rule violation(s) in this schedule. Update affected classes moves only the classes involved."))), onlyImpossible ? null : canEdit ? /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-stretch sm:items-end gap-1.5 shrink-0"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: onUpdate,
@@ -5837,7 +5864,7 @@ function SchedulesPage({
   E.DAYS.forEach(d => grid[d] = {});
   result.genes.forEach((g, i) => {
     const slot = slotById[g.slotId];
-    if (!slot) return;
+    if (!slot || g.facultyId === -1) return; // removed or impossible classes have no place in the grid
     (grid[slot.day][slot.period] = grid[slot.day][slot.period] || []).push({
       section: sections[i],
       faculty: facultyById[g.facultyId],
@@ -5913,7 +5940,7 @@ function SchedulesPage({
       const rows = result.genes.map((g, i) => {
         const sec = sections[i],
           fac = facultyById[g.facultyId],
-          slot = slotById[g.slotId];
+          slot = g.facultyId === -1 ? null : slotById[g.slotId];
         if (!sec) return null; // safety: a gene with no matching subject is skipped
         return [slot ? slot.day : "Unscheduled", slot ? slot.label : "", sec.program || "", sec.subjectCode, sec.subjectName, sec.sectionName, yearLabel(sec.yearLevel), classTypeLabel(sec), fac ? fac.name : "", g.roomId === -1 ? "" : roomLabel(g.roomId, roomById)];
       }).filter(Boolean);
@@ -6172,6 +6199,9 @@ function HistoryPage({
 // per rule, with a plain-language description.
 function ConflictsPage({
   result,
+  sections,
+  faculty,
+  rooms,
   onGenerate,
   generating
 }) {
@@ -6192,7 +6222,20 @@ function ConflictsPage({
     }, generating ? "Generating..." : "Generate Schedule"));
   }
   const v = result.violations;
-  const rows = [["Faculty double-booking", v.facultyConflicts, "A faculty member assigned to two classes at the same time"], ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"], ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"], ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot"], ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"], ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"], ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"], ["Faculty overload (units)", v.overload, "Total units assigned beyond a faculty member's maximum load"]];
+  const rows = [["Faculty double-booking", v.facultyConflicts, "A faculty member assigned to two classes at the same time"], ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"], ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"], ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot"], ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"], ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"], ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"], ["Cannot be scheduled", v.unplaceable || 0, "No qualified teacher for the subject, or no laboratory big enough for the class, so no schedule can place it"]];
+  // Which subjects cannot be placed, and why, so the user knows what to change.
+  const impossible = (sections || []).map((s, i) => ({
+    s,
+    g: result.genes[i]
+  })).filter(({
+    s,
+    g
+  }) => s && (!g || g.facultyId === -1) && !E.canBePlaced(faculty, rooms, s)).map(({
+    s
+  }) => ({
+    s,
+    why: E.qualifiedFaculty(faculty, s).length === 0 ? "No teacher has the " + s.requiredSpecialization + " specialization. Add one in Faculty, or change the subject's required specialization." : "No laboratory seats " + s.enrolledStudents + " students. Add a larger lab in Rooms, split the section, or make it an online class."
+  }));
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-5"
   }, /*#__PURE__*/React.createElement("div", {
@@ -6209,7 +6252,33 @@ function ConflictsPage({
     className: "font-semibold text-slate-900"
   }, result.feasible ? "No conflicts detected" : v.total + " conflicts detected"), /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-slate-500"
-  }, "Checked across ", rows.length, " constraint categories after ", result.convergence.length, " generations of optimization.")))), /*#__PURE__*/React.createElement("div", {
+  }, "Checked across ", rows.length, " constraint categories after ", result.convergence.length, " generations of optimization.")))), impossible.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "bg-white rounded-2xl p-5 shadow-sm border border-rose-100"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "font-semibold text-slate-900 mb-1"
+  }, "Subjects that cannot be scheduled"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-500 mb-3"
+  }, "Regenerating or updating cannot fix these. Change the data as suggested, then press ", /*#__PURE__*/React.createElement("span", {
+    className: "font-medium"
+  }, "Update affected classes"), " or ", /*#__PURE__*/React.createElement("span", {
+    className: "font-medium"
+  }, "Full Regenerate"), "."), /*#__PURE__*/React.createElement("ul", {
+    className: "space-y-2"
+  }, impossible.map(({
+    s,
+    why
+  }) => /*#__PURE__*/React.createElement("li", {
+    key: s.id,
+    className: "text-sm bg-rose-50 rounded-lg px-3 py-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-medium text-slate-900"
+  }, s.subjectCode, " \xB7 ", s.sectionName), /*#__PURE__*/React.createElement("span", {
+    className: "text-slate-600"
+  }, " \u2014 ", why))))), v.overload > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "bg-orange-50 border border-orange-100 rounded-2xl px-5 py-3 text-sm text-orange-800"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-semibold"
+  }, "Warning, not a conflict:"), " ", v.overload, " unit(s) are assigned above teachers' maximum loads. See Workload Management."), /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden"
   }, /*#__PURE__*/React.createElement("table", {
     className: "w-full text-sm"
@@ -6413,7 +6482,7 @@ function ReportsPage({
   }, c)))))))), /*#__PURE__*/React.createElement(ReportCard, {
     title: "Conflict Report",
     subtitle: "Hard-constraint check across the current schedule",
-    onExport: () => downloadCSV("conflict_report.csv", ["Constraint", "Count"], [["Faculty double-booking", result.violations.facultyConflicts], ["Room double-booking", result.violations.roomConflicts], ["Unqualified assignment", result.violations.unqualified], ["Faculty unavailable", result.violations.unavailable], ["Room type mismatch", result.violations.roomTypeMismatch], ["Fixed time not respected", result.violations.fixedSlot || 0], ["Room capacity exceeded", result.violations.capacityViol], ["Faculty overload (units)", result.violations.overload], ["Unscheduled (manually removed)", result.violations.unscheduled || 0]])
+    onExport: () => downloadCSV("conflict_report.csv", ["Constraint", "Count"], [["Faculty double-booking", result.violations.facultyConflicts], ["Room double-booking", result.violations.roomConflicts], ["Unqualified assignment", result.violations.unqualified], ["Faculty unavailable", result.violations.unavailable], ["Room type mismatch", result.violations.roomTypeMismatch], ["Fixed time not respected", result.violations.fixedSlot || 0], ["Room capacity exceeded", result.violations.capacityViol], ["Cannot be scheduled (no qualified teacher or big-enough lab)", result.violations.unplaceable || 0], ["Faculty overload (units; a warning, not a conflict)", result.violations.overload], ["Unscheduled (manually removed)", result.violations.unscheduled || 0]])
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-slate-600"
   }, "Total hard-constraint violations: ", /*#__PURE__*/React.createElement("span", {

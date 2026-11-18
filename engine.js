@@ -194,24 +194,36 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
 //   roomTypeMismatch  — lab class without a lab room, or online class given a room
 //   capacityViol      — more students than the room can seat
 //   fixedSlot         — a class with a fixed day/period placed at a different time
+//   unplaceable       — sections that CANNOT be scheduled at all: no qualified teacher,
+//                       or (for a laboratory class) no lab big enough. Counted in `total`,
+//                       so such a schedule is never called conflict-free.
 //   overload          — total units ABOVE each teacher's maximum (reported, not in `total`)
 //   unscheduled       — sections manually removed by an admin (reported, not in `total`)
 // `total` is the number used to decide if a schedule is "conflict-free".
 // ---------------------------------------------------------------------
+// canBePlaced(faculty, rooms, section): is there at least one qualified teacher AND one
+// suitable room (or online) for this section? If not, no schedule can ever place it.
+function canBePlaced(faculty, rooms, section) {
+  return qualifiedFaculty(faculty, section).length > 0 && validRooms(rooms, section).length > 0;
+}
 function countViolations(faculty, rooms, sections, timeSlots, genes) {
   // Lookup tables so we can find a faculty member / room by id quickly.
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   const roomById = Object.fromEntries(rooms.map(r => [r.id, r]));
-  let facultyConflicts = 0, roomConflicts = 0, unqualified = 0, unavailable = 0, roomTypeMismatch = 0, capacityViol = 0, unscheduled = 0, fixedSlot = 0;
+  let facultyConflicts = 0, roomConflicts = 0, unqualified = 0, unavailable = 0, roomTypeMismatch = 0, capacityViol = 0, unscheduled = 0, fixedSlot = 0, unplaceable = 0;
   // facSlot["3-12"] = how many classes faculty 3 has in slot 12 (same idea for rooms).
   const facSlot = {}, roomSlot = {};
   const unitsPerFaculty = {};
   faculty.forEach(f => unitsPerFaculty[f.id] = 0);
   genes.forEach((g, i) => {
     const sec = sections[i];
-    // A gene with facultyId -1 represents a manually-removed/unassigned meeting -- it is
-    // intentionally incomplete, not a scheduling conflict, so it is tracked separately.
-    if (g.facultyId === -1 || g.roomId === -1 || g.slotId === -1) { unscheduled++; return; }
+    // A gene with -1 is a class with no place. If the section COULD be placed, an admin
+    // removed it on purpose (tracked separately, not a conflict). If it cannot be placed
+    // at all (no qualified teacher / no big-enough lab), that IS a problem to report.
+    if (g.facultyId === -1 || g.roomId === -1 || g.slotId === -1) {
+      if (sec && !canBePlaced(faculty, rooms, sec)) unplaceable++; else unscheduled++;
+      return;
+    }
     const fkey = g.facultyId + "-" + g.slotId, rkey = g.roomId + "-" + g.slotId;
     facSlot[fkey] = (facSlot[fkey] || 0) + 1;
     // Online classes don't occupy a room, so many can run in the same slot.
@@ -232,8 +244,8 @@ function countViolations(faculty, rooms, sections, timeSlots, genes) {
   Object.values(facSlot).forEach(c => { if (c > 1) facultyConflicts += c - 1; });
   Object.values(roomSlot).forEach(c => { if (c > 1) roomConflicts += c - 1; });
   const overload = faculty.reduce((s, f) => s + Math.max(0, unitsPerFaculty[f.id] - f.maxUnits), 0);
-  const total = facultyConflicts + roomConflicts + unqualified + unavailable + roomTypeMismatch + capacityViol + fixedSlot;
-  return { facultyConflicts, roomConflicts, unqualified, unavailable, roomTypeMismatch, capacityViol, fixedSlot, overload, unscheduled, total };
+  const total = facultyConflicts + roomConflicts + unqualified + unavailable + roomTypeMismatch + capacityViol + fixedSlot + unplaceable;
+  return { facultyConflicts, roomConflicts, unqualified, unavailable, roomTypeMismatch, capacityViol, fixedSlot, unplaceable, overload, unscheduled, total };
 }
 // ---------------------------------------------------------------------
 // curriculumOverlapCount(sections, timeSlots, genes)
@@ -280,7 +292,8 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
   // 2) Workload balance: variance of total units per teacher (0 = perfectly even).
   const unitsPerFaculty = {};
   faculty.forEach(f => unitsPerFaculty[f.id] = 0);
-  genes.forEach((g, i) => { unitsPerFaculty[g.facultyId] = (unitsPerFaculty[g.facultyId] || 0) + sections[i].units; });
+  // Only classes that HAVE a teacher count (a removed class, teacher -1, is nobody's load).
+  genes.forEach((g, i) => { if (g.facultyId !== -1) unitsPerFaculty[g.facultyId] = (unitsPerFaculty[g.facultyId] || 0) + sections[i].units; });
   const loads = Object.values(unitsPerFaculty);
   const mean = loads.reduce((a,b)=>a+b,0) / (loads.length || 1);
   const variance = loads.reduce((a,b)=>a+(b-mean)*(b-mean),0) / (loads.length || 1);
@@ -358,7 +371,8 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
 //                       shrinks over time (explore early, refine late).
 //        e. Score the child with fitness() and add it to the next generation.
 //   3. EARLY STOP: if the best score hasn't changed for 20 generations AND
-//      the best schedule has no hard violations, stop — it has converged.
+//      the best schedule breaks no hard rule (other than classes that cannot be
+//      placed at all, which no schedule can fix), stop — it has converged.
 //
 // Returns: the best schedule found, its score, a conflict report, and the
 // per-generation `convergence` history that the UI charts.
@@ -443,7 +457,12 @@ function runGA(faculty, rooms, sections, timeSlots, opts) {
     // --- Step 3: early stop once converged and conflict-free ---
     if (convergence.length > 20) {
       const recent = convergence.slice(-20).map(c => c.best);
-      if (Math.max(...recent) - Math.min(...recent) < 1e-6 && bestOverall.fit > -HARD_PENALTY) break;
+      // Stop only when the best schedule breaks no rule that a better schedule could fix
+      // (classes that cannot be placed at all, see countViolations, never get better).
+      if (Math.max(...recent) - Math.min(...recent) < 1e-6) {
+        const bv = countViolations(faculty, rooms, sections, timeSlots, bestOverall.genes);
+        if (bv.total - bv.unplaceable === 0) break;
+      }
     }
   }
   // Final report on the best schedule found.
@@ -810,7 +829,7 @@ function generateExpandedData(seed) {
 // PUBLIC API — everything app.jsx is allowed to use from this file.
 // ---------------------------------------------------------------------
 window.SchedEngine = {
-  buildTimeSlots, qualifiedFaculty, validRooms, runGA, countViolations, generateSyntheticData, DAYS, PERIODS,
+  buildTimeSlots, qualifiedFaculty, validRooms, canBePlaced, runGA, countViolations, generateSyntheticData, DAYS, PERIODS,
   SPECIALIZATIONS, EMPLOYMENT_STATUSES, ACADEMIC_RANKS,
   CALENDAR_DAYS, ONLINE_ROOM_ID, isOnline,
   repairSchedule, findConflictingIndices, currentSchoolYear, schoolYearOptions,

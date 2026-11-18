@@ -55,7 +55,7 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 | **Curriculum-aware scheduling** | Optional. Avoids overlapping classes that share the same program, year level and semester (different programs may share a time). |
 | **Manual editing** | Click any scheduled class to change its teacher, room or time, or remove it. Conflicts are re-checked immediately. |
 | **Approval workflow** | Every generated or changed schedule starts as *Pending Review*. Administrators and chairs approve or reject it with a comment. |
-| **Conflict Detection** | Reports seven constraint categories: teacher double-booking, room double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, and room capacity. Overload is shown separately on the Workload, Faculty and Departments pages (see Limitations). |
+| **Conflict Detection** | Reports eight constraint categories: teacher double-booking, room double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, room capacity, and subjects that cannot be scheduled at all (no qualified teacher, or no lab big enough), which it lists with what to change. Overload is shown separately on the Workload, Faculty and Departments pages (see Limitations). |
 | **Departments** | Each specialization is treated as a department, with summary cards, teaching load %, overload and conflict counts, expandable workload charts, and an *Issues Requiring Attention* list. |
 | **Reports** | Faculty Teaching Load, Room Utilization (with room × day heatmap), Department Summary, and Conflict Report. Every report exports to CSV; everything can be printed or saved as PDF. |
 | **Schedule History** | Keeps up to 20 versions (full and update) with a fitness comparison chart. Any version can be restored. |
@@ -139,13 +139,14 @@ A schedule is a list of **genes**, one per subject section. Each gene is `{ facu
 - A room cannot host two classes at once (online classes share no room)
 - Laboratory classes need a laboratory room with enough seats
 - A subject with a **fixed day/period** must be scheduled exactly then
+- Every subject must be placeable at all: at least one qualified teacher and, for a laboratory class, a lab big enough. If not, the schedule is reported as having a conflict, and Conflict Detection names the subject and what to change
 
 ### Full generation (`runGA`)
 
 1. **Seed**: one schedule built greedily, placing each subject in the first slot/teacher/room that fits.
 2. **Population**: the seed plus 49 random schedules.
 3. **Evolve** for up to 140 generations: keep the best 10% (*elitism*), pick parents by 4-way *tournament*, join them with *single-point crossover*, then *mutate* (starts at 8% per gene and shrinks over time).
-4. **Stop early** once the best score has not changed for 20 generations and the schedule is conflict-free.
+4. **Stop early** once the best score has not changed for 20 generations and the best schedule breaks no hard rule (a subject that cannot be placed at all does not block stopping, since no schedule can fix it).
 
 ### Scoring (`fitness`), higher is better
 
@@ -250,10 +251,10 @@ If you forget, nothing breaks: `loader.js` sees that `app.js` was built from an 
 
 ## Testing
 
-**Automated (engine):** 27 tests in `tests/engine.test.js` cover the time slots, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
+**Automated (engine):** 30 tests in `tests/engine.test.js` cover the time slots, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
 
 ```bash
-node tests/engine.test.js        # needs Node.js; ends with "27 passed, 0 failed"
+node tests/engine.test.js        # needs Node.js; ends with "30 passed, 0 failed"
 ```
 
 No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs the same tests and prints the results on the page.

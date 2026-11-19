@@ -1471,6 +1471,25 @@ function GlobalSearch({ role, faculty, sections, rooms, result, myFacultyId, onO
   );
 }
 
+// Toast: a short message at the bottom of the screen that tells the user what just
+// happened and what comes next (for example after submitting a request). It closes by
+// itself after 8 seconds or with its close button; screen readers announce it.
+function Toast({ message, onClose }) {
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(onClose, 8000);
+    return () => clearTimeout(t);
+  }, [message]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!message) return null;
+  return (
+    <div role="status" aria-live="polite" className="no-print fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md bg-[#0b1d4a] text-white text-sm rounded-xl shadow-lg px-4 py-3 flex items-start gap-3">
+      <IconCheckCircle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+      <div className="flex-1">{message}</div>
+      <button onClick={onClose} aria-label="Close message" className="text-slate-300 hover:text-white shrink-0"><IconX size={16} /></button>
+    </div>
+  );
+}
+
 // NotificationPanel: the drop-down list under the bell icon.
 // Clicking one marks it read; "Mark all read" clears the badge.
 function NotificationPanel({ notifications, onMarkRead, onMarkAllRead, onClose }) {
@@ -1750,6 +1769,7 @@ function App() {
   const [csvImportKind, setCsvImportKind] = useState(null);
   const [datasetKind, setDatasetKind] = useState(init.datasetKind || "standard");   // which sample is loaded
   const [testLog, setTestLog] = useState([]);                                         // results of test-conflict buttons
+  const [toast, setToast] = useState(null);           // short "what happens next" message (see Toast)
   const [activityLog, setActivityLog] = useState(init.activityLog || []);   // import/export log (IT overview)
   const [chairDept, setChairDept] = useState(init.chairDept || "All");       // department filter (Chair overview)
   const [leaveRequestLockedTo, setLeaveRequestLockedTo] = useState(null);    // faculty id a request form is locked to
@@ -1987,6 +2007,10 @@ function App() {
     setLeaveRequests(prev => [req, ...prev]);
     const fac = faculty.find(f => f.id === req.facultyId);
     pushNotification("New " + req.type.toLowerCase() + " from " + (fac ? fac.name : "faculty") + ": " + requestTimesText(req, slotById) + ".");
+    // Say what happens next: nothing changes until the request is approved.
+    setToast(role === "faculty"
+      ? "Request sent for approval. Your schedule changes only after a department chair or administrator approves it."
+      : "Request saved as Pending. Approve it in Faculty → Leave & Availability; if it clashes with a class, an Update affected classes button then appears there.");
   }
 
   // After a teacher's availability changes, the current schedule may now put
@@ -2330,6 +2354,7 @@ function App() {
               onNewRequest={() => openRequestPicker(null)}
               onUpdateRequestStatus={handleRequestDecision}
               onEndRequest={handleEndRequest}
+              canEdit={role !== "faculty"} generating={generating} onGenerate={handleGenerate} onUpdateSchedule={handleUpdateSchedule}
               slotById={slotById}
             />
           )}
@@ -2389,6 +2414,8 @@ function App() {
 
         </main>
       </div>
+
+      <Toast message={toast} onClose={() => setToast(null)} />
 
       {facultyModal && (
         <FacultyModal initial={facultyModal === "new" ? null : facultyModal} allFaculty={faculty}
@@ -3119,7 +3146,7 @@ function loadStatusFor(facultyMember, sections, result, faculty) {
 //   "Leave & Availability" — all requests with the requested time slots.
 //                            Admin/Chair can Approve (blocks those slots for the
 //                            teacher), Deny, or End an approved leave.
-function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onImport, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus, onEndRequest, slotById }) {
+function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setTab, onImport, onAdd, onEdit, onDelete, onViewProfile, onViewSchedule, onNewRequest, onUpdateRequestStatus, onEndRequest, slotById, canEdit, generating, onGenerate, onUpdateSchedule }) {
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   return (
     <div className="space-y-4">
@@ -3172,6 +3199,9 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
         </TableShell>
       )}
 
+      {/* After approving a request that clashes with a class, the update is offered right here
+          (the same banner as on Class Schedules), so nobody has to go looking for it. */}
+      {tab === "requests" && <RegenerationBanner result={result} canEdit={canEdit} generating={generating} onGenerate={onGenerate} onUpdate={onUpdateSchedule} />}
       {tab === "requests" && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">

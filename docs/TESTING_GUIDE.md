@@ -370,21 +370,21 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 ## I. Availability and leave
 
 **I1. A faculty member asks for a change**
-1. Sign in as *Faculty Member* (exact teacher name). Open **Class Schedules**. Press **Request Availability Change / Leave**, choose **Availability Change** as the request type, pick the day-and-period times you cannot teach, add a "prefer instead" time, and submit.
+1. Sign in as *Faculty Member* (exact teacher name). Open **Class Schedules → My Schedule**. Press **Request Availability Change / Leave**, choose **Availability Change** as the request type, pick the day-and-period times you cannot teach, add a "prefer instead" time, and submit.
 
-*Expected:* The request is listed as **Pending**. A notification is created. Nothing about the schedule changes yet.
+*Expected:* A message at the bottom says the request was sent for approval and that the schedule changes only after a chair or administrator approves it. The request is listed as **Pending**. A notification is created. Nothing about the schedule changes yet, and there is no update button (nothing has been approved).
 ☐ Pass ☐ Fail
 
 **I2. Approve a request that clashes with a class**
 1. As Administrator open **Faculty → Leave & Availability**. Approve a request that blocks a time when that teacher has a class.
 
-*Expected:* The status becomes **Approved**. The schedule is flagged ("… availability changed … N current class(es) now clash"), and the conflict count shows the clashes.
+*Expected:* The status becomes **Approved**. An orange banner "Schedule needs an update" ("… availability changed … N current class(es) now clash") appears right there on the Leave & Availability tab, with an **Update affected classes** button. The same banner is on Class Schedules, and the conflict count shows the clashes.
 ☐ Pass ☐ Fail
 
 **I3. Update affected classes after an approval**
-1. Open **Class Schedules** and press **Update affected classes**.
+1. Press **Update affected classes** in that banner (on the Leave & Availability tab or on Class Schedules).
 
-*Expected:* The teacher's clashing classes move, preferably to the "prefer instead" times, and the others stay. The "What changed" panel confirms the approved request is now respected.
+*Expected:* Class Schedules opens. The teacher's clashing classes move, preferably to the "prefer instead" times, and the others stay. The "What changed" panel confirms the approved request is now respected.
 ☐ Pass ☐ Fail
 
 **I4. Approve a request that does not clash**

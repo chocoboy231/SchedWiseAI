@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-18T23:23:02.196Z with Babel 7.23.5. source-hash: 14ff63b02a5c61 */
+   Built 2026-11-19T02:34:27.532Z with Babel 7.23.5. source-hash: 14a6a1a007e2e7 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -2368,6 +2368,37 @@ function GlobalSearch({
   })))));
 }
 
+// Toast: a short message at the bottom of the screen that tells the user what just
+// happened and what comes next (for example after submitting a request). It closes by
+// itself after 8 seconds or with its close button; screen readers announce it.
+function Toast({
+  message,
+  onClose
+}) {
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(onClose, 8000);
+    return () => clearTimeout(t);
+  }, [message]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!message) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    "aria-live": "polite",
+    className: "no-print fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md bg-[#0b1d4a] text-white text-sm rounded-xl shadow-lg px-4 py-3 flex items-start gap-3"
+  }, /*#__PURE__*/React.createElement(IconCheckCircle, {
+    size: 18,
+    className: "text-amber-400 shrink-0 mt-0.5"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1"
+  }, message), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    "aria-label": "Close message",
+    className: "text-slate-300 hover:text-white shrink-0"
+  }, /*#__PURE__*/React.createElement(IconX, {
+    size: 16
+  })));
+}
+
 // NotificationPanel: the drop-down list under the bell icon.
 // Clicking one marks it read; "Mark all read" clears the badge.
 function NotificationPanel({
@@ -2781,6 +2812,7 @@ function App() {
   const [csvImportKind, setCsvImportKind] = useState(null);
   const [datasetKind, setDatasetKind] = useState(init.datasetKind || "standard"); // which sample is loaded
   const [testLog, setTestLog] = useState([]); // results of test-conflict buttons
+  const [toast, setToast] = useState(null); // short "what happens next" message (see Toast)
   const [activityLog, setActivityLog] = useState(init.activityLog || []); // import/export log (IT overview)
   const [chairDept, setChairDept] = useState(init.chairDept || "All"); // department filter (Chair overview)
   const [leaveRequestLockedTo, setLeaveRequestLockedTo] = useState(null); // faculty id a request form is locked to
@@ -3133,6 +3165,8 @@ function App() {
     setLeaveRequests(prev => [req, ...prev]);
     const fac = faculty.find(f => f.id === req.facultyId);
     pushNotification("New " + req.type.toLowerCase() + " from " + (fac ? fac.name : "faculty") + ": " + requestTimesText(req, slotById) + ".");
+    // Say what happens next: nothing changes until the request is approved.
+    setToast(role === "faculty" ? "Request sent for approval. Your schedule changes only after a department chair or administrator approves it." : "Request saved as Pending. Approve it in Faculty → Leave & Availability; if it clashes with a class, an Update affected classes button then appears there.");
   }
 
   // After a teacher's availability changes, the current schedule may now put
@@ -3633,6 +3667,10 @@ function App() {
     onNewRequest: () => openRequestPicker(null),
     onUpdateRequestStatus: handleRequestDecision,
     onEndRequest: handleEndRequest,
+    canEdit: role !== "faculty",
+    generating: generating,
+    onGenerate: handleGenerate,
+    onUpdateSchedule: handleUpdateSchedule,
     slotById: slotById
   }), page === "workload" && /*#__PURE__*/React.createElement(WorkloadPage, {
     faculty: faculty,
@@ -3711,7 +3749,10 @@ function App() {
     onRestoreBackup: handleRestoreBackup,
     testLog: testLog,
     onGoTo: goToPage
-  }))), facultyModal && /*#__PURE__*/React.createElement(FacultyModal, {
+  }))), /*#__PURE__*/React.createElement(Toast, {
+    message: toast,
+    onClose: () => setToast(null)
+  }), facultyModal && /*#__PURE__*/React.createElement(FacultyModal, {
     initial: facultyModal === "new" ? null : facultyModal,
     allFaculty: faculty,
     onSave: f => setFaculty(facultyModal === "new" ? [...faculty, f] : faculty.map(x => x.id === f.id ? f : x)),
@@ -4676,7 +4717,11 @@ function FacultyPage({
   onNewRequest,
   onUpdateRequestStatus,
   onEndRequest,
-  slotById
+  slotById,
+  canEdit,
+  generating,
+  onGenerate,
+  onUpdateSchedule
 }) {
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   return /*#__PURE__*/React.createElement("div", {
@@ -4763,7 +4808,13 @@ function FacultyPage({
     }, /*#__PURE__*/React.createElement(IconTrash, {
       size: 15
     }))));
-  }))))), tab === "requests" && /*#__PURE__*/React.createElement("div", {
+  }))))), tab === "requests" && /*#__PURE__*/React.createElement(RegenerationBanner, {
+    result: result,
+    canEdit: canEdit,
+    generating: generating,
+    onGenerate: onGenerate,
+    onUpdate: onUpdateSchedule
+  }), tab === "requests" && /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between px-6 py-4 border-b border-slate-100"

@@ -400,12 +400,106 @@
   }
 
   // ---------------------------------------------------------------------
+  // THE TEMPLATE AND "DOWNLOAD CURRENT DATA"
+  // Both return sheets as rows (row 1 = the headers); app.jsx turns them
+  // into an .xlsx file. Rows are built from COLUMNS, so they always match
+  // what parseWorkbook reads.
+  // ---------------------------------------------------------------------
+  const headerRow = sheet => COLUMNS[sheet].map(c => c.header);
+  const toRow = (sheet, values) => COLUMNS[sheet].map(c => (values[c.key] == null ? "" : values[c.key]));
+
+  function instructionRows() {
+    const periods = SLOTS.filter(t => t.day === E.DAYS[0]).map(t => "   P" + t.period + "  " + t.label.split(" ")[1]);
+    const lines = [
+      "SchedWiseAI school data template",
+      "",
+      "HOW TO USE IT",
+      "1. Fill in the Faculty, Subjects and Rooms sheets: one row per teacher, one row per subject per section, and one row per laboratory room.",
+      "2. Rows whose first cell starts with EXAMPLE are examples. They are skipped when you upload, so you may replace them or leave them.",
+      "3. Keep row 1 (the column names) of each sheet. Columns marked * are required. You may reorder the columns; columns SchedWiseAI does not know are ignored.",
+      "4. Save the file as an Excel Workbook (.xlsx) and upload it in SchedWiseAI under Settings → Set up with your school's data.",
+      "   Nothing changes until you have read the check result and pressed Replace my data with this file.",
+      "Names, subject areas and choices may be written in any capitals: 'accounting' and 'Accounting' are the same.",
+      "",
+      "FACULTY SHEET (one row per teacher)",
+      "Name *: the teacher's full name. Every teacher needs a different name, because faculty sign in with it.",
+      "Subject areas *: what the teacher can teach, separated by ; (for example: Programming; Databases). Spell each area exactly as in the Subjects sheet.",
+      "Max units *: a whole number from 1 to 40.",
+      "Employment status: Full-time, Part-time or Contractual. If empty: Full-time.",
+      "Academic rank: any text, for example Instructor I. May be empty.",
+      "Preferred days: days separated by ; (for example: Mon; Wed; Fri). If empty: no preference (all days).",
+      "Not available: times the teacher cannot teach, separated by ; — a whole day (Sat), one period (Mon P1) or a range (Fri P4-P6). If empty: available all week.",
+      "",
+      "SUBJECTS SHEET (one row per subject per section)",
+      "Subject code *: for example IT101. The same code may appear once per section.",
+      "Program: for example BSIT. If empty: taken from the section (BSIT-2A gives BSIT).",
+      "Subject name: may be empty.",
+      "Section *: for example BSIT-2A.",
+      "Units *: a whole number from 1 to 10.",
+      "Subject area *: must be spelled like one of a teacher's subject areas, otherwise the subject cannot be scheduled.",
+      "Class type *: Online (needs no room) or Laboratory (needs a lab with enough seats).",
+      "Students *: a whole number from 1 to 300.",
+      "Year level *: 1 to 4.",
+      "Semester *: 1st or 2nd.",
+      "School year: for example 2026-2027. If empty: the current school year.",
+      "Category: Major or Minor. If empty: Major.",
+      "Fixed day and Fixed period: for a subject whose time is set elsewhere (for example GE, PE or NSTP): a day from Mon to Sat and a period from 1 to " + E.PERIODS + ". Give both or leave both empty.",
+      "Prerequisite: the code of a subject that must be taken first. May be empty.",
+      "",
+      "ROOMS SHEET (one row per laboratory room)",
+      "Room name *: every room needs a different name.",
+      "Capacity *: the number of seats, a whole number from 1 to 300.",
+      "Online classes need no room. If every class is online, leave this sheet with only row 1.",
+      "",
+      "PERIODS (Monday to Saturday; there are no classes on Sunday)",
+    ].concat(periods, ["In this version of SchedWiseAI each subject section meets once a week, in one period."]);
+    return lines.map(text => [text]);
+  }
+
+  function templateRows() {
+    const year = E.currentSchoolYear().replace("–", "-");
+    return {
+      Instructions: instructionRows(),
+      Faculty: [headerRow("Faculty"),
+        toRow("Faculty", { name: "EXAMPLE Maria Santos", subjectAreas: "Programming; Databases", maxUnits: 21, employmentStatus: "Full-time", academicRank: "Instructor I", preferredDays: "Mon; Wed; Fri", notAvailable: "Sat" }),
+        toRow("Faculty", { name: "EXAMPLE Jose Reyes", subjectAreas: "Accounting", maxUnits: 12, employmentStatus: "Part-time", academicRank: "", preferredDays: "Tue; Thu", notAvailable: "Mon P1-P3" })],
+      Subjects: [headerRow("Subjects"),
+        toRow("Subjects", { code: "EXAMPLE IT101", program: "BSIT", name: "Introduction to Computing", section: "BSIT-1A", units: 3, subjectArea: "Programming", classType: "Laboratory", students: 35, yearLevel: 1, semester: "1st", schoolYear: year, category: "Major" }),
+        toRow("Subjects", { code: "EXAMPLE ACC101", program: "BSA", name: "Financial Accounting", section: "BSA-1A", units: 3, subjectArea: "Accounting", classType: "Online", students: 40, yearLevel: 1, semester: "1st", schoolYear: year, category: "Major", fixedDay: "Sat", fixedPeriod: 1 })],
+      Rooms: [headerRow("Rooms"), toRow("Rooms", { name: "EXAMPLE Lab 101", capacity: 40 }), toRow("Rooms", { name: "EXAMPLE Lab 102", capacity: 30 })],
+    };
+  }
+
+  // The app's current data in the template's layout, so it can be edited in Excel and uploaded again.
+  function currentDataRows(data) {
+    const allDays = days => E.DAYS.every(d => (days || []).includes(d));
+    const fixed = id => SLOTS.find(t => t.id === id) || null;
+    return {
+      Faculty: [headerRow("Faculty")].concat((data.faculty || []).map(f => toRow("Faculty", {
+        name: f.name, subjectAreas: (f.specializations || []).join("; "), maxUnits: f.maxUnits, employmentStatus: f.employmentStatus,
+        academicRank: f.academicRank, preferredDays: allDays(f.preferredDays) ? "" : E.DAYS.filter(d => (f.preferredDays || []).includes(d)).join("; "),
+        notAvailable: formatSlotList(f.unavailableSlotIds),
+      }))),
+      Subjects: [headerRow("Subjects")].concat((data.sections || []).map(s => {
+        const slot = s.fixedSlotId == null ? null : fixed(s.fixedSlotId);
+        return toRow("Subjects", {
+          code: s.subjectCode, program: s.program, name: s.subjectName, section: s.sectionName, units: s.units,
+          subjectArea: s.requiredSpecialization, classType: s.roomTypeRequired === "laboratory" ? "Laboratory" : "Online",
+          students: s.enrolledStudents, yearLevel: s.yearLevel, semester: s.semester === "2nd Semester" ? "2nd" : "1st",
+          schoolYear: s.schoolYear, category: s.category, fixedDay: slot ? slot.day : "", fixedPeriod: slot ? slot.period : "", prerequisite: s.prerequisiteCode,
+        });
+      })),
+      Rooms: [headerRow("Rooms")].concat((data.rooms || []).map(r => toRow("Rooms", { name: r.name, capacity: r.capacity }))),
+    };
+  }
+
+  // ---------------------------------------------------------------------
   // PUBLIC API
   // ---------------------------------------------------------------------
   window.SchedImport = {
     SHEETS, LIMITS, COLUMNS,
     canonical, parseWholeNumber, parseDayList, parseSlotList, formatSlotList,
     parseYearLevel, parseSemester, parseSchoolYear,
-    parseWorkbook,
+    parseWorkbook, templateRows, currentDataRows,
   };
 })();

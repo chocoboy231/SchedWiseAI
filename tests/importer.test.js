@@ -179,6 +179,29 @@
     eq(I.parseWorkbook(book({ Faculty: F, Subjects: SUB, Rooms: R }), OPT).warnings.length, 0, "the base workbook has no warnings");
   });
 
+  // ====================================================================
+  // 3. THE TEMPLATE AND "DOWNLOAD CURRENT DATA"
+  // ====================================================================
+  test("the template has four sheets, exact headers and EXAMPLE rows that are skipped", () => {
+    const t = I.templateRows(); eq(Object.keys(t).join(","), "Instructions,Faculty,Subjects,Rooms");
+    I.SHEETS.forEach(s => { eq(t[s][0].join("|"), I.COLUMNS[s].map(c => c.header).join("|")); eq(t[s].length, 3); });
+    const text = t.Instructions.map(r => r.join(" ")).join("\n"); assert(/P1/.test(text) && /07:00/.test(text) && /EXAMPLE/.test(text));
+    const r = I.parseWorkbook(t); assert(!r.ok); assert(r.errors.some(e => e.sheet === "Faculty" && e.row === null), "only the examples, so no data");
+  });
+
+  test("current data -> workbook rows -> back again gives the same data", () => {
+    const d = E.generateExpandedData(3);
+    d.faculty.forEach(f => { f.preferredSlotIds = []; f.unavailableSlotIds.sort((a, b) => a - b); f.preferredDays = E.DAYS.filter(x => f.preferredDays.includes(x)); });
+    const r = I.parseWorkbook(I.currentDataRows(d), { schoolYear: d.sections[0].schoolYear });
+    assert(r.ok, r.errors.map(e => e.message).join("; "));
+    const pick = (list, keys) => JSON.stringify(list.map(x => keys.map(k => x[k])));
+    eq(pick(r.data.faculty, ["name", "specializations", "maxUnits", "preferredDays", "unavailableSlotIds", "employmentStatus", "academicRank"]),
+       pick(d.faculty, ["name", "specializations", "maxUnits", "preferredDays", "unavailableSlotIds", "employmentStatus", "academicRank"]));
+    eq(pick(r.data.sections, ["subjectCode", "subjectName", "sectionName", "program", "units", "requiredSpecialization", "roomTypeRequired", "enrolledStudents", "yearLevel", "semester", "schoolYear", "category", "fixedSlotId", "prerequisiteCode"]),
+       pick(d.sections, ["subjectCode", "subjectName", "sectionName", "program", "units", "requiredSpecialization", "roomTypeRequired", "enrolledStudents", "yearLevel", "semester", "schoolYear", "category", "fixedSlotId", "prerequisiteCode"]));
+    eq(pick(r.data.rooms, ["name", "capacity"]), pick(d.rooms, ["name", "capacity"]));
+  });
+
   // ---------------- run everything ----------------
   show("\nImporter tests");
   const t0 = Date.now();

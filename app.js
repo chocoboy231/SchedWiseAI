@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-25T15:56:10.050Z with Babel 7.23.5. source-hash: 1759ada1aebaf3 */
+   Built 2026-11-25T16:03:13.308Z with Babel 7.23.5. source-hash: 1b1c6ad911ce8e */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -880,7 +880,7 @@ function saveState(data) {
 const BACKUP_APP = "SchedWiseAI";
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
-const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "curriculumAware", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind"];
+const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "curriculumAware", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind", "datasetInfo"];
 
 // makeBackup(state): the object that is written to the .json file.
 function makeBackup(state) {
@@ -1089,7 +1089,8 @@ function parseBackup(text) {
   if (badVersion >= 0) return {
     error: "Version " + (badVersion + 1) + " in the backup's schedule history does not match its subject list, or is damaged."
   };
-  if (!optStr(d.chairDept) || !optStr(d.datasetKind)) return {
+  // datasetKind: which sample is loaded, or "school" for uploaded data (datasetInfo then says which file and when).
+  if (!optStr(d.chairDept) || !opt(k => ["standard", "expanded", "school"].includes(k))(d.datasetKind) || !opt(x => obj(x) && optStr(x.fileName) && optStr(x.uploadedAt))(d.datasetInfo)) return {
     error: "The settings part of the backup is damaged."
   };
   if (d.result && !obj(d.result.violations)) d.result.violations = E.countViolations(d.faculty, d.rooms, d.sections, E.buildTimeSlots(), d.result.genes);
@@ -1230,6 +1231,8 @@ function FormError({
 }
 // Same text, ignoring capitals and extra spaces: used to spot duplicate names.
 const sameText = (a, b) => String(a || "").trim().replace(/\s+/g, " ").toLowerCase() === String(b || "").trim().replace(/\s+/g, " ").toLowerCase();
+// countOf(1, "room") -> "1 room", countOf(3, "room") -> "3 rooms".
+const countOf = (n, word) => n + " " + word + (n === 1 ? "" : "s");
 
 // CheckboxGroup: a grid of checkboxes for picking several options
 // (used for Specializations and Preferred Days).
@@ -2898,7 +2901,8 @@ function App() {
   const [loggedIn, setLoggedIn] = useState(init.loggedIn || false);
   const [userName, setUserName] = useState(init.userName || "Alex Dela Cruz");
   const [csvImportKind, setCsvImportKind] = useState(null);
-  const [datasetKind, setDatasetKind] = useState(init.datasetKind || "standard"); // which sample is loaded
+  const [datasetKind, setDatasetKind] = useState(init.datasetKind || "standard"); // "standard" / "expanded" sample, or "school" (uploaded)
+  const [datasetInfo, setDatasetInfo] = useState(init.datasetInfo || null); // { fileName, uploadedAt } of the uploaded school data
   const [testLog, setTestLog] = useState([]); // results of test-conflict buttons
   const [toast, setToast] = useState(null); // short "what happens next" message (see Toast)
   const [activityLog, setActivityLog] = useState(init.activityLog || []); // import/export log (IT overview)
@@ -2923,9 +2927,10 @@ function App() {
       userName,
       activityLog,
       chairDept,
-      datasetKind
+      datasetKind,
+      datasetInfo
     });
-  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName, activityLog, chairDept, datasetKind]);
+  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName, activityLog, chairDept, datasetKind, datasetInfo]);
 
   // Adds an entry to the import/export activity log (newest first, max 30 kept).
   function logActivity(kind, detail) {
@@ -3405,8 +3410,51 @@ function App() {
     setScheduleHistory([]);
     setActivityLog([]);
     setDatasetKind(k);
+    setDatasetInfo(null);
     setTestLog([]);
     pushNotification("Loaded " + (k === "expanded" ? "the expanded multi-program sample." : "the standard sample."));
+  }
+
+  // ---- Set up with your school's data (Settings card; see importer.js and section 4c) ----
+  function handleDownloadTemplate() {
+    return downloadWorkbook("SchedWiseAI-template.xlsx", SchedImport.templateRows()).then(() => logActivity("Export", "SchedWiseAI-template.xlsx (blank template)"));
+  }
+  function handleDownloadCurrentData() {
+    const name = "SchedWiseAI-data-" + new Date().toISOString().slice(0, 10) + ".xlsx";
+    return downloadWorkbook(name, SchedImport.currentDataRows({
+      faculty,
+      sections,
+      rooms
+    })).then(() => logActivity("Export", name + " (" + faculty.length + " faculty, " + sections.length + " subjects, " + rooms.length + " rooms)"));
+  }
+  // Replaces the data with a checked upload, all at once. Like Reset Demo Data it clears the
+  // schedule, its saved versions and the requests; notifications, the activity log and the
+  // curriculum-aware setting are kept.
+  function handleApplySchoolData(data, fileName) {
+    if (!canManageData) return;
+    const d = normalizeData({
+      faculty: data.faculty,
+      sections: data.sections,
+      rooms: data.rooms
+    });
+    setFaculty(d.faculty);
+    setSections(d.sections);
+    setRooms(d.rooms);
+    setResult(null);
+    setScheduleHistory([]);
+    setLeaveRequests([]);
+    setTestLog([]);
+    setChairDept("All");
+    setSelectedFacultyId(null);
+    setDatasetKind("school");
+    setDatasetInfo({
+      fileName,
+      uploadedAt: new Date().toISOString()
+    });
+    const counts = countOf(d.faculty.length, "teacher") + ", " + countOf(d.sections.length, "subject") + ", " + countOf(d.rooms.length, "room");
+    pushNotification("Uploaded school data from " + fileName + ": " + counts + ".");
+    logActivity("Upload", fileName + " (" + counts + ")");
+    goToPage("schedules");
   }
 
   // Backup: download everything as a .json file (see section 4b above).
@@ -3423,7 +3471,8 @@ function App() {
       scheduleHistory,
       activityLog,
       chairDept,
-      datasetKind
+      datasetKind,
+      datasetInfo
     }));
     logActivity("Backup", "schedwiseai-backup-" + stamp + ".json (" + faculty.length + " faculty, " + sections.length + " subjects)");
     return {
@@ -3458,7 +3507,8 @@ function App() {
     setScheduleHistory(n.scheduleHistory);
     setActivityLog(n.activityLog);
     setChairDept(n.chairDept || "All");
-    setDatasetKind(n.datasetKind === "expanded" ? "expanded" : "standard");
+    setDatasetKind(n.datasetKind === "expanded" || n.datasetKind === "school" ? n.datasetKind : "standard");
+    setDatasetInfo(n.datasetKind === "school" ? n.datasetInfo || null : null);
     setTestLog([]);
     setSelectedFacultyId(null);
     pushNotification("Restored data from backup \"" + fileName + "\".");
@@ -3835,6 +3885,10 @@ function App() {
     onCreateTestConflict: handleCreateTestConflict,
     onDownloadBackup: handleDownloadBackup,
     onRestoreBackup: handleRestoreBackup,
+    datasetInfo: datasetInfo,
+    onDownloadTemplate: handleDownloadTemplate,
+    onDownloadCurrentData: handleDownloadCurrentData,
+    onApplySchoolData: handleApplySchoolData,
     testLog: testLog,
     onGoTo: goToPage
   }))), /*#__PURE__*/React.createElement(Toast, {
@@ -4618,7 +4672,7 @@ function ITOverview(props) {
     className: "py-2 flex items-center justify-between gap-3 text-sm"
   }, /*#__PURE__*/React.createElement("span", {
     className: "flex items-center gap-2"
-  }, a.kind === "Import" ? /*#__PURE__*/React.createElement(IconUpload, {
+  }, a.kind === "Import" || a.kind === "Upload" ? /*#__PURE__*/React.createElement(IconUpload, {
     size: 14,
     className: "text-blue-600"
   }) : /*#__PURE__*/React.createElement(IconDownload, {
@@ -6631,8 +6685,236 @@ function ReportsPage({
   }, result.approvalStatus || "Pending Review"))));
 }
 
-// SettingsPage: short "about this prototype" text.
-// SettingsPage: "About this prototype", plus Testing tools for Admin and IT:
+// UploadIssueList: one list of the upload check (errors, warnings or notes), grouped by sheet,
+// each item prefixed with "Row N, Column:" so the user can find it in Excel. At most 50 are shown.
+const ISSUE_LIMIT = 50;
+function UploadIssueList({
+  title,
+  items,
+  tone,
+  open
+}) {
+  if (!items.length) return null;
+  const shown = items.slice(0, ISSUE_LIMIT);
+  const groups = [];
+  shown.forEach(it => {
+    const name = it.sheet || "Whole file";
+    let g = groups.find(x => x.name === name);
+    if (!g) {
+      g = {
+        name,
+        items: []
+      };
+      groups.push(g);
+    }
+    g.items.push(it);
+  });
+  const colors = {
+    error: "border-rose-200 bg-rose-50 text-rose-900",
+    warning: "border-orange-200 bg-orange-50 text-orange-900",
+    note: "border-slate-200 bg-slate-50 text-slate-700"
+  };
+  const where = it => it.row ? "Row " + it.row + (it.column ? ", " + it.column : "") + ": " : it.column ? it.column + ": " : "";
+  return /*#__PURE__*/React.createElement("details", {
+    open: open,
+    className: "rounded-lg border px-3 py-2 text-sm " + colors[tone]
+  }, /*#__PURE__*/React.createElement("summary", {
+    className: "cursor-pointer font-medium"
+  }, title, " (", items.length, ")"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 space-y-2"
+  }, groups.map(g => /*#__PURE__*/React.createElement("div", {
+    key: g.name
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-semibold uppercase tracking-wide opacity-70"
+  }, g.name), /*#__PURE__*/React.createElement("ul", {
+    className: "list-disc pl-5 space-y-0.5"
+  }, g.items.map((it, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, where(it), it.message))))), items.length > ISSUE_LIMIT && /*#__PURE__*/React.createElement("div", {
+    className: "text-xs opacity-80"
+  }, "+ ", items.length - ISSUE_LIMIT, " more")));
+}
+
+// SchoolDataCard: Settings → "Set up with your school's data" (Admin and IT).
+//   1. Download a blank template, or the current data in the same layout.
+//   2. Choose a filled workbook; it is read (readWorkbookFile) and checked (SchedImport.parseWorkbook).
+//   3. Read the result; "Replace my data with this file" (only when there are no errors) asks
+//      for confirmation, with the chance to download a backup first, then replaces the data.
+function SchoolDataCard({
+  datasetKind,
+  datasetInfo,
+  onDownloadTemplate,
+  onDownloadCurrent,
+  onApply,
+  onDownloadBackup
+}) {
+  const [busy, setBusy] = useState(""); // what is happening now, e.g. "Reading the file…"
+  const [fileName, setFileName] = useState("");
+  const [readError, setReadError] = useState("");
+  const [check, setCheck] = useState(null); // the ImportResult of the chosen file
+  const [confirming, setConfirming] = useState(false);
+  const [message, setMessage] = useState(null); // { ok, text } after a download or a backup
+  const btn = "text-left border border-slate-200 hover:border-amber-400 hover:bg-amber-50 rounded-lg px-3 py-2 text-sm text-slate-800 disabled:opacity-50 disabled:hover:bg-white";
+  const loaded = datasetKind === "school" ? "your school's data" + (datasetInfo ? ", uploaded " + new Date(datasetInfo.uploadedAt).toLocaleString() + " from " + datasetInfo.fileName : "") : "sample data (" + (datasetKind === "expanded" ? "expanded multi-program sample" : "standard sample") + ")";
+  async function download(what, task) {
+    setMessage(null);
+    setBusy("Preparing the " + what + "…");
+    try {
+      await task();
+      setMessage({
+        ok: true,
+        text: "Downloaded the " + what + "."
+      });
+    } catch (e) {
+      setMessage({
+        ok: false,
+        text: e.message
+      });
+    }
+    setBusy("");
+  }
+  async function onPick(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // lets the same file be chosen again after fixing it
+    if (!file) return;
+    setFileName(file.name);
+    setCheck(null);
+    setReadError("");
+    setMessage(null);
+    setBusy("Reading and checking " + file.name + "…");
+    try {
+      setCheck(SchedImport.parseWorkbook(await readWorkbookFile(file)));
+    } catch (err) {
+      setReadError(err.message);
+    }
+    setBusy("");
+  }
+  function replace() {
+    onApply(check.data, fileName);
+    setConfirming(false);
+    setCheck(null);
+    setFileName("");
+  }
+  const c = check && check.counts;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-4"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+    className: "font-semibold text-slate-900"
+  }, "Set up with your school's data"), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-500 mt-1"
+  }, "Replace the sample data with your school's teachers, subjects and rooms, then generate a real schedule."), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-600 mt-2"
+  }, "Currently loaded: ", /*#__PURE__*/React.createElement("span", {
+    className: "font-medium text-slate-800"
+  }, loaded))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-800 mb-1"
+  }, "1. Get the template"), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 sm:grid-cols-2 gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: btn,
+    disabled: !!busy,
+    onClick: () => download("blank template", onDownloadTemplate)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-medium"
+  }, "Download blank template"), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500"
+  }, "An Excel workbook with instructions and example rows.")), /*#__PURE__*/React.createElement("button", {
+    className: btn,
+    disabled: !!busy,
+    onClick: () => download("current data", onDownloadCurrent)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-medium"
+  }, "Download current data"), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500"
+  }, "Everything now in SchedWiseAI, in the same layout, to edit in Excel.")))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-800 mb-1"
+  }, "2. Upload the filled workbook"), /*#__PURE__*/React.createElement("label", {
+    className: btn + " cursor-pointer block focus-within:border-amber-400 focus-within:bg-amber-50" + (busy ? " opacity-50 pointer-events-none" : "")
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-medium"
+  }, "Choose filled workbook (.xlsx)\u2026"), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500"
+  }, "It is checked first. Nothing changes until you confirm."), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    onChange: onPick,
+    disabled: !!busy,
+    className: "sr-only",
+    "aria-label": "Choose a filled school data workbook"
+  }))), busy && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    className: "text-sm text-slate-600"
+  }, busy), message && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    className: "text-sm rounded-lg px-3 py-2 " + (message.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800")
+  }, message.text), readError && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    className: "text-sm rounded-lg px-3 py-2 bg-rose-50 text-rose-800"
+  }, fileName, ": ", readError), check && /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-800"
+  }, "3. Check the result: ", fileName), /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    className: "text-sm font-medium " + (check.ok ? "text-emerald-700" : "text-rose-700")
+  }, check.ok ? "✓ " : "✗ ", countOf(c.faculty, "teacher"), " \xB7 ", countOf(c.sections, "subject"), " \xB7 ", countOf(c.rooms, "room"), !check.ok && " — fix the errors in the file, save it, and choose it again."), /*#__PURE__*/React.createElement(UploadIssueList, {
+    title: "Errors",
+    items: check.errors,
+    tone: "error",
+    open: true
+  }), /*#__PURE__*/React.createElement(UploadIssueList, {
+    title: "Warnings",
+    items: check.warnings,
+    tone: "warning",
+    open: check.ok
+  }), /*#__PURE__*/React.createElement(UploadIssueList, {
+    title: "Notes",
+    items: check.notes,
+    tone: "note",
+    open: false
+  }), /*#__PURE__*/React.createElement("button", {
+    disabled: !check.ok,
+    onClick: () => {
+      setMessage(null);
+      setConfirming(true);
+    },
+    className: "w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-semibold text-sm py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+  }, "Replace my data with this file")), confirming && check && /*#__PURE__*/React.createElement(Modal, {
+    title: "Replace your data?",
+    onClose: () => setConfirming(false)
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-700 mb-2"
+  }, "Your faculty, subjects and rooms will be replaced by the ", countOf(c.faculty, "teacher"), ", ", countOf(c.sections, "subject"), " and ", countOf(c.rooms, "room"), " in ", /*#__PURE__*/React.createElement("span", {
+    className: "font-medium"
+  }, fileName), "."), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-700 mb-2"
+  }, "The current schedule, its saved versions and all leave and availability requests will be cleared. Notifications and the activity log are kept."), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-700 mb-4"
+  }, "This cannot be undone. If you may need the current data later, download a backup first."), message && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    className: "text-sm rounded-lg px-3 py-2 mb-3 " + (message.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800")
+  }, message.text), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col sm:flex-row gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: btn + " flex-1 text-center",
+    onClick: () => {
+      const r = onDownloadBackup();
+      setMessage({
+        ok: r.ok,
+        text: r.message
+      });
+    }
+  }, "Download a backup first"), /*#__PURE__*/React.createElement("button", {
+    className: "flex-1 bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-semibold text-sm py-2 rounded-lg",
+    onClick: replace
+  }, "Replace my data"), /*#__PURE__*/React.createElement("button", {
+    className: btn + " flex-1 text-center",
+    onClick: () => setConfirming(false)
+  }, "Cancel"))));
+}
+
+// SettingsPage: "About this prototype", plus, for Admin and IT, the school-data setup card,
+// Backup and restore, and Testing tools:
 //   • Sample data: load the standard or the expanded multi-program sample.
 //   • Create test conflicts: break one rule on purpose (see makeTestConflict),
 //     then check Conflict Detection and try "Update affected classes".
@@ -6645,6 +6927,10 @@ function SettingsPage({
   onCreateTestConflict,
   onDownloadBackup,
   onRestoreBackup,
+  datasetInfo,
+  onDownloadTemplate,
+  onDownloadCurrentData,
+  onApplySchoolData,
   testLog,
   onGoTo
 }) {
@@ -6674,7 +6960,14 @@ function SettingsPage({
     className: "text-sm text-slate-500 leading-relaxed mb-3"
   }, "This is a working prototype of SchedWiseAI built for respondent testing as part of a capstone research study. The AI Optimization Engine (a Genetic Algorithm with constraint checking) runs entirely in your browser \u2014 no data is sent to a server. Everything you enter is stored only in this browser's local storage."), /*#__PURE__*/React.createElement("p", {
     className: "text-sm text-slate-500 leading-relaxed"
-  }, "Use the role selector in the sidebar to explore the system from the perspective of an Academic Administrator, Department Chair, Faculty Member, or IT Professional/Staff.")), canTest && /*#__PURE__*/React.createElement("div", {
+  }, "Use the role selector in the sidebar to explore the system from the perspective of an Academic Administrator, Department Chair, Faculty Member, or IT Professional/Staff.")), canTest && /*#__PURE__*/React.createElement(SchoolDataCard, {
+    datasetKind: datasetKind,
+    datasetInfo: datasetInfo,
+    onDownloadTemplate: onDownloadTemplate,
+    onDownloadCurrent: onDownloadCurrentData,
+    onApply: onApplySchoolData,
+    onDownloadBackup: onDownloadBackup
+  }), canTest && /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-4"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
     className: "font-semibold text-slate-900"

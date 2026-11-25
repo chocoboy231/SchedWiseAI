@@ -274,11 +274,14 @@
     const faculty = d.faculty.map(f => Object.assign({}, f, { specializations: f.specializations.filter(s => s !== "AI/ML") }));
     const sections = d.sections.filter(s => s.requiredSpecialization !== "AI/ML")
       .concat([Object.assign({}, d.sections[0], { id: 901, requiredSpecialization: "AI/ML", roomTypeRequired: "online" })]);
-    const r = E.runGA(faculty, d.rooms, sections, d.timeSlots, GA);
+    // 300 generations of headroom: it normally stops after 40–60, so running all 300 means the
+    // impossible subject wrongly blocked the early stop (with only 60 the margin was too thin).
+    const LONG = { generations: 300, popSize: 30 };
+    const r = E.runGA(faculty, d.rooms, sections, d.timeSlots, LONG);
     assert(!r.feasible, "must not be called conflict-free");
     eq(r.violations.unplaceable, 1); eq(r.violations.total, 1, "the impossible subject is the only problem");
     eq(brokenRules({ faculty, rooms: d.rooms, sections }, r.genes).length, 0, "every other class follows the rules");
-    assert(r.convergence.length < GA.generations, "the engine still stops early: the impossible subject cannot get better");
+    assert(r.convergence.length < LONG.generations, "the engine still stops early: the impossible subject cannot get better");
   });
 
   test("runGA: a laboratory class bigger than every lab is reported", () => {

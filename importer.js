@@ -149,11 +149,229 @@
   }
 
   // ---------------------------------------------------------------------
+  // parseWorkbook(sheets, options) — the whole check, and the app's data model
+  //   sheets: { "Faculty": rows, "Subjects": rows, ... } where rows[0] is Excel
+  //           row 1 (the headers) and rows[i] is Excel row i + 1.
+  //   options.schoolYear: used when a subject's School year is blank
+  //           (default: the current school year).
+  // Returns { ok, data, counts, errors, warnings, notes }. Each problem is
+  // { sheet, row, column, message }, with the row number Excel shows.
+  // data is null whenever there is an error: an upload is all or nothing.
+  // ---------------------------------------------------------------------
+  const isBlank = v => v == null || (typeof v === "string" && v.trim() === "");
+  const cellText = v => (v == null ? "" : String(v).replace(/\s+/g, " ").trim());   // 101 -> "101"
+  const label = c => c.header.replace(/\s*\*\s*$/, "");                               // "Max units *" -> "Max units"
+  const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+  const EMPLOYMENT = { fulltime: "Full-time", parttime: "Part-time", contractual: "Contractual" };
+
+  function parseWorkbook(sheets, options) {
+    const defaultSchoolYear = (options && options.schoolYear) || E.currentSchoolYear();
+    const errors = [], warnings = [], notes = [];
+    const add = (list, sheet, row, column, message) => list.push({ sheet, row, column, message });
+
+    // 1. Find the three sheets by name; others are ignored (Instructions silently).
+    const found = {};
+    Object.keys(sheets || {}).forEach(name => {
+      const known = SHEETS.find(s => canonical(s) === canonical(name));
+      if (known) { if (!found[known]) found[known] = sheets[name] || []; }
+      else if (canonical(name) !== "instructions") add(notes, null, null, null, "The sheet '" + name + "' is not used, so it was ignored.");
+    });
+    ["Faculty", "Subjects"].forEach(s => { if (!found[s]) add(errors, s, null, null, "The workbook has no '" + s + "' sheet. Use the template from Settings."); });
+
+    // 2. For each sheet: match the header row, check the size, skip blank and EXAMPLE rows.
+    const tables = {};      // sheet -> [{ row, get(key) }], or null when the sheet cannot be read
+    SHEETS.forEach(sheet => {
+      const rows = found[sheet];
+      if (!rows) { tables[sheet] = sheet === "Rooms" ? [] : null; return; }
+      const index = {};
+      (rows[0] || []).forEach((h, i) => {
+        if (isBlank(h)) return;
+        const col = COLUMNS[sheet].find(c => canonical(c.header) === canonical(h));
+        if (!col) add(notes, sheet, 1, cellText(h), "The column '" + cellText(h) + "' is not used, so it was ignored.");
+        else if (index[col.key] === undefined) index[col.key] = i;
+      });
+      const dataRows = [];
+      for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i] || [];
+        if (!cells.every(isBlank)) dataRows.push({ row: i + 1, cells });
+      }
+      if (dataRows.length > LIMITS.maxRows) {
+        add(errors, sheet, null, null, "The " + sheet + " sheet has " + dataRows.length + " rows. At most " + LIMITS.maxRows + " are allowed.");
+        tables[sheet] = null; return;
+      }
+      const missing = COLUMNS[sheet].filter(c => c.required && index[c.key] === undefined);
+      missing.forEach(c => add(errors, sheet, 1, label(c), "The required column '" + label(c) + "' is missing from row 1."));
+      if (missing.length) { tables[sheet] = null; return; }
+      const idKey = COLUMNS[sheet][0].key;                       // Name, Subject code, Room name
+      const kept = dataRows.filter(d => !/^example/i.test(cellText(d.cells[index[idKey]])));
+      const examples = dataRows.length - kept.length;
+      if (examples) add(notes, sheet, null, null, plural(examples, "example row", "example rows") + " skipped.");
+      tables[sheet] = kept.map(d => ({ row: d.row, get: key => (index[key] === undefined ? null : d.cells[index[key]]) }));
+    });
+    if (tables.Faculty && !tables.Faculty.length) add(errors, "Faculty", null, null, "The Faculty sheet has no teachers (EXAMPLE rows are skipped).");
+    if (tables.Subjects && !tables.Subjects.length) add(errors, "Subjects", null, null, "The Subjects sheet has no subjects (EXAMPLE rows are skipped).");
+
+    // Helpers for reading one cell of one row; each records its own error.
+    function reader(sheet, r) {
+      const col = key => label(COLUMNS[sheet].find(c => c.key === key));
+      const fail = (key, message) => { add(errors, sheet, r.row, col(key), message); return undefined; };
+      return {
+        fail,
+        text(key, required) {
+          const v = cellText(r.get(key));
+          if (!v) return required ? fail(key, "This cell is required.") : "";
+          if (v.length > LIMITS.maxText) return fail(key, "This text is longer than " + LIMITS.maxText + " characters.");
+          return v;
+        },
+        number(key, min, max) {
+          if (isBlank(r.get(key))) return fail(key, "This cell is required.");
+          const p = parseWholeNumber(r.get(key), min, max);
+          return p.error ? fail(key, p.error) : p.value;
+        },
+        parsed(key, parse, required) {
+          if (isBlank(r.get(key))) return required ? fail(key, "This cell is required.") : null;
+          const p = parse(r.get(key));
+          return p.error ? fail(key, p.error) : p;
+        },
+      };
+    }
+
+    // Subject areas keep the spelling of their first appearance (Faculty first, then Subjects).
+    const areaSpelling = {};
+    function area(sheet, row, column, written) {
+      const key = canonical(written);
+      if (!areaSpelling[key]) areaSpelling[key] = written;
+      else if (areaSpelling[key] !== written) add(notes, sheet, row, column, "Subject area '" + written + "' was treated as '" + areaSpelling[key] + "', its first spelling.");
+      return areaSpelling[key];
+    }
+    const counts = { faculty: 0, sections: 0, rooms: 0 };
+    const defaults = { preferredDays: 0, employment: 0, schoolYear: 0, category: 0, program: 0 };
+
+    // 3. Faculty
+    const faculty = [], teacherRow = {};
+    (tables.Faculty || []).forEach(r => {
+      counts.faculty++;
+      const x = reader("Faculty", r);
+      const name = x.text("name", true);
+      if (name !== undefined && name) {
+        const key = canonical(name);
+        if (teacherRow[key]) x.fail("name", "Another teacher on row " + teacherRow[key] + " has the same name. Names must be different, because faculty sign in by name.");
+        else teacherRow[key] = r.row;
+      }
+      const areasText = x.text("subjectAreas", true);
+      const areas = [];
+      if (areasText) {
+        areasText.split(";").map(a => a.trim()).filter(Boolean).forEach(a => {
+          const spelled = area("Faculty", r.row, "Subject areas", a);
+          if (!areas.includes(spelled)) areas.push(spelled);
+        });
+        if (!areas.length) x.fail("subjectAreas", "This cell is required.");
+      }
+      const maxUnits = x.number("maxUnits", 1, 40);
+      let employmentStatus = "Full-time";
+      const status = cellText(r.get("employmentStatus"));
+      if (!status) defaults.employment++;
+      else if (EMPLOYMENT[canonical(status).replace(/[\s-]/g, "")]) employmentStatus = EMPLOYMENT[canonical(status).replace(/[\s-]/g, "")];
+      else x.fail("employmentStatus", "Use Full-time, Part-time or Contractual.");
+      const academicRank = x.text("academicRank", false);
+      const days = x.parsed("preferredDays", parseDayList, false);
+      if (days === null || (days && !days.days.length)) defaults.preferredDays++;
+      const away = x.parsed("notAvailable", parseSlotList, false);
+      faculty.push({
+        id: faculty.length, name, specializations: areas, maxUnits,
+        preferredDays: days && days.days.length ? days.days : E.DAYS.slice(),
+        unavailableSlotIds: away ? away.ids : [], preferredSlotIds: [], employmentStatus, academicRank,
+      });
+    });
+
+    // 4. Subjects
+    const sections = [], offeredRow = {};
+    (tables.Subjects || []).forEach(r => {
+      counts.sections++;
+      const x = reader("Subjects", r);
+      const subjectCode = x.text("code", true);
+      const sectionName = x.text("section", true);
+      if (subjectCode && sectionName) {
+        const key = canonical(subjectCode) + "|" + canonical(sectionName);
+        if (offeredRow[key]) x.fail("section", subjectCode + " is already offered to section " + sectionName + " on row " + offeredRow[key] + ".");
+        else offeredRow[key] = r.row;
+      }
+      let program = x.text("program", false);
+      if (program === "" && sectionName) {
+        const prefix = sectionName.includes("-") ? sectionName.split("-")[0].trim() : "";
+        if (prefix) { program = prefix; defaults.program++; }
+        else x.fail("program", "Enter the program, or write the section as PROGRAM-SECTION (for example BSIT-2A).");
+      }
+      const subjectName = x.text("name", false);
+      const units = x.number("units", 1, 10);
+      const areaText = x.text("subjectArea", true);
+      const requiredSpecialization = areaText ? area("Subjects", r.row, "Subject area", areaText) : areaText;
+      let roomTypeRequired;
+      const type = canonical(r.get("classType"));
+      if (!type) x.fail("classType", "This cell is required.");
+      else if (type === "online" || type === "laboratory") roomTypeRequired = type;
+      else x.fail("classType", "Use Online or Laboratory.");
+      const enrolledStudents = x.number("students", 1, 300);
+      const year = x.parsed("yearLevel", parseYearLevel, true);
+      const semester = x.parsed("semester", parseSemester, true);
+      let schoolYear = defaultSchoolYear;
+      const sy = x.parsed("schoolYear", parseSchoolYear, false);
+      if (sy === null) defaults.schoolYear++; else if (sy) schoolYear = sy.value;
+      let category = "Major";
+      const cat = canonical(r.get("category"));
+      if (!cat) defaults.category++;
+      else if (cat === "major" || cat === "minor") category = cat === "major" ? "Major" : "Minor";
+      else x.fail("category", "Use Major or Minor.");
+      let fixedSlotId = null;
+      const dayBlank = isBlank(r.get("fixedDay")), periodBlank = isBlank(r.get("fixedPeriod"));
+      if (dayBlank !== periodBlank) x.fail(dayBlank ? "fixedDay" : "fixedPeriod", "Give both Fixed day and Fixed period, or leave both empty.");
+      else if (!dayBlank) {
+        const day = DAY_BY_NAME[canonical(r.get("fixedDay"))];
+        const period = parseWholeNumber(r.get("fixedPeriod"), 1, E.PERIODS);
+        if (!day) x.fail("fixedDay", dayError(canonical(r.get("fixedDay"))));
+        else if (period.error) x.fail("fixedPeriod", period.error);
+        else fixedSlotId = slotId(day, period.value);
+      }
+      const prerequisite = x.text("prerequisite", false);
+      sections.push({
+        id: sections.length, subjectCode, subjectName, sectionName, program, units, requiredSpecialization, roomTypeRequired,
+        enrolledStudents, yearLevel: year && year.value, semester: semester && semester.value, schoolYear, category,
+        fixedSlotId, prerequisiteCode: prerequisite || null,
+      });
+    });
+
+    // 5. Rooms (all laboratories; online classes need none)
+    const rooms = [], roomRow = {};
+    (tables.Rooms || []).forEach(r => {
+      counts.rooms++;
+      const x = reader("Rooms", r);
+      const name = x.text("name", true);
+      if (name) {
+        const key = canonical(name);
+        if (roomRow[key]) x.fail("name", "Another room on row " + roomRow[key] + " has the same name.");
+        else roomRow[key] = r.row;
+      }
+      rooms.push({ id: rooms.length, name, type: "laboratory", capacity: x.number("capacity", 1, 300) });
+    });
+
+    // 6. One note per kind of default used, so nothing changes silently.
+    if (defaults.preferredDays) add(notes, "Faculty", null, null, plural(defaults.preferredDays, "teacher has", "teachers have") + " no preferred days: all days used.");
+    if (defaults.employment) add(notes, "Faculty", null, null, plural(defaults.employment, "teacher has", "teachers have") + " no employment status: Full-time used.");
+    if (defaults.program) add(notes, "Subjects", null, null, plural(defaults.program, "subject has", "subjects have") + " no program: it was taken from the section name (BSIT-2A → BSIT).");
+    if (defaults.schoolYear) add(notes, "Subjects", null, null, plural(defaults.schoolYear, "subject has", "subjects have") + " no school year: " + defaultSchoolYear + " used.");
+    if (defaults.category) add(notes, "Subjects", null, null, plural(defaults.category, "subject has", "subjects have") + " no category: Major used.");
+
+    const ok = errors.length === 0;
+    return { ok, data: ok ? { faculty, sections, rooms } : null, counts, errors, warnings, notes };
+  }
+
+  // ---------------------------------------------------------------------
   // PUBLIC API
   // ---------------------------------------------------------------------
   window.SchedImport = {
     SHEETS, LIMITS, COLUMNS,
     canonical, parseWholeNumber, parseDayList, parseSlotList, formatSlotList,
     parseYearLevel, parseSemester, parseSchoolYear,
+    parseWorkbook,
   };
 })();

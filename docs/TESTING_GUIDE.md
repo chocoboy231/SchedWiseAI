@@ -201,6 +201,14 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 *Expected:* An orange badge "⚠ 1 teacher over maximum units" appears next to **✓ Conflict-free** (overload is a warning, not a conflict). Hover the badge to see the teacher's name. The Workload page shows that teacher as **Overloaded**.
 ☐ Pass
 
+**C7. A subject that cannot be scheduled**
+1. In **Subjects → Add Subject**, add a **Laboratory** subject with **99** enrolled students (more than any lab seats). Save.
+2. Open **Class Schedules** and press **Update affected classes**. Then open **Conflict Detection**.
+3. Edit the subject, change **Class Type** to **Online**, save, and press **Update affected classes** again.
+
+*Expected:* After step 2 the header shows **⚠ 1 conflicts remaining**, not Conflict-free. The banner says "Some subjects cannot be scheduled", with no Update button (an update cannot help), and the class is not drawn in the grid. Conflict Detection shows **Cannot be scheduled: 1** and lists the subject with what to change ("No laboratory seats 99 students…"). After step 3 the class is placed and the schedule is **✓ Conflict-free** again.
+☐ Pass ☐ Fail
+
 ---
 
 ## D. Manual editing
@@ -254,9 +262,9 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 ☐ Pass
 
 **E4. Delete a teacher who has classes**
-1. Delete a teacher who is teaching in the current schedule.
+1. Delete a teacher who is teaching in the current schedule. First press **Cancel** in the confirmation, then delete again and confirm.
 
-*Expected:* The teacher is removed. The schedule is flagged ("… was removed — N class(es) need a new teacher") and the count shows conflicts. **Update affected classes** gives those classes a new teacher.
+*Expected:* The confirmation names the teacher and how many classes they teach; Cancel changes nothing. After confirming, the teacher is removed. The schedule is flagged ("… was removed — N class(es) need a new teacher") and the count shows conflicts. **Update affected classes** gives those classes a new teacher.
 ☐ Pass
 
 **E5. Profile and schedule links**
@@ -264,6 +272,13 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 
 *Expected:* The profile shows employment status, rank, maximum units, current load, specializations, preferred days, unavailable times and requested preferred times. View Schedule opens Class Schedules on that teacher.
 ☐ Pass
+
+**E6. Form messages and limits**
+1. Open **Add Faculty** and press **Save** after each of these: (a) leave the name empty; (b) type the name of an existing teacher in different capitals; (c) untick every specialization; (d) set **Maximum Teaching Units** to `0`, then `-5`, then leave it empty.
+2. Finally enter valid values and save.
+
+*Expected:* Each time a red message says what is wrong and nothing is saved: "Enter the teacher's full name.", "Another teacher is already called … Names must be different, because faculty sign in by name.", "Tick at least one specialization.", "Maximum teaching units must be between 1 and 40." or "… must be a whole number." With valid values the teacher is saved and the dialog closes.
+☐ Pass ☐ Fail
 
 ---
 
@@ -288,9 +303,9 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 ☐ Pass ☐ Fail
 
 **F4. Delete a subject**
-1. Delete a subject that is in the current schedule.
+1. Delete a subject that is in the current schedule, and confirm.
 
-*Expected:* The subject and its class disappear and the other classes stay with the right subjects (none shift to another subject).
+*Expected:* A confirmation names the subject and section first (Cancel changes nothing). After confirming, the subject and its class disappear and the other classes stay with the right subjects (none shift to another subject).
 ☐ Pass ☐ Fail
 
 **F5. Filters**
@@ -306,9 +321,22 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 ☐ Pass ☐ Fail
 
 **F7. Delete a room that is in use**
-1. Delete a room that has classes in the current schedule.
+1. Delete a room that has classes in the current schedule, and confirm.
 
-*Expected:* The schedule is flagged ("… was removed — N class(es) need a new room"). **Update affected classes** re-places only those classes.
+*Expected:* A confirmation names the room and how many classes use it (Cancel changes nothing). After confirming, the schedule is flagged ("… was removed — N class(es) need a new room"). **Update affected classes** re-places only those classes.
+☐ Pass ☐ Fail
+
+**F8. Subject form messages**
+1. Open **Add Subject**. Enter the code and section of a subject already in the list (for example its code in small letters) and press **Save**.
+2. Change the section to a new one. Set **Units** to `0` and save; then set Units to `3` and **Enrolled Students** to `2.5` and save.
+
+*Expected:* Red messages: "<code> is already offered to section <section>.", "Units must be between 1 and 10.", "Enrolled students must be a whole number." Nothing is saved until the values are valid.
+☐ Pass ☐ Fail
+
+**F9. Room form messages**
+1. Open **Add Room**. Type the name of an existing room and save. Then use a new name with **Capacity** `-1` and save.
+
+*Expected:* Red messages: "There is already a room called …" and "Capacity must be a whole number." Nothing is saved until the values are valid.
 ☐ Pass ☐ Fail
 
 ---
@@ -339,6 +367,12 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 1. Import the Subjects example (it includes `NSTP1` with `fixedDay` Sat and `fixedPeriod` 1).
 
 *Expected:* NSTP1 appears and shows a fixed time on Saturday, period 1.
+☐ Pass ☐ Fail
+
+**G5. Spreadsheet formulas are not run**
+1. Add a teacher named `=1+1` (or `+SUM(1,1)`). Press **Export CSV** on the Faculty page and open the file in Excel or Google Sheets.
+
+*Expected:* The cell shows the text `=1+1`, not the number 2. (The exported file puts an apostrophe in front, which spreadsheets hide.) Delete the test teacher afterwards.
 ☐ Pass ☐ Fail
 
 ---
@@ -457,6 +491,19 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 *Expected:* The red unread count drops as you read items, and goes to zero after Mark all read.
 ☐ Pass ☐ Fail
 
+**J6. Search (Administrator, Chair or IT)**
+1. Click the search box in the top bar and type part of a teacher's name. Use the arrow keys and press **Enter**.
+2. Search for a subject code, then a room name, and click a result. Then type nonsense such as `qqq`, and press **Esc**.
+
+*Expected:* Results appear as you type, grouped under Faculty, Subjects and Rooms. Enter opens the highlighted teacher's profile; a subject opens its edit form; a room opens its edit form. Nonsense shows "No matches for "qqq"." Esc clears the box and closes the list.
+☐ Pass ☐ Fail
+
+**J7. Search (Faculty Member)**
+1. Sign in as a Faculty Member. The search box says "Search my classes...". Search for one of your subject codes, then for a subject only another teacher teaches.
+
+*Expected:* Your own class is listed under "My classes", and choosing it opens **My Schedule**. Classes of other teachers are never listed.
+☐ Pass ☐ Fail
+
 ---
 
 ## K. Saving, backup and reset
@@ -498,6 +545,21 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 *Expected:* New sample data of the same kind replaces everything: no schedule, no history and no requests. Cancelling the confirmation changes nothing.
 ☐ Pass ☐ Fail
 
+**K7. A damaged backup is refused**
+1. Make a copy of a backup file from K2 and open the copy in Notepad. Find the first `"message":` inside `"notifications"` and change its text (including the quotes) to the number `5`. Save.
+2. Restore that damaged copy.
+
+*Expected:* A red message such as "Entry 1 of the notification list in the backup is damaged." Nothing changes, and the app keeps working.
+☐ Pass ☐ Fail
+
+**K8. Recovery screen** *(developer test: needs the browser's developer tools)*
+1. Download a backup first (K2). Press **F12**, open the **Console** tab, paste this line and press Enter:
+   `s=JSON.parse(localStorage.schedwiseai_prototype_v1); s.notifications.unshift({id:1,message:{},read:false}); localStorage.schedwiseai_prototype_v1=JSON.stringify(s); location.reload()`
+2. Press **Reset to sample data** and confirm. Then restore the backup from step 1.
+
+*Expected:* Instead of a blank page, the app shows "SchedWiseAI could not start" with **Download saved data**, **Reset to sample data** and **Try again**. After Reset the sign-in screen appears, and the backup restores your data.
+☐ Pass ☐ Fail
+
 ---
 
 ## L. Devices, browsers and performance
@@ -525,13 +587,19 @@ These must be checked by hand in real browsers and on a real phone.
 **L4. Keyboard use**
 1. Without the mouse, use Tab and Enter to sign in, open a page, open a dialog and close it with Esc or its close button.
 
-*Expected:* Controls can be reached and used. The focused control is visible.
+*Expected:* Controls can be reached and used. The focused control is visible. When a dialog opens, the cursor is already in its first box; **Esc** closes it and the focus goes back to the button that opened it.
 ☐ Pass ☐ Fail
 
 **L5. Works without internet**
 1. Serve the app on the same computer (for example with Live Server or `npx serve`), then switch the internet off (airplane mode or unplug the cable) and reload the page. Sign in and generate a schedule.
 
 *Expected:* The app loads fully styled in the Inter font and everything works as normal. (A copy published on the web needs the internet to reach the page itself; the libraries are not the problem.)
+☐ Pass ☐ Fail
+
+**L6. Start-up speed**
+1. Press **Ctrl+F5** on the app and count how long until the sign-in screen or Overview appears. Then press **F12** and look at the **Console** tab.
+
+*Expected:* The first screen appears in **under 2 seconds** on a typical laptop (about 0.3 s on a development laptop). The console does **not** say "app.js is older than app.jsx". If it does, run M2.
 ☐ Pass ☐ Fail
 
 ---
@@ -545,6 +613,12 @@ The engine (`engine.js`) has its own tests that you can run in seconds.
 2. Without Node.js: serve the folder and open `/tests/run.html`.
 
 *Expected:* A list of `ok` lines and a last line `30 passed, 0 failed`. A line starting `FAIL` shows which check broke.
+☐ Pass ☐ Fail
+
+**M2. The ready-compiled app is up to date**
+1. Serve the folder and open `/tools/build.html`. Do this before the defense and after any change to `app.jsx`.
+
+*Expected:* "✓ app.js is up to date with app.jsx." If it says *out of date*, press **Build app.js**, save the downloaded `app.js` into the project folder (replacing the old one) and open the page again: it should now say up to date.
 ☐ Pass ☐ Fail
 
 ---
@@ -586,12 +660,12 @@ If your study evaluates the system against the ISO/IEC 25010 product quality mod
 | Characteristic | What it asks | Tests that give evidence |
 |---|---|---|
 | **Functional suitability** | Does it do what it should, correctly and completely? | B, C, D, E, F, G, H, I, J, M, S1, S2 |
-| **Performance efficiency** | Is it fast enough? | L3, K5 |
-| **Compatibility** | Does it work in different environments? | L2, L1 |
-| **Usability** | Can people learn and use it? Is it accessible? | A1, A3, E3, G3, L1, L4, and respondent feedback |
-| **Reliability** | Does it keep working, and keep data? | K1, K3, K4, C2 (live recount), M1 |
-| **Security** | Is access limited to the right people? | A2, A4, A5, I9, S4 (role limits only) |
-| **Maintainability** | Can it be changed and tested easily? | M1 (automated tests; the code is documented in the README) |
+| **Performance efficiency** | Is it fast enough? | L3, L6, K5 |
+| **Compatibility** | Does it work in different environments? | L2, L1, L5 |
+| **Usability** | Can people learn and use it? Is it accessible? | A1, A3, E3, E6, F8, F9, G3, I1, J6, J7, L1, L4, and respondent feedback |
+| **Reliability** | Does it keep working, and keep data? | K1, K3, K4, K7, K8, C2 (live recount), C7, M1 |
+| **Security** | Is access limited to the right people? | A2, A4, A5, I9, J7, S4 (role limits only); G5 and K7 (harmful file contents are neutralised or refused) |
+| **Maintainability** | Can it be changed and tested easily? | M1, M2 (automated tests and build check; the code is documented in the README) |
 | **Portability** | Can it run elsewhere? | K2, K3, S3, L2 |
 
 **Be honest about security:** there is no password and no server. The role limits only control what the screen shows, and all data stays in the user's own browser. This is acceptable for a research prototype, but it is *not* evidence of real access control. Say so in your paper.
@@ -614,19 +688,19 @@ Please read the README section *Limitations and known issues*. Examples: data li
 |---|---:|---:|---:|---|
 | A. Sign-in and access | 5 | | | |
 | B. Generation and approval | 8 | | | |
-| C. Conflicts | 6 | | | |
+| C. Conflicts | 7 | | | |
 | D. Manual editing | 4 | | | |
-| E. Faculty | 5 | | | |
-| F. Subjects and rooms | 7 | | | |
-| G. CSV | 4 | | | |
+| E. Faculty | 6 | | | |
+| F. Subjects and rooms | 9 | | | |
+| G. CSV | 5 | | | |
 | H. Workload and departments | 3 | | | |
 | I. Availability and leave | 9 | | | |
-| J. History, reports, notifications | 5 | | | |
-| K. Saving, backup, reset | 6 | | | |
-| L. Devices and performance | 5 | | | |
-| M. Automated tests | 1 | | | |
+| J. History, reports, notifications, search | 7 | | | |
+| K. Saving, backup, reset | 8 | | | |
+| L. Devices and performance | 6 | | | |
+| M. Automated tests and build check | 2 | | | |
 | End-to-end scenarios | 4 | | | |
-| **Total** | **72** | | | |
+| **Total** | **83** | | | |
 
 **Defect log**
 

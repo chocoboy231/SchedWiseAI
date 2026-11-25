@@ -2430,6 +2430,7 @@ function App() {
               chairDept={chairDept} setChairDept={setChairDept}
               onNavigate={goToPage}
               onOpenRequests={() => { setFacultyTab("requests"); goToPage("faculty"); }}
+              datasetKind={datasetKind} onOpenSetup={() => goToPage("settings")}
               onUpdateSchedule={handleUpdateSchedule}
               onApprovalDecision={handleApprovalDecision}
               onUpdateRequestStatus={handleRequestDecision}
@@ -2622,6 +2623,17 @@ function computeDataHealth(faculty, rooms, sections) {
 
 // ---------- Small shared building blocks used by all four overviews ----------
 
+// SampleDataBanner: on the Administrator and IT overviews while sample data is loaded,
+// a reminder that the real data can be set up in Settings (see SchoolDataCard).
+function SampleDataBanner({ onSetup }) {
+  return (
+    <div role="note" className="no-print bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm text-blue-900">
+      <span>You are looking at sample data.</span>
+      <button onClick={onSetup} className="font-semibold text-blue-800 hover:underline text-left">Set up with your school's data →</button>
+    </div>
+  );
+}
+
 // The coloured banner at the top of every overview. `children` holds the action buttons.
 function OverviewHero({ eyebrow, title, subtitle, children }) {
   return (
@@ -2715,7 +2727,7 @@ function IssueList({ issues, max = 5 }) {
 // ---------- ADMIN OVERVIEW ----------
 // Focus: "what needs my decision, and is anything broken institution-wide?"
 function AdminOverview(props) {
-  const { userName, faculty, rooms, sections, result, generating, onGenerate, leaveRequests, notifications, scheduleHistory, onNavigate, onOpenRequests } = props;
+  const { userName, faculty, rooms, sections, result, generating, onGenerate, leaveRequests, notifications, scheduleHistory, onNavigate, onOpenRequests, datasetKind, onOpenSetup } = props;
   const { issues } = computeAllDepartments(faculty, sections, result);
   // Prerequisite problems are also institution-wide, so they are merged into the admin's issue list.
   const allIssues = issues.concat(validateCurriculumSequence(sections).map(i => ({ severity: "medium", text: i.text })));
@@ -2731,6 +2743,7 @@ function AdminOverview(props) {
         <GenerateButton generating={generating} onGenerate={onGenerate} />
         {result && <span className="text-sm text-slate-200 flex items-center gap-2">Current schedule: <ApprovalBadge status={result.approvalStatus} /></span>}
       </OverviewHero>
+      {datasetKind !== "school" && <SampleDataBanner onSetup={onOpenSetup} />}
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Pending Approvals" value={pendingVersions} sub="schedule versions awaiting review" color={pendingVersions ? "#c2410c" : "#047857"} />
@@ -3043,7 +3056,7 @@ function FacultyOverview(props) {
 // Focus: technical health — how the AI engine is performing, whether the data is clean,
 // how rooms are being used, and what data operations (imports/exports) happened recently.
 function ITOverview(props) {
-  const { userName, faculty, rooms, sections, result, slotById, generating, onGenerate, scheduleHistory, activityLog, onNavigate } = props;
+  const { userName, faculty, rooms, sections, result, slotById, generating, onGenerate, scheduleHistory, activityLog, onNavigate, datasetKind, onOpenSetup } = props;
   const health = computeDataHealth(faculty, rooms, sections);
 
   // Average engine run time across every saved version that recorded a timing.
@@ -3070,6 +3083,7 @@ function ITOverview(props) {
           <IconChart size={15} /> Open Reports
         </button>
       </OverviewHero>
+      {datasetKind !== "school" && <SampleDataBanner onSetup={onOpenSetup} />}
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Last Run Time" value={result && typeof result.elapsedMs === "number" ? result.elapsedMs + " ms" : "—"}

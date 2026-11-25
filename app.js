@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-25T16:03:13.308Z with Babel 7.23.5. source-hash: 1b1c6ad911ce8e */
+   Built 2026-11-25T16:04:44.276Z with Babel 7.23.5. source-hash: 3d70aea15f086 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -3780,6 +3780,8 @@ function App() {
       setFacultyTab("requests");
       goToPage("faculty");
     },
+    datasetKind: datasetKind,
+    onOpenSetup: () => goToPage("settings"),
     onUpdateSchedule: handleUpdateSchedule,
     onApprovalDecision: handleApprovalDecision,
     onUpdateRequestStatus: handleRequestDecision,
@@ -4023,6 +4025,20 @@ function computeDataHealth(faculty, rooms, sections) {
 
 // ---------- Small shared building blocks used by all four overviews ----------
 
+// SampleDataBanner: on the Administrator and IT overviews while sample data is loaded,
+// a reminder that the real data can be set up in Settings (see SchoolDataCard).
+function SampleDataBanner({
+  onSetup
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    role: "note",
+    className: "no-print bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm text-blue-900"
+  }, /*#__PURE__*/React.createElement("span", null, "You are looking at sample data."), /*#__PURE__*/React.createElement("button", {
+    onClick: onSetup,
+    className: "font-semibold text-blue-800 hover:underline text-left"
+  }, "Set up with your school's data \u2192"));
+}
+
 // The coloured banner at the top of every overview. `children` holds the action buttons.
 function OverviewHero({
   eyebrow,
@@ -4161,7 +4177,9 @@ function AdminOverview(props) {
     notifications,
     scheduleHistory,
     onNavigate,
-    onOpenRequests
+    onOpenRequests,
+    datasetKind,
+    onOpenSetup
   } = props;
   const {
     issues
@@ -4188,7 +4206,9 @@ function AdminOverview(props) {
     className: "text-sm text-slate-200 flex items-center gap-2"
   }, "Current schedule: ", /*#__PURE__*/React.createElement(ApprovalBadge, {
     status: result.approvalStatus
-  }))), /*#__PURE__*/React.createElement("section", {
+  }))), datasetKind !== "school" && /*#__PURE__*/React.createElement(SampleDataBanner, {
+    onSetup: onOpenSetup
+  }), /*#__PURE__*/React.createElement("section", {
     className: "grid grid-cols-2 md:grid-cols-4 gap-4"
   }, /*#__PURE__*/React.createElement(StatCard, {
     label: "Pending Approvals",
@@ -4587,7 +4607,9 @@ function ITOverview(props) {
     onGenerate,
     scheduleHistory,
     activityLog,
-    onNavigate
+    onNavigate,
+    datasetKind,
+    onOpenSetup
   } = props;
   const health = computeDataHealth(faculty, rooms, sections);
 
@@ -4611,7 +4633,9 @@ function ITOverview(props) {
     className: "border border-white/30 text-white font-medium text-sm px-5 py-2.5 rounded-lg hover:bg-white/10 transition-colors flex items-center gap-2"
   }, /*#__PURE__*/React.createElement(IconChart, {
     size: 15
-  }), " Open Reports")), /*#__PURE__*/React.createElement("section", {
+  }), " Open Reports")), datasetKind !== "school" && /*#__PURE__*/React.createElement(SampleDataBanner, {
+    onSetup: onOpenSetup
+  }), /*#__PURE__*/React.createElement("section", {
     className: "grid grid-cols-2 md:grid-cols-4 gap-4"
   }, /*#__PURE__*/React.createElement(StatCard, {
     label: "Last Run Time",

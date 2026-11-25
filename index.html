@@ -7,6 +7,9 @@
     2. Libraries: React (builds the UI) and ReactDOM (puts it on the page).
     3. engine.js  — the scheduling AI; must load BEFORE the interface, because
                     it uses window.SchedEngine which engine.js creates.
+       importer.js — checks a school's uploaded Excel template (window.SchedImport).
+                    The spreadsheet library itself (vendor/xlsx.full.min.js) is NOT
+                    loaded here: app.jsx loads it only when the setup card is used.
     4. loader.js  — starts the interface (app.jsx). It runs app.js, the
                     ready-compiled copy, when that is up to date (fast), and
                     otherwise compiles app.jsx in the browser with Babel (slower).
@@ -43,6 +46,8 @@
 
 <!-- Scheduling engine: Genetic Algorithm + constraint-based seeding (plain JavaScript) -->
 <script src="engine.js"></script>
+<!-- Checks a school's uploaded Excel template (needs engine.js) -->
+<script src="importer.js"></script>
 
 <!-- Starts the interface: app.js if it is up to date, otherwise app.jsx compiled in the browser -->
 <script src="loader.js"></script>

@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-19T02:34:27.532Z with Babel 7.23.5. source-hash: 14a6a1a007e2e7 */
+   Built 2026-11-25T15:56:10.050Z with Babel 7.23.5. source-hash: 1759ada1aebaf3 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -909,6 +909,94 @@ function downloadJSON(filename, obj) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ---------------------------------------------------------------------
+   4c. EXCEL WORKBOOKS (Settings → Set up with your school's data)
+   These only turn an .xlsx file into plain rows and back; importer.js
+   (window.SchedImport) does all the checking. The spreadsheet library
+   (vendor/xlsx.full.min.js, about 1 MB) is loaded the first time one of
+   them is used, so normal page loads stay fast.
+   --------------------------------------------------------------------- */
+let sheetLibraryPromise = null;
+function loadSheetLibrary() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!sheetLibraryPromise) {
+    sheetLibraryPromise = new Promise((resolve, reject) => {
+      const failed = () => {
+        sheetLibraryPromise = null;
+        reject(new Error("The spreadsheet reader could not be loaded."));
+      };
+      const s = document.createElement("script");
+      s.src = "vendor/xlsx.full.min.js";
+      s.onload = () => window.XLSX ? resolve(window.XLSX) : failed();
+      s.onerror = failed;
+      document.head.appendChild(s);
+    });
+  }
+  return sheetLibraryPromise;
+}
+
+// readWorkbookFile(file) -> { "Faculty": rows, ... } with rows[0] = Excel row 1, even when a
+// sheet's data does not start in cell A1, so every message can name the row Excel shows.
+async function readWorkbookFile(file) {
+  if (file.size > SchedImport.LIMITS.maxFileBytes) throw new Error("The file is larger than 5 MB.");
+  const notWorkbook = new Error("This file could not be read as an Excel workbook (.xlsx).");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  // An .xlsx file is a ZIP archive, which starts with "PK\x03\x04". Anything else (a CSV or a photo
+  // renamed to .xlsx, a password-protected workbook) is refused before the library sees it.
+  if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04) throw notWorkbook;
+  const XLSX = await loadSheetLibrary();
+  try {
+    const wb = XLSX.read(bytes, {
+      type: "array",
+      cellFormula: false,
+      cellHTML: false
+    });
+    const sheets = {};
+    wb.SheetNames.forEach(name => {
+      const ws = wb.Sheets[name];
+      if (!ws || !ws["!ref"]) {
+        sheets[name] = [];
+        return;
+      }
+      const range = XLSX.utils.encode_range({
+        s: {
+          r: 0,
+          c: 0
+        },
+        e: XLSX.utils.decode_range(ws["!ref"]).e
+      });
+      sheets[name] = XLSX.utils.sheet_to_json(ws, {
+        header: 1,
+        raw: true,
+        defval: null,
+        blankrows: true,
+        range
+      });
+    });
+    return sheets;
+  } catch (e) {
+    throw notWorkbook;
+  }
+}
+
+// downloadWorkbook(filename, { "Sheet name": rows, ... }): one sheet per key, in key order.
+async function downloadWorkbook(filename, sheets) {
+  const XLSX = await loadSheetLibrary();
+  const wb = XLSX.utils.book_new();
+  Object.keys(sheets).forEach(name => {
+    const ws = XLSX.utils.aoa_to_sheet(sheets[name]);
+    const widths = [];
+    sheets[name].forEach(row => row.forEach((v, i) => {
+      widths[i] = Math.min(40, Math.max(widths[i] || 8, String(v == null ? "" : v).length + 2));
+    }));
+    ws["!cols"] = widths.map(wch => ({
+      wch
+    }));
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  });
+  XLSX.writeFile(wb, filename);
 }
 
 // parseBackup(text) -> { error } or { data, counts, exportedAt }.

@@ -1,17 +1,20 @@
 <!doctype html>
-<!-- Runs tests/engine.test.js in the browser (use this if Node.js is not installed).
+<!-- Runs the automated tests in the browser (use this if Node.js is not installed):
+     tests/engine.test.js (the scheduling engine) and tests/importer.test.js (the Excel upload).
      Serve the repository folder (for example with VS Code Live Server) and open /tests/run.html -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>SchedWiseAI engine tests</title>
+<title>SchedWiseAI tests</title>
 <style>body{font:14px/1.5 ui-monospace,Consolas,monospace;margin:24px;background:#f8fafc;color:#0f172a}</style>
 </head>
 <body>
-<h1 style="font:600 18px system-ui">SchedWiseAI engine tests</h1>
+<h1 style="font:600 18px system-ui">SchedWiseAI tests</h1>
 <p style="font-family:system-ui">Running... this takes a few seconds because it generates many schedules.</p>
 <pre id="out"></pre>
 <script src="../engine.js"></script>
 <script src="engine.test.js"></script>
+<script src="../importer.js"></script>
+<script src="importer.test.js"></script>
 </body>
 </html>

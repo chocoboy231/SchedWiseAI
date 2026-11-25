@@ -248,9 +248,10 @@
     const defaults = { preferredDays: 0, employment: 0, schoolYear: 0, category: 0, program: 0 };
 
     // 3. Faculty
-    const faculty = [], teacherRow = {};
+    const faculty = [], teacherRow = {}, facultyRows = [];
     (tables.Faculty || []).forEach(r => {
       counts.faculty++;
+      facultyRows.push(r.row);
       const x = reader("Faculty", r);
       const name = x.text("name", true);
       if (name !== undefined && name) {
@@ -285,9 +286,10 @@
     });
 
     // 4. Subjects
-    const sections = [], offeredRow = {};
+    const sections = [], offeredRow = {}, subjectRows = [];
     (tables.Subjects || []).forEach(r => {
       counts.sections++;
+      subjectRows.push(r.row);
       const x = reader("Subjects", r);
       const subjectCode = x.text("code", true);
       const sectionName = x.text("section", true);
@@ -362,7 +364,39 @@
     if (defaults.category) add(notes, "Subjects", null, null, plural(defaults.category, "subject has", "subjects have") + " no category: Major used.");
 
     const ok = errors.length === 0;
+    if (ok) addWarnings(faculty, sections, rooms, facultyRows, subjectRows, (sheet, row, column, message) => add(warnings, sheet, row, column, message));
     return { ok, data: ok ? { faculty, sections, rooms } : null, counts, errors, warnings, notes };
+  }
+
+  // Warnings: things that will not stop the upload but will show up in the schedule.
+  function addWarnings(faculty, sections, rooms, facultyRows, subjectRows, warn) {
+    const teachersByArea = {};
+    faculty.forEach(f => f.specializations.forEach(a => (teachersByArea[a] = teachersByArea[a] || []).push(f)));
+    const neededAreas = new Set(sections.map(s => s.requiredSpecialization));
+    const codes = new Set(sections.map(s => canonical(s.subjectCode)));
+    const largestLab = rooms.reduce((m, r) => Math.max(m, r.capacity), 0);
+    const name = s => s.subjectCode + " (" + s.sectionName + ")";
+    sections.forEach((s, i) => {
+      const row = subjectRows[i], teachers = teachersByArea[s.requiredSpecialization] || [];
+      if (!teachers.length)
+        warn("Subjects", row, "Subject area", "No teacher has the subject area '" + s.requiredSpecialization + "', so " + name(s) + " will show as Cannot be scheduled.");
+      if (s.roomTypeRequired === "laboratory" && rooms.length && s.enrolledStudents > largestLab)
+        warn("Subjects", row, "Students", name(s) + " has " + s.enrolledStudents + " students, but the largest lab seats " + largestLab + ", so it will show as Cannot be scheduled.");
+      if (s.prerequisiteCode && !codes.has(canonical(s.prerequisiteCode)))
+        warn("Subjects", row, "Prerequisite", "The prerequisite '" + s.prerequisiteCode + "' is not a subject code in the Subjects sheet.");
+      if (s.fixedSlotId != null && teachers.length && teachers.every(f => f.unavailableSlotIds.includes(s.fixedSlotId)))
+        warn("Subjects", row, "Fixed day", "Every teacher with the subject area '" + s.requiredSpecialization + "' is not available at the fixed time of " + name(s) + ".");
+    });
+    const labs = sections.filter(s => s.roomTypeRequired === "laboratory").length;
+    if (labs && !rooms.length)
+      warn(null, null, null, plural(labs, "laboratory subject needs", "laboratory subjects need") + " a room, but there are no rooms, so they will show as Cannot be scheduled.");
+    const units = sections.reduce((t, s) => t + s.units, 0), capacity = faculty.reduce((t, f) => t + f.maxUnits, 0);
+    if (units > capacity)
+      warn(null, null, null, "The subjects add up to " + units + " units, but the teachers' maximum units add up to " + capacity + ", so some teachers will be overloaded.");
+    faculty.forEach((f, i) => {
+      if (!f.specializations.some(a => neededAreas.has(a)))
+        warn("Faculty", facultyRows[i], "Subject areas", f.name + " has no subject to teach: no subject needs " + f.specializations.join("; ") + ".");
+    });
   }
 
   // ---------------------------------------------------------------------

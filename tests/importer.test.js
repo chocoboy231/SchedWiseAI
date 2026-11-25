@@ -159,6 +159,26 @@
     });
   });
 
+  test("warnings explain problems but do not block", () => {
+    const nursing = ["NUR101", "BSN", "Nursing Care Basics", "BSN-1A", 3, "Nursing", "Online", 30, 1, "1st", "", "", "", "", ""];
+    const cases = [
+      ["subject area no teacher has", book({ Faculty: F, Subjects: SUB.concat([nursing]), Rooms: R }), ["Subjects", 4], /Nursing/],
+      ["lab bigger than every room", (() => { const s = cp(SUB); s[0][7] = 60; return book({ Faculty: F, Subjects: s, Rooms: [["Lab 101", 40]] }); })(), ["Subjects", 2], /60/],
+      ["laboratory subjects but no rooms", book({ Faculty: F, Subjects: SUB, Rooms: null }), [null, null], /no rooms/i],
+      ["more units than teachers can take", (() => { const f = cp(F); f[0][2] = 1; f[1][2] = 1; return book({ Faculty: f, Subjects: SUB, Rooms: R }); })(), [null, null], /overloaded/],
+      ["prerequisite not in the sheet", (() => { const s = cp(SUB); s[0][14] = "IT999"; return book({ Faculty: F, Subjects: s, Rooms: R }); })(), ["Subjects", 2], /IT999/],
+      ["teacher whose areas no subject needs", book({ Faculty: F.concat([["Ana Lim", "Nursing", 18]]), Subjects: SUB, Rooms: R }), ["Faculty", 4], /Ana Lim/],
+      ["fixed time when every qualified teacher is away", (() => { const f = cp(F); f[1][6] = "Sat"; return book({ Faculty: f, Subjects: SUB, Rooms: R }); })(), ["Subjects", 3], /fixed time/],
+    ];
+    cases.forEach(([name, sheets, [sheet, row], word]) => {
+      const r = I.parseWorkbook(sheets, OPT);
+      assert(r.ok && r.data !== null, name + ": warnings must not block (" + r.errors.map(e => e.message).join("; ") + ")");
+      assert(r.warnings.some(w => w.sheet === sheet && w.row === row && word.test(w.message)),
+        name + ": expected a warning on " + JSON.stringify([sheet, row]) + " matching " + word + " — got " + JSON.stringify(r.warnings));
+    });
+    eq(I.parseWorkbook(book({ Faculty: F, Subjects: SUB, Rooms: R }), OPT).warnings.length, 0, "the base workbook has no warnings");
+  });
+
   // ---------------- run everything ----------------
   show("\nImporter tests");
   const t0 = Date.now();

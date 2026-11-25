@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-25T16:04:44.276Z with Babel 7.23.5. source-hash: 3d70aea15f086 */
+   Built 2026-11-25T16:13:16.170Z with Babel 7.23.5. source-hash: c5a68763dcfcd */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -1263,26 +1263,53 @@ function CheckboxGroup({
    given, the form is in "edit" mode and starts pre-filled.
    --------------------------------------------------------------------- */
 
-// FacultyModal: add/edit a faculty member (specializations, preferred days,
-// max units, employment status, academic rank).
+// The choices a drop-down offers: the built-in values, every value already in the data,
+// and the record's own value, so editing never silently changes a value that is not built in.
+const choicesOf = (...lists) => Array.from(new Set([].concat(...lists).filter(v => v != null)));
+
+// FacultyModal: add/edit a faculty member (subject areas, preferred days,
+// max units, employment status, academic rank). The subject areas offered are the
+// school's own (subjectAreas), and a new one can be added with the box below them.
 function FacultyModal({
   initial,
   allFaculty,
+  subjectAreas,
   onSave,
   onClose
 }) {
   const [error, setError] = useState("");
   const [name, setName] = useState(initial ? initial.name : "");
-  const [specs, setSpecs] = useState(initial ? initial.specializations : ["Programming"]);
+  const [specs, setSpecs] = useState(initial ? initial.specializations : []);
+  const [addedAreas, setAddedAreas] = useState([]); // areas typed into "Add subject area" in this form
+  const [newArea, setNewArea] = useState("");
   const [maxUnits, setMaxUnits] = useState(initial ? initial.maxUnits : 21);
   const [preferredDays, setPreferredDays] = useState(initial ? initial.preferredDays : ["Mon", "Wed", "Fri"]);
   const [employmentStatus, setEmploymentStatus] = useState(initial ? initial.employmentStatus : E.EMPLOYMENT_STATUSES[0]);
   const [academicRank, setAcademicRank] = useState(initial ? initial.academicRank : E.ACADEMIC_RANKS[0]);
+  const areaOptions = choicesOf(subjectAreas || [], initial ? initial.specializations : [], addedAreas);
+  const others = (allFaculty || []).filter(f => !initial || f.id !== initial.id);
+  const statusOptions = choicesOf(E.EMPLOYMENT_STATUSES, others.map(f => f.employmentStatus), [employmentStatus]).filter(Boolean);
+  const rankOptions = choicesOf(E.ACADEMIC_RANKS, others.map(f => f.academicRank), [academicRank]).filter(Boolean);
   function toggleSpec(s) {
     setSpecs(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
   }
   function toggleDay(d) {
     setPreferredDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  }
+  // "Add subject area": a name that matches an existing one (ignoring capitals) ticks that one instead.
+  function addArea() {
+    const text = newArea.trim().replace(/\s+/g, " ");
+    if (!text) return;
+    if (text.length > 120) {
+      setError("A subject area can be at most 120 characters.");
+      return;
+    }
+    const existing = areaOptions.find(a => sameText(a, text));
+    const area = existing || text;
+    if (!existing) setAddedAreas(prev => [...prev, area]);
+    setSpecs(prev => prev.includes(area) ? prev : [...prev, area]);
+    setNewArea("");
+    setError("");
   }
   return /*#__PURE__*/React.createElement(Modal, {
     title: initial ? "Edit Faculty" : "Add Faculty",
@@ -1295,12 +1322,32 @@ function FacultyModal({
     onChange: e => setName(e.target.value),
     placeholder: "e.g. Maria Santos"
   })), /*#__PURE__*/React.createElement(Field, {
-    label: "Specializations"
-  }, /*#__PURE__*/React.createElement(CheckboxGroup, {
-    options: E.SPECIALIZATIONS,
+    label: "Subject areas"
+  }, /*#__PURE__*/React.createElement("div", null, areaOptions.length > 0 ? /*#__PURE__*/React.createElement(CheckboxGroup, {
+    options: areaOptions,
     selected: specs,
     onToggle: toggleSpec
-  })), /*#__PURE__*/React.createElement(Field, {
+  }) : /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-500"
+  }, "No subject areas yet. Add the first one below."), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 mt-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: newArea,
+    onChange: e => setNewArea(e.target.value),
+    "aria-label": "New subject area",
+    placeholder: "Add a subject area, e.g. Accounting",
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addArea();
+      }
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: addArea,
+    className: "shrink-0 border border-slate-200 hover:border-amber-400 hover:bg-amber-50 rounded-lg px-3 text-sm"
+  }, "Add")))), /*#__PURE__*/React.createElement(Field, {
     label: "Preferred Days"
   }, /*#__PURE__*/React.createElement(CheckboxGroup, {
     options: E.DAYS,
@@ -1324,16 +1371,18 @@ function FacultyModal({
     className: inputCls,
     value: employmentStatus,
     onChange: e => setEmploymentStatus(e.target.value)
-  }, E.EMPLOYMENT_STATUSES.map(s => /*#__PURE__*/React.createElement("option", {
+  }, statusOptions.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
     value: s
   }, s))))), /*#__PURE__*/React.createElement(Field, {
     label: "Academic Rank"
   }, /*#__PURE__*/React.createElement("select", {
     className: inputCls,
-    value: academicRank,
+    value: academicRank || "",
     onChange: e => setAcademicRank(e.target.value)
-  }, E.ACADEMIC_RANKS.map(r => /*#__PURE__*/React.createElement("option", {
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 (none)"), rankOptions.map(r => /*#__PURE__*/React.createElement("option", {
     key: r,
     value: r
   }, r)))), /*#__PURE__*/React.createElement(FormError, {
@@ -1342,7 +1391,7 @@ function FacultyModal({
     className: "w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2",
     onClick: () => {
       // Faculty sign in by name, so two teachers must not share one.
-      const problem = !name.trim() ? "Enter the teacher's full name." : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because faculty sign in by name." : specs.length === 0 ? "Tick at least one specialization." : wholeNumberError(maxUnits, 1, 40, "Maximum teaching units");
+      const problem = !name.trim() ? "Enter the teacher's full name." : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because faculty sign in by name." : specs.length === 0 ? "Tick or add at least one subject area." : wholeNumberError(maxUnits, 1, 40, "Maximum teaching units");
       if (problem) {
         setError(problem);
         return;
@@ -1373,6 +1422,8 @@ function FacultyModal({
 function SectionModal({
   initial,
   allSections,
+  subjectAreas,
+  programs,
   onSave,
   onClose
 }) {
@@ -1381,7 +1432,11 @@ function SectionModal({
   const [subjectName, setSubjectName] = useState(initial ? initial.subjectName : "");
   const [sectionName, setSectionName] = useState(initial ? initial.sectionName : "");
   const [units, setUnits] = useState(initial ? initial.units : 3);
-  const [spec, setSpec] = useState(initial ? initial.requiredSpecialization : E.SPECIALIZATIONS[0]);
+  // The subject area: one of the school's areas, or a new one typed after choosing "New subject area…".
+  const areaChoices = choicesOf(subjectAreas || [], initial ? [initial.requiredSpecialization] : []);
+  const [spec, setSpec] = useState(initial ? initial.requiredSpecialization : areaChoices[0] || "");
+  const [typingArea, setTypingArea] = useState(areaChoices.length === 0);
+  const [newArea, setNewArea] = useState("");
   const [roomType, setRoomType] = useState(initial ? initial.roomTypeRequired : "online");
   const [enrolled, setEnrolled] = useState(initial ? initial.enrolledStudents : 35);
   const [yearLevel, setYearLevel] = useState(initial ? initial.yearLevel : 1);
@@ -1389,10 +1444,10 @@ function SectionModal({
   const [prerequisiteCode, setPrerequisiteCode] = useState(initial ? initial.prerequisiteCode || "" : "");
   const [schoolYear, setSchoolYear] = useState(initial && initial.schoolYear ? initial.schoolYear : E.currentSchoolYear());
   const [category, setCategory] = useState(initial && initial.category ? initial.category : "Major");
-  // Program (curriculum) this section belongs to. The list includes the sample programs
-  // plus this subject's own program if it is something else.
-  const [program, setProgram] = useState(initial && initial.program ? initial.program : "BSIT");
-  const programOptions = Array.from(new Set(["BSIT", "BSCS", "BSIS"].concat(initial && initial.program ? [initial.program] : [])));
+  // Program (curriculum) this section belongs to. The list is the school's programs
+  // (passed in as `programs`) plus this subject's own program if it is something else.
+  const [program, setProgram] = useState(initial && initial.program ? initial.program : programs && programs[0] || "BSIT");
+  const programOptions = choicesOf(programs && programs.length ? programs : ["BSIT", "BSCS", "BSIS"], initial && initial.program ? [initial.program] : []);
   // Fixed day/period is stored as ONE slot id; the form edits it as a day + a period.
   const allSlots = E.buildTimeSlots();
   const initialFixed = initial && initial.fixedSlotId != null ? allSlots.find(t => t.id === initial.fixedSlotId) : null;
@@ -1476,15 +1531,29 @@ function SectionModal({
     value: enrolled,
     onChange: e => setEnrolled(e.target.value)
   }))), /*#__PURE__*/React.createElement(Field, {
-    label: "Required Specialization"
+    label: "Subject area"
   }, /*#__PURE__*/React.createElement("select", {
     className: inputCls,
-    value: spec,
-    onChange: e => setSpec(e.target.value)
-  }, E.SPECIALIZATIONS.map(s => /*#__PURE__*/React.createElement("option", {
+    value: typingArea ? "__new__" : spec,
+    onChange: e => {
+      if (e.target.value === "__new__") setTypingArea(true);else {
+        setTypingArea(false);
+        setSpec(e.target.value);
+      }
+    }
+  }, areaChoices.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
     value: s
-  }, s)))), /*#__PURE__*/React.createElement(Field, {
+  }, s)), /*#__PURE__*/React.createElement("option", {
+    value: "__new__"
+  }, "New subject area\u2026"))), typingArea && /*#__PURE__*/React.createElement(Field, {
+    label: "New subject area"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: newArea,
+    onChange: e => setNewArea(e.target.value),
+    placeholder: "e.g. Midwifery"
+  })), /*#__PURE__*/React.createElement(Field, {
     label: "Class Type"
   }, /*#__PURE__*/React.createElement("select", {
     className: inputCls,
@@ -1560,8 +1629,12 @@ function SectionModal({
     className: "w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2",
     onClick: () => {
       const problem = !subjectCode.trim() ? "Enter the subject code (for example IT101)." : !sectionName.trim() ? "Enter the section name (for example BSIT-2A)." : (allSections || []).some(s => (!initial || s.id !== initial.id) && sameText(s.subjectCode, subjectCode) && sameText(s.sectionName, sectionName)) ? subjectCode.trim() + " is already offered to section " + sectionName.trim() + "." : wholeNumberError(units, 1, 10, "Units") || wholeNumberError(enrolled, 1, 300, "Enrolled students");
-      if (problem) {
-        setError(problem);
+      // A typed subject area that matches an existing one (ignoring capitals) uses the existing spelling.
+      const typed = newArea.trim().replace(/\s+/g, " ");
+      const area = typingArea ? areaChoices.find(a => sameText(a, typed)) || typed : spec;
+      const areaProblem = !area ? "Choose a subject area, or type a new one." : area.length > 120 ? "A subject area can be at most 120 characters." : "";
+      if (problem || areaProblem) {
+        setError(problem || areaProblem);
         return;
       }
       onSave({
@@ -1570,7 +1643,7 @@ function SectionModal({
         subjectName: subjectName.trim(),
         sectionName: sectionName.trim(),
         units: Number(units),
-        requiredSpecialization: spec,
+        requiredSpecialization: area,
         roomTypeRequired: roomType,
         enrolledStudents: Number(enrolled),
         yearLevel,
@@ -2157,8 +2230,8 @@ function CSVImportModal({
         if (kind === "faculty") {
           if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
           const specs = (r[idx("specializations")] || "").split(";").map(s => s.trim()).filter(Boolean);
-          const bad = specs.filter(s => !E.SPECIALIZATIONS.includes(s));
-          if (specs.length === 0 || bad.length) problems.push(line + (bad.length ? "unknown specialization " + bad.join(", ") : "specialization is missing") + ".");
+          const tooLong = specs.filter(s => s.length > 120); // any subject area is accepted (the school's own names)
+          if (specs.length === 0 || tooLong.length) problems.push(line + (tooLong.length ? "a subject area is longer than 120 characters" : "specialization is missing") + ".");
           {
             const v = (r[idx("maxUnits")] || "").trim();
             if (v && !(Number(v) > 0)) problems.push(line + "maxUnits must be a positive number.");
@@ -2167,7 +2240,7 @@ function CSVImportModal({
           if (!(r[idx("subjectCode")] || "").trim()) problems.push(line + "subjectCode is missing.");
           if (!(r[idx("sectionName")] || "").trim()) problems.push(line + "sectionName is missing.");
           const spec = (r[idx("requiredSpecialization")] || "").trim();
-          if (spec && !E.SPECIALIZATIONS.includes(spec)) problems.push(line + "unknown specialization \"" + spec + "\".");
+          if (!spec) problems.push(line + "requiredSpecialization is missing.");else if (spec.length > 120) problems.push(line + "requiredSpecialization is longer than 120 characters.");
           ["units", "enrolledStudents"].forEach(c => {
             const v = (r[idx(c)] || "").trim();
             if (v && !(Number(v) > 0)) problems.push(line + c + " must be a positive number.");
@@ -2203,7 +2276,7 @@ function CSVImportModal({
           subjectName: r[idx("subjectName")] || "",
           sectionName: r[idx("sectionName")] || "",
           units: Number(r[idx("units")]) || 3,
-          requiredSpecialization: r[idx("requiredSpecialization")] || E.SPECIALIZATIONS[0],
+          requiredSpecialization: (r[idx("requiredSpecialization")] || "").trim(),
           // Accepts a "classType" (or older "roomTypeRequired") column. Anything that isn't
           // "laboratory" — including the old value "lecture" — is treated as online.
           roomTypeRequired: (r[idx("classType")] || r[idx("roomTypeRequired")] || "online").trim().toLowerCase() === "laboratory" ? "laboratory" : "online",
@@ -3899,11 +3972,14 @@ function App() {
   }), facultyModal && /*#__PURE__*/React.createElement(FacultyModal, {
     initial: facultyModal === "new" ? null : facultyModal,
     allFaculty: faculty,
+    subjectAreas: subjectAreasOf(faculty, sections),
     onSave: f => setFaculty(facultyModal === "new" ? [...faculty, f] : faculty.map(x => x.id === f.id ? f : x)),
     onClose: () => setFacultyModal(null)
   }), sectionModal && /*#__PURE__*/React.createElement(SectionModal, {
     initial: sectionModal === "new" ? null : sectionModal,
     allSections: sections,
+    subjectAreas: subjectAreasOf(faculty, sections),
+    programs: choicesOf(sections.map(s => s.program).filter(Boolean), ["BSIT", "BSCS", "BSIS"]),
     onSave: s => handleSaveSection(s, sectionModal === "new"),
     onClose: () => setSectionModal(null)
   }), roomModal && /*#__PURE__*/React.createElement(RoomModal, {
@@ -5347,12 +5423,18 @@ function computeDepartmentStats(spec, faculty, sections, result) {
   };
 }
 
+// subjectAreasOf(faculty, sections): the school's subject areas (each one a "department"),
+// taken from the data itself — every teacher's areas and every subject's area — in A–Z order.
+function subjectAreasOf(faculty, sections) {
+  return Array.from(new Set([...faculty.flatMap(f => f.specializations || []), ...sections.map(s => s.requiredSpecialization)])).filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
 // computeAllDepartments(faculty, sections, result)
-// Runs computeDepartmentStats for every specialization and turns the numbers
+// Runs computeDepartmentStats for every subject area and turns the numbers
 // into a list of human-readable issues. Shared by the Departments page and
 // the Admin/Chair overviews so they always report the same issues.
 function computeAllDepartments(faculty, sections, result) {
-  const allSpecs = Array.from(new Set([...faculty.flatMap(f => f.specializations), ...sections.map(s => s.requiredSpecialization)]));
+  const allSpecs = subjectAreasOf(faculty, sections);
   const deptStats = allSpecs.map(spec => ({
     spec,
     stats: computeDepartmentStats(spec, faculty, sections, result)
@@ -6638,7 +6720,7 @@ function ReportsPage({
     label: r.name.replace("Room ", ""),
     value: roomUsage[r.id] || 0
   }));
-  const allSpecs = Array.from(new Set([...faculty.flatMap(f => f.specializations), ...sections.map(s => s.requiredSpecialization)]));
+  const allSpecs = subjectAreasOf(faculty, sections);
   const deptRows = allSpecs.map(spec => {
     const st = computeDepartmentStats(spec, faculty, sections, result);
     return [spec, st.deptFaculty.length, st.deptSections.length, st.loadPct + "%", st.overloads, st.conflicts];

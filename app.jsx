@@ -739,16 +739,27 @@ function CheckboxGroup({ options, selected, onToggle, columns = 2 }) {
    given, the form is in "edit" mode and starts pre-filled.
    --------------------------------------------------------------------- */
 
-// FacultyModal: add/edit a faculty member (specializations, preferred days,
-// max units, employment status, academic rank).
-function FacultyModal({ initial, allFaculty, onSave, onClose }) {
+// The choices a drop-down offers: the built-in values, every value already in the data,
+// and the record's own value, so editing never silently changes a value that is not built in.
+const choicesOf = (...lists) => Array.from(new Set([].concat(...lists).filter(v => v != null)));
+
+// FacultyModal: add/edit a faculty member (subject areas, preferred days,
+// max units, employment status, academic rank). The subject areas offered are the
+// school's own (subjectAreas), and a new one can be added with the box below them.
+function FacultyModal({ initial, allFaculty, subjectAreas, onSave, onClose }) {
   const [error, setError] = useState("");
   const [name, setName] = useState(initial ? initial.name : "");
-  const [specs, setSpecs] = useState(initial ? initial.specializations : ["Programming"]);
+  const [specs, setSpecs] = useState(initial ? initial.specializations : []);
+  const [addedAreas, setAddedAreas] = useState([]);      // areas typed into "Add subject area" in this form
+  const [newArea, setNewArea] = useState("");
   const [maxUnits, setMaxUnits] = useState(initial ? initial.maxUnits : 21);
   const [preferredDays, setPreferredDays] = useState(initial ? initial.preferredDays : ["Mon", "Wed", "Fri"]);
   const [employmentStatus, setEmploymentStatus] = useState(initial ? initial.employmentStatus : E.EMPLOYMENT_STATUSES[0]);
   const [academicRank, setAcademicRank] = useState(initial ? initial.academicRank : E.ACADEMIC_RANKS[0]);
+  const areaOptions = choicesOf(subjectAreas || [], initial ? initial.specializations : [], addedAreas);
+  const others = (allFaculty || []).filter(f => !initial || f.id !== initial.id);
+  const statusOptions = choicesOf(E.EMPLOYMENT_STATUSES, others.map(f => f.employmentStatus), [employmentStatus]).filter(Boolean);
+  const rankOptions = choicesOf(E.ACADEMIC_RANKS, others.map(f => f.academicRank), [academicRank]).filter(Boolean);
 
   function toggleSpec(s) {
     setSpecs(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
@@ -756,14 +767,34 @@ function FacultyModal({ initial, allFaculty, onSave, onClose }) {
   function toggleDay(d) {
     setPreferredDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
   }
+  // "Add subject area": a name that matches an existing one (ignoring capitals) ticks that one instead.
+  function addArea() {
+    const text = newArea.trim().replace(/\s+/g, " ");
+    if (!text) return;
+    if (text.length > 120) { setError("A subject area can be at most 120 characters."); return; }
+    const existing = areaOptions.find(a => sameText(a, text));
+    const area = existing || text;
+    if (!existing) setAddedAreas(prev => [...prev, area]);
+    setSpecs(prev => prev.includes(area) ? prev : [...prev, area]);
+    setNewArea(""); setError("");
+  }
 
   return (
     <Modal title={initial ? "Edit Faculty" : "Add Faculty"} onClose={onClose}>
       <Field label="Full Name">
         <input className={inputCls} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Maria Santos" />
       </Field>
-      <Field label="Specializations">
-        <CheckboxGroup options={E.SPECIALIZATIONS} selected={specs} onToggle={toggleSpec} />
+      <Field label="Subject areas">
+        <div>
+          {areaOptions.length > 0
+            ? <CheckboxGroup options={areaOptions} selected={specs} onToggle={toggleSpec} />
+            : <p className="text-xs text-slate-500">No subject areas yet. Add the first one below.</p>}
+          <div className="flex gap-2 mt-2">
+            <input className={inputCls} value={newArea} onChange={e=>setNewArea(e.target.value)} aria-label="New subject area"
+              placeholder="Add a subject area, e.g. Accounting" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addArea(); } }} />
+            <button type="button" onClick={addArea} className="shrink-0 border border-slate-200 hover:border-amber-400 hover:bg-amber-50 rounded-lg px-3 text-sm">Add</button>
+          </div>
+        </div>
       </Field>
       <Field label="Preferred Days">
         <CheckboxGroup options={E.DAYS} selected={preferredDays} onToggle={toggleDay} columns={3} />
@@ -774,13 +805,14 @@ function FacultyModal({ initial, allFaculty, onSave, onClose }) {
         </Field>
         <Field label="Employment Status">
           <select className={inputCls} value={employmentStatus} onChange={e=>setEmploymentStatus(e.target.value)}>
-            {E.EMPLOYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
       </div>
       <Field label="Academic Rank">
-        <select className={inputCls} value={academicRank} onChange={e=>setAcademicRank(e.target.value)}>
-          {E.ACADEMIC_RANKS.map(r => <option key={r} value={r}>{r}</option>)}
+        <select className={inputCls} value={academicRank || ""} onChange={e=>setAcademicRank(e.target.value)}>
+          <option value="">— (none)</option>
+          {rankOptions.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
       </Field>
       <FormError message={error} />
@@ -790,7 +822,7 @@ function FacultyModal({ initial, allFaculty, onSave, onClose }) {
           // Faculty sign in by name, so two teachers must not share one.
           const problem = !name.trim() ? "Enter the teacher's full name."
             : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because faculty sign in by name."
-            : specs.length === 0 ? "Tick at least one specialization."
+            : specs.length === 0 ? "Tick or add at least one subject area."
             : wholeNumberError(maxUnits, 1, 40, "Maximum teaching units");
           if (problem) { setError(problem); return; }
           // Start from the existing record, so fields this form does not edit are kept:
@@ -815,13 +847,17 @@ function FacultyModal({ initial, allFaculty, onSave, onClose }) {
 // SectionModal: add/edit a subject section: school year, Major/Minor, academic
 // year level, semester, class type (Online or Laboratory), an optional FIXED
 // day/period (the AI must schedule it exactly then), and an optional prerequisite.
-function SectionModal({ initial, allSections, onSave, onClose }) {
+function SectionModal({ initial, allSections, subjectAreas, programs, onSave, onClose }) {
   const [error, setError] = useState("");
   const [subjectCode, setSubjectCode] = useState(initial ? initial.subjectCode : "");
   const [subjectName, setSubjectName] = useState(initial ? initial.subjectName : "");
   const [sectionName, setSectionName] = useState(initial ? initial.sectionName : "");
   const [units, setUnits] = useState(initial ? initial.units : 3);
-  const [spec, setSpec] = useState(initial ? initial.requiredSpecialization : E.SPECIALIZATIONS[0]);
+  // The subject area: one of the school's areas, or a new one typed after choosing "New subject area…".
+  const areaChoices = choicesOf(subjectAreas || [], initial ? [initial.requiredSpecialization] : []);
+  const [spec, setSpec] = useState(initial ? initial.requiredSpecialization : (areaChoices[0] || ""));
+  const [typingArea, setTypingArea] = useState(areaChoices.length === 0);
+  const [newArea, setNewArea] = useState("");
   const [roomType, setRoomType] = useState(initial ? initial.roomTypeRequired : "online");
   const [enrolled, setEnrolled] = useState(initial ? initial.enrolledStudents : 35);
   const [yearLevel, setYearLevel] = useState(initial ? initial.yearLevel : 1);
@@ -829,10 +865,10 @@ function SectionModal({ initial, allSections, onSave, onClose }) {
   const [prerequisiteCode, setPrerequisiteCode] = useState(initial ? (initial.prerequisiteCode || "") : "");
   const [schoolYear, setSchoolYear] = useState(initial && initial.schoolYear ? initial.schoolYear : E.currentSchoolYear());
   const [category, setCategory] = useState(initial && initial.category ? initial.category : "Major");
-  // Program (curriculum) this section belongs to. The list includes the sample programs
-  // plus this subject's own program if it is something else.
-  const [program, setProgram] = useState(initial && initial.program ? initial.program : "BSIT");
-  const programOptions = Array.from(new Set(["BSIT", "BSCS", "BSIS"].concat(initial && initial.program ? [initial.program] : [])));
+  // Program (curriculum) this section belongs to. The list is the school's programs
+  // (passed in as `programs`) plus this subject's own program if it is something else.
+  const [program, setProgram] = useState(initial && initial.program ? initial.program : ((programs && programs[0]) || "BSIT"));
+  const programOptions = choicesOf(programs && programs.length ? programs : ["BSIT", "BSCS", "BSIS"], initial && initial.program ? [initial.program] : []);
   // Fixed day/period is stored as ONE slot id; the form edits it as a day + a period.
   const allSlots = E.buildTimeSlots();
   const initialFixed = initial && initial.fixedSlotId != null ? allSlots.find(t => t.id === initial.fixedSlotId) : null;
@@ -872,11 +908,18 @@ function SectionModal({ initial, allSections, onSave, onClose }) {
         <Field label="Units"><input type="number" min="1" max="10" className={inputCls} value={units} onChange={e=>setUnits(e.target.value)} /></Field>
         <Field label="Enrolled Students"><input type="number" min="1" max="300" className={inputCls} value={enrolled} onChange={e=>setEnrolled(e.target.value)} /></Field>
       </div>
-      <Field label="Required Specialization">
-        <select className={inputCls} value={spec} onChange={e=>setSpec(e.target.value)}>
-          {E.SPECIALIZATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+      <Field label="Subject area">
+        <select className={inputCls} value={typingArea ? "__new__" : spec}
+          onChange={e => { if (e.target.value === "__new__") setTypingArea(true); else { setTypingArea(false); setSpec(e.target.value); } }}>
+          {areaChoices.map(s => <option key={s} value={s}>{s}</option>)}
+          <option value="__new__">New subject area…</option>
         </select>
       </Field>
+      {typingArea && (
+        <Field label="New subject area">
+          <input className={inputCls} value={newArea} onChange={e=>setNewArea(e.target.value)} placeholder="e.g. Midwifery" />
+        </Field>
+      )}
       <Field label="Class Type">
         <select className={inputCls} value={roomType} onChange={e=>setRoomType(e.target.value)}>
           <option value="online">Online (no room needed)</option>
@@ -928,11 +971,15 @@ function SectionModal({ initial, allSections, onSave, onClose }) {
             : (allSections || []).some(s => (!initial || s.id !== initial.id) && sameText(s.subjectCode, subjectCode) && sameText(s.sectionName, sectionName))
               ? subjectCode.trim() + " is already offered to section " + sectionName.trim() + "."
             : wholeNumberError(units, 1, 10, "Units") || wholeNumberError(enrolled, 1, 300, "Enrolled students");
-          if (problem) { setError(problem); return; }
+          // A typed subject area that matches an existing one (ignoring capitals) uses the existing spelling.
+          const typed = newArea.trim().replace(/\s+/g, " ");
+          const area = typingArea ? (areaChoices.find(a => sameText(a, typed)) || typed) : spec;
+          const areaProblem = !area ? "Choose a subject area, or type a new one." : area.length > 120 ? "A subject area can be at most 120 characters." : "";
+          if (problem || areaProblem) { setError(problem || areaProblem); return; }
           onSave({
             id: initial ? initial.id : Date.now(),
             subjectCode: subjectCode.trim(), subjectName: subjectName.trim(), sectionName: sectionName.trim(),
-            units: Number(units), requiredSpecialization: spec, roomTypeRequired: roomType, enrolledStudents: Number(enrolled),
+            units: Number(units), requiredSpecialization: area, roomTypeRequired: roomType, enrolledStudents: Number(enrolled),
             yearLevel, semester, prerequisiteCode: prerequisiteCode || null,
             schoolYear, category, program,
             fixedSlotId: fixedDay ? allSlots.find(t => t.day === fixedDay && t.period === fixedPeriod).id : null,
@@ -1348,14 +1395,15 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
         if (kind === "faculty") {
           if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
           const specs = (r[idx("specializations")] || "").split(";").map(s => s.trim()).filter(Boolean);
-          const bad = specs.filter(s => !E.SPECIALIZATIONS.includes(s));
-          if (specs.length === 0 || bad.length) problems.push(line + (bad.length ? "unknown specialization " + bad.join(", ") : "specialization is missing") + ".");
+          const tooLong = specs.filter(s => s.length > 120);   // any subject area is accepted (the school's own names)
+          if (specs.length === 0 || tooLong.length) problems.push(line + (tooLong.length ? "a subject area is longer than 120 characters" : "specialization is missing") + ".");
           { const v = (r[idx("maxUnits")] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + "maxUnits must be a positive number."); }
         } else if (kind === "subjects") {
           if (!(r[idx("subjectCode")] || "").trim()) problems.push(line + "subjectCode is missing.");
           if (!(r[idx("sectionName")] || "").trim()) problems.push(line + "sectionName is missing.");
           const spec = (r[idx("requiredSpecialization")] || "").trim();
-          if (spec && !E.SPECIALIZATIONS.includes(spec)) problems.push(line + "unknown specialization \"" + spec + "\".");
+          if (!spec) problems.push(line + "requiredSpecialization is missing.");
+          else if (spec.length > 120) problems.push(line + "requiredSpecialization is longer than 120 characters.");
           ["units", "enrolledStudents"].forEach(c => { const v = (r[idx(c)] || "").trim(); if (v && !(Number(v) > 0)) problems.push(line + c + " must be a positive number."); });
         } else if (kind === "rooms") {
           if (!(r[idx("name")] || "").trim()) problems.push(line + "name is missing.");
@@ -1383,7 +1431,7 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
           subjectName: r[idx("subjectName")] || "",
           sectionName: r[idx("sectionName")] || "",
           units: Number(r[idx("units")]) || 3,
-          requiredSpecialization: r[idx("requiredSpecialization")] || E.SPECIALIZATIONS[0],
+          requiredSpecialization: (r[idx("requiredSpecialization")] || "").trim(),
           // Accepts a "classType" (or older "roomTypeRequired") column. Anything that isn't
           // "laboratory" — including the old value "lecture" — is treated as online.
           roomTypeRequired: ((r[idx("classType")] || r[idx("roomTypeRequired")] || "online").trim().toLowerCase() === "laboratory") ? "laboratory" : "online",
@@ -2517,12 +2565,13 @@ function App() {
       <Toast message={toast} onClose={() => setToast(null)} />
 
       {facultyModal && (
-        <FacultyModal initial={facultyModal === "new" ? null : facultyModal} allFaculty={faculty}
+        <FacultyModal initial={facultyModal === "new" ? null : facultyModal} allFaculty={faculty} subjectAreas={subjectAreasOf(faculty, sections)}
           onSave={f => setFaculty(facultyModal === "new" ? [...faculty, f] : faculty.map(x=>x.id===f.id?f:x))}
           onClose={() => setFacultyModal(null)} />
       )}
       {sectionModal && (
-        <SectionModal initial={sectionModal === "new" ? null : sectionModal} allSections={sections}
+        <SectionModal initial={sectionModal === "new" ? null : sectionModal} allSections={sections} subjectAreas={subjectAreasOf(faculty, sections)}
+          programs={choicesOf(sections.map(s => s.program).filter(Boolean), ["BSIT", "BSCS", "BSIS"])}
           onSave={s => handleSaveSection(s, sectionModal === "new")}
           onClose={() => setSectionModal(null)} />
       )}
@@ -3568,15 +3617,19 @@ function computeDepartmentStats(spec, faculty, sections, result) {
   };
 }
 
+// subjectAreasOf(faculty, sections): the school's subject areas (each one a "department"),
+// taken from the data itself — every teacher's areas and every subject's area — in A–Z order.
+function subjectAreasOf(faculty, sections) {
+  return Array.from(new Set([...faculty.flatMap(f => f.specializations || []), ...sections.map(s => s.requiredSpecialization)]))
+    .filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
 // computeAllDepartments(faculty, sections, result)
-// Runs computeDepartmentStats for every specialization and turns the numbers
+// Runs computeDepartmentStats for every subject area and turns the numbers
 // into a list of human-readable issues. Shared by the Departments page and
 // the Admin/Chair overviews so they always report the same issues.
 function computeAllDepartments(faculty, sections, result) {
-  const allSpecs = Array.from(new Set([
-    ...faculty.flatMap(f => f.specializations),
-    ...sections.map(s => s.requiredSpecialization),
-  ]));
+  const allSpecs = subjectAreasOf(faculty, sections);
   const deptStats = allSpecs.map(spec => ({ spec, stats: computeDepartmentStats(spec, faculty, sections, result) }));
   const avgLoadPct = deptStats.length
     ? Math.round(deptStats.reduce((s, d) => s + d.stats.loadPct, 0) / deptStats.length)
@@ -4574,7 +4627,7 @@ function ReportsPage({ faculty, rooms, sections, result, slotById }) {
   const totalSlots = E.DAYS.length * E.PERIODS;
   const roomData = rooms.map(r => ({ label: r.name.replace("Room ",""), value: roomUsage[r.id] || 0 }));
 
-  const allSpecs = Array.from(new Set([...faculty.flatMap(f => f.specializations), ...sections.map(s => s.requiredSpecialization)]));
+  const allSpecs = subjectAreasOf(faculty, sections);
   const deptRows = allSpecs.map(spec => {
     const st = computeDepartmentStats(spec, faculty, sections, result);
     return [spec, st.deptFaculty.length, st.deptSections.length, st.loadPct + "%", st.overloads, st.conflicts];

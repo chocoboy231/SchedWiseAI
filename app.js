@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-26T16:10:18.064Z with Babel 7.23.5. source-hash: 13041e663be6b8 */
+   Built 2026-11-26T16:33:29.136Z with Babel 7.23.5. source-hash: 16abf21cb5a439 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -933,7 +933,7 @@ function downloadJSON(filename, obj) {
 }
 
 /* ---------------------------------------------------------------------
-   4c. EXCEL WORKBOOKS (Settings → Set up with your school's data)
+   4c. EXCEL WORKBOOKS (Class Schedules → Set up with your school's data)
    These only turn an .xlsx file into plain rows and back; importer.js
    (window.SchedImport) does all the checking. The spreadsheet library
    (vendor/xlsx.full.min.js, about 1 MB) is loaded the first time one of
@@ -3697,6 +3697,7 @@ function App() {
   const [sectionModal, setSectionModal] = useState(null);
   const [roomModal, setRoomModal] = useState(null);
   const [scheduleTab, setScheduleTab] = useState("grid");
+  const [schoolDataOpen, setSchoolDataOpen] = useState(false); // the school-data steps on Class Schedules are showing
   const [selectedFacultyId, setSelectedFacultyId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // ---- Feature data (the `|| []` fallbacks keep older saved data working) ----
@@ -4246,7 +4247,7 @@ function App() {
     pushNotification("Loaded " + (k === "expanded" ? "the expanded multi-program sample." : "the standard sample."));
   }
 
-  // ---- Set up with your school's data (Settings card; see importer.js and section 4c) ----
+  // ---- Set up with your school's data (the card at the top of Class Schedules; see importer.js and section 4c) ----
   function handleDownloadTemplate() {
     return downloadWorkbook("SchedWiseAI-template.xlsx", SchedImport.templateRows()).then(() => logActivity("Export", "SchedWiseAI-template.xlsx (blank template)"));
   }
@@ -4285,6 +4286,8 @@ function App() {
     const counts = countOf(d.faculty.length, "teacher") + ", " + countOf(d.sections.length, "subject") + ", " + countOf(d.rooms.length, "room");
     pushNotification("Uploaded school data from " + fileName + ": " + counts + ".");
     logActivity("Upload", fileName + " (" + counts + ")");
+    setSchoolDataOpen(false); // fold the card away: Generate Schedule is right below it
+    setToast("Your school's data is in: " + counts + ". Press Generate Schedule to build their timetable.");
     goToPage("schedules");
   }
 
@@ -4619,7 +4622,10 @@ function App() {
       goToPage("faculty");
     },
     datasetKind: datasetKind,
-    onOpenSetup: () => goToPage("settings"),
+    onOpenSetup: () => {
+      setSchoolDataOpen(true);
+      goToPage("schedules");
+    },
     onUpdateSchedule: handleUpdateSchedule,
     onApprovalDecision: handleApprovalDecision,
     onUpdateRequestStatus: handleRequestDecision,
@@ -4672,6 +4678,15 @@ function App() {
     faculty: faculty,
     sections: sections,
     result: result
+  }), page === "schedules" && canManageData && /*#__PURE__*/React.createElement(SchoolDataCard, {
+    open: schoolDataOpen,
+    onToggle: () => setSchoolDataOpen(o => !o),
+    datasetKind: datasetKind,
+    datasetInfo: datasetInfo,
+    onDownloadTemplate: handleDownloadTemplate,
+    onDownloadCurrent: handleDownloadCurrentData,
+    onApply: handleApplySchoolData,
+    onDownloadBackup: handleDownloadBackup
   }), page === "schedules" && /*#__PURE__*/React.createElement(SchedulesPage, {
     result: result,
     sections: sections,
@@ -4735,12 +4750,12 @@ function App() {
     onCreateTestConflict: handleCreateTestConflict,
     onDownloadBackup: handleDownloadBackup,
     onRestoreBackup: handleRestoreBackup,
-    datasetInfo: datasetInfo,
-    onDownloadTemplate: handleDownloadTemplate,
-    onDownloadCurrentData: handleDownloadCurrentData,
-    onApplySchoolData: handleApplySchoolData,
     testLog: testLog,
-    onGoTo: goToPage
+    onGoTo: goToPage,
+    onOpenSchoolData: () => {
+      setSchoolDataOpen(true);
+      goToPage("schedules");
+    }
   }))), /*#__PURE__*/React.createElement(Toast, {
     message: toast,
     onClose: () => setToast(null)
@@ -4882,7 +4897,8 @@ function computeDataHealth(faculty, rooms, sections) {
 // ---------- Small shared building blocks used by all four overviews ----------
 
 // SampleDataBanner: on the Administrator and IT overviews while sample data is loaded,
-// a reminder that the real data can be set up in Settings (see SchoolDataCard).
+// a reminder that the real data can be set up; the link opens the card on Class Schedules
+// (see SchoolDataCard).
 function SampleDataBanner({
   onSetup
 }) {
@@ -7640,12 +7656,16 @@ function UploadIssueList({
   }, "+ ", items.length - ISSUE_LIMIT, " more")));
 }
 
-// SchoolDataCard: Settings → "Set up with your school's data" (Admin and IT).
+// SchoolDataCard: "Set up with your school's data", at the top of Class Schedules (Admin and IT).
+// The header (what data is loaded, and an "Upload school data" button) is always shown;
+// the steps open below it when the button is pressed:
 //   1. Download a blank template, or the current data in the same layout.
 //   2. Choose a filled workbook; it is read (readWorkbookFile) and checked (SchedImport.parseWorkbook).
 //   3. Read the result; "Replace my data with this file" (only when there are no errors) asks
 //      for confirmation, with the chance to download a backup first, then replaces the data.
 function SchoolDataCard({
+  open,
+  onToggle,
   datasetKind,
   datasetInfo,
   onDownloadTemplate,
@@ -7702,16 +7722,26 @@ function SchoolDataCard({
   }
   const c = check && check.counts;
   return /*#__PURE__*/React.createElement("div", {
-    className: "bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-4"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+    className: "no-print bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-slate-100 space-y-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col sm:flex-row sm:items-start justify-between gap-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "min-w-0"
+  }, /*#__PURE__*/React.createElement("h2", {
     className: "font-semibold text-slate-900"
   }, "Set up with your school's data"), /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-slate-500 mt-1"
-  }, "Replace the sample data with your school's teachers, subjects and rooms, then generate a real schedule."), /*#__PURE__*/React.createElement("p", {
+  }, "Upload your school's teachers, subjects and rooms from an Excel workbook, then generate their schedule below."), /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-slate-600 mt-2"
   }, "Currently loaded: ", /*#__PURE__*/React.createElement("span", {
     className: "font-medium text-slate-800"
-  }, loaded))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+  }, loaded))), /*#__PURE__*/React.createElement("button", {
+    onClick: onToggle,
+    "aria-expanded": open,
+    className: "shrink-0 flex items-center justify-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg " + (open ? "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-slate-900 hover:bg-slate-800 text-white")
+  }, open ? "Hide" : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(IconUpload, {
+    size: 15
+  }), " Upload school data"))), open && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
     className: "text-sm font-semibold text-slate-800 mb-1"
   }, "1. Get the template"), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 sm:grid-cols-2 gap-2"
@@ -7815,11 +7845,11 @@ function SchoolDataCard({
   }, "Replace my data"), /*#__PURE__*/React.createElement("button", {
     className: btn + " flex-1 text-center",
     onClick: () => setConfirming(false)
-  }, "Cancel"))));
+  }, "Cancel")))));
 }
 
-// SettingsPage: "About this prototype", plus, for Admin and IT, the school-data setup card,
-// Backup and restore, and Testing tools:
+// SettingsPage: "Your account" and "About this prototype", plus, for Admin and IT,
+// Backup and restore, and Testing tools (the school-data card is on Class Schedules):
 //   • Sample data: load the standard or the expanded multi-program sample.
 //   • Create test conflicts: break one rule on purpose (see makeTestConflict),
 //     then check Conflict Detection and try "Update affected classes".
@@ -7834,12 +7864,9 @@ function SettingsPage({
   onCreateTestConflict,
   onDownloadBackup,
   onRestoreBackup,
-  datasetInfo,
-  onDownloadTemplate,
-  onDownloadCurrentData,
-  onApplySchoolData,
   testLog,
-  onGoTo
+  onGoTo,
+  onOpenSchoolData
 }) {
   const canTest = role === "admin" || role === "it";
   const [backupMsg, setBackupMsg] = useState(null); // { ok, message } shown under the backup buttons
@@ -7870,14 +7897,7 @@ function SettingsPage({
     className: "text-sm text-slate-500 leading-relaxed mb-3"
   }, "This is a working prototype of SchedWiseAI built for respondent testing as part of a capstone research study. The AI Optimization Engine (a Genetic Algorithm with constraint checking) runs entirely in your browser \u2014 no data is sent to a server. Everything you enter is stored only in this browser's local storage."), /*#__PURE__*/React.createElement("p", {
     className: "text-sm text-slate-500 leading-relaxed"
-  }, "Each person signs in with their own account, and the account's role (Academic Administrator, Department Chair, Faculty Member or IT Professional/Staff) decides what they can see and do. Administrators and IT staff create accounts and reset forgotten passwords on the Accounts page. Accounts are kept in this browser too: anyone with full access to this computer could still read or change what it stores.")), canTest && /*#__PURE__*/React.createElement(SchoolDataCard, {
-    datasetKind: datasetKind,
-    datasetInfo: datasetInfo,
-    onDownloadTemplate: onDownloadTemplate,
-    onDownloadCurrent: onDownloadCurrentData,
-    onApply: onApplySchoolData,
-    onDownloadBackup: onDownloadBackup
-  }), canTest && /*#__PURE__*/React.createElement("div", {
+  }, "Each person signs in with their own account, and the account's role (Academic Administrator, Department Chair, Faculty Member or IT Professional/Staff) decides what they can see and do. Administrators and IT staff create accounts and reset forgotten passwords on the Accounts page. Accounts are kept in this browser too: anyone with full access to this computer could still read or change what it stores.")), canTest && /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-4"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
     className: "font-semibold text-slate-900"
@@ -7919,7 +7939,12 @@ function SettingsPage({
     className: "text-xs text-slate-500 mb-2"
   }, "Currently loaded: ", /*#__PURE__*/React.createElement("span", {
     className: "font-medium text-slate-700"
-  }, datasetKind === "school" ? "your school's data (not a sample)" : datasetKind === "expanded" ? "expanded multi-program sample" : "standard sample"), ". Loading replaces all data. ", datasetKind === "school" ? "The sidebar's Reset Demo Data loads the standard sample." : "The sidebar's Reset Demo Data reloads whichever sample is current."), /*#__PURE__*/React.createElement("div", {
+  }, datasetKind === "school" ? "your school's data (not a sample)" : datasetKind === "expanded" ? "expanded multi-program sample" : "standard sample"), ". Loading replaces all data. ", datasetKind === "school" ? "The sidebar's Reset Demo Data loads the standard sample." : "The sidebar's Reset Demo Data reloads whichever sample is current."), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-500 mb-2"
+  }, "To use your school's own teachers, subjects and rooms instead, use", " ", /*#__PURE__*/React.createElement("button", {
+    className: "text-blue-800 hover:underline font-medium",
+    onClick: onOpenSchoolData
+  }, "Set up with your school's data"), " on the Class Schedules page."), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 sm:grid-cols-2 gap-2"
   }, /*#__PURE__*/React.createElement("button", {
     className: btn,

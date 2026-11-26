@@ -427,7 +427,7 @@
       "1. Fill in the Faculty, Subjects and Rooms sheets: one row per teacher, one row per subject per section, and one row per laboratory room.",
       "2. Rows whose first cell starts with EXAMPLE are examples. They are skipped when you upload, so you may replace them or leave them.",
       "3. Keep row 1 (the column names) of each sheet. Columns marked * are required. You may reorder the columns; columns SchedWiseAI does not know are ignored.",
-      "4. Save the file as an Excel Workbook (.xlsx) and upload it in SchedWiseAI under Settings → Set up with your school's data.",
+      "4. Save the file as an Excel Workbook (.xlsx) and upload it in SchedWiseAI on the Class Schedules page: press Upload school data under Set up with your school's data.",
       "   Nothing changes until you have read the check result and pressed Replace my data with this file.",
       "Names, subject areas and choices may be written in any capitals: 'accounting' and 'Accounting' are the same.",
       "",

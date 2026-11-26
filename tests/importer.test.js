@@ -176,7 +176,46 @@
       assert(r.warnings.some(w => w.sheet === sheet && w.row === row && word.test(w.message)),
         name + ": expected a warning on " + JSON.stringify([sheet, row]) + " matching " + word + " — got " + JSON.stringify(r.warnings));
     });
-    eq(I.parseWorkbook(book({ Faculty: F, Subjects: SUB, Rooms: R }), OPT).warnings.length, 0, "the base workbook has no warnings");
+    // With OPT the blank school year of ACC101 becomes 2030–2031 while IT101 says 2026-2027 (see the next test),
+    // so the base workbook is checked with a default year equal to IT101's.
+    eq(I.parseWorkbook(book({ Faculty: F, Subjects: SUB, Rooms: R }), { schoolYear: "2026–2027" }).warnings.length, 0, "the base workbook has no warnings");
+  });
+
+  test("a file with both semesters or several school years gets a warning", () => {
+    // Every subject in the file goes into one weekly timetable, so a whole year's offerings would be mixed.
+    const sameYear = { schoolYear: "2026–2027" };
+    const s = cp(SUB); s[1][9] = "2nd";
+    const both = I.parseWorkbook(book({ Faculty: F, Subjects: s, Rooms: R }), sameYear);
+    assert(both.ok && both.data !== null, "a warning must not block");
+    assert(both.warnings.some(w => w.sheet === "Subjects" && w.row === null && w.column === "Semester"
+      && /1st and the 2nd semester/.test(w.message) && /one semester at a time/.test(w.message)), JSON.stringify(both.warnings));
+    const years = I.parseWorkbook(book({ Faculty: F, Subjects: SUB, Rooms: R }), OPT);   // 2026–2027 and (blank) 2030–2031
+    assert(years.warnings.some(w => w.sheet === "Subjects" && w.row === null && w.column === "School year"
+      && /2026–2027/.test(w.message) && /2030–2031/.test(w.message)), JSON.stringify(years.warnings));
+  });
+
+  test("names of built-in JavaScript objects are read as plain text", () => {
+    // Lookup tables that are plain {} objects would find "constructor" or "__proto__" already in them.
+    const f = [["Constructor", "__proto__; toString", 21], ["hasOwnProperty", "Accounting", 12]];
+    const s = [["IT101", "BSIT", "x", "BSIT-1A", 3, "__proto__", "Online", 35, 1, "1st"], ["ACC101", "BSA", "x", "BSA-1A", 3, "accounting", "Online", 40, 1, "1st"]];
+    const r = I.parseWorkbook(book({ Faculty: f, Subjects: s, Rooms: [["constructor", 40], ["valueOf", 30]] }), OPT);
+    assert(r.ok, r.errors.map(e => e.message).join("; "));
+    eq(JSON.stringify(r.data.faculty.map(x => [x.name, x.specializations])), JSON.stringify([["Constructor", ["__proto__", "toString"]], ["hasOwnProperty", ["Accounting"]]]));
+    eq(JSON.stringify(r.data.sections.map(x => x.requiredSpecialization)), JSON.stringify(["__proto__", "Accounting"]));
+    eq(r.data.rooms.map(x => x.name).join(","), "constructor,valueOf");
+    eq(r.warnings.length, 0, JSON.stringify(r.warnings));
+    // The same words where a day or a status is expected are refused like any unknown word, not crashed on.
+    const withF = change => { const x = cp(F); change(x); return book({ Faculty: x, Subjects: SUB, Rooms: R }); };
+    const withS = change => { const x = cp(SUB); change(x); return book({ Faculty: F, Subjects: x, Rooms: R }); };
+    [["Not available", withF(x => { x[0][6] = "constructor P1"; }), ["Faculty", 2, "Not available"]],
+     ["Preferred days", withF(x => { x[0][5] = "constructor"; }), ["Faculty", 2, "Preferred days"]],
+     ["Employment status", withF(x => { x[0][3] = "constructor"; }), ["Faculty", 2, "Employment status"]],
+     ["Fixed day", withS(x => { x[1][12] = "constructor"; }), ["Subjects", 3, "Fixed day"]]].forEach(([name, sheets, where]) => {
+      let res;
+      try { res = I.parseWorkbook(sheets, OPT); } catch (e) { throw new Error(name + ": the check crashed (" + e.message + ")"); }
+      assert(!res.ok, name + ": should be refused");
+      eq(JSON.stringify([res.errors[0].sheet, res.errors[0].row, res.errors[0].column]), JSON.stringify(where), name + " (" + res.errors[0].message + ")");
+    });
   });
 
   // ====================================================================

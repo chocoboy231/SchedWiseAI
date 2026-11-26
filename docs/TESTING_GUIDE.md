@@ -543,8 +543,9 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 
 **K6. Reset Demo Data**
 1. As Administrator or IT, press **Reset Demo Data** in the sidebar and confirm.
+2. Upload a school's data (N3 and N4), then press **Reset Demo Data** again and read the confirmation before confirming.
 
-*Expected:* New sample data of the same kind replaces everything: no schedule, no history and no requests. Cancelling the confirmation changes nothing.
+*Expected:* New sample data of the same kind replaces everything: no schedule, no history and no requests. Cancelling the confirmation changes nothing. With the school's data loaded, the confirmation names the uploaded file and suggests downloading a backup first; after confirming, the standard sample is loaded, the Overview shows "You are looking at sample data." again, and Settings says "Currently loaded: sample data (standard sample)".
 ☐ Pass ☐ Fail
 
 **K7. A damaged backup is refused**
@@ -614,7 +615,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs both.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `30 passed, 0 failed`, and the *Importer tests* end with `16 passed, 0 failed`. A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `30 passed, 0 failed`, and the *Importer tests* end with `18 passed, 0 failed`. A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**

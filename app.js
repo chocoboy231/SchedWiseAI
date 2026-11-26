@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-25T16:13:16.170Z with Babel 7.23.5. source-hash: c5a68763dcfcd */
+   Built 2026-11-26T10:42:27.384Z with Babel 7.23.5. source-hash: d35dfa8043654 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -939,6 +939,10 @@ function loadSheetLibrary() {
 
 // readWorkbookFile(file) -> { "Faculty": rows, ... } with rows[0] = Excel row 1, even when a
 // sheet's data does not start in cell A1, so every message can name the row Excel shows.
+// Only the template's sheets are turned into rows (other sheets come back empty, for the
+// "not used" note), and a sheet that reaches past row 2,001 or column CV is refused before
+// any rows are built, so a stray cell far away cannot make the page build millions of cells.
+const MAX_SHEET_COLUMNS = 100; // columns A to CV; the widest template sheet uses 15
 async function readWorkbookFile(file) {
   if (file.size > SchedImport.LIMITS.maxFileBytes) throw new Error("The file is larger than 5 MB.");
   const notWorkbook = new Error("This file could not be read as an Excel workbook (.xlsx).");
@@ -947,38 +951,51 @@ async function readWorkbookFile(file) {
   // renamed to .xlsx, a password-protected workbook) is refused before the library sees it.
   if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04) throw notWorkbook;
   const XLSX = await loadSheetLibrary();
+  // nodim: each sheet's size is worked out from the cells it really holds, not from the size the
+  // file claims (a wrong claim could leave rows out, or make the reader build millions of empty cells).
+  let wb;
   try {
-    const wb = XLSX.read(bytes, {
+    wb = XLSX.read(bytes, {
       type: "array",
       cellFormula: false,
-      cellHTML: false
+      cellHTML: false,
+      nodim: true
     });
-    const sheets = {};
-    wb.SheetNames.forEach(name => {
-      const ws = wb.Sheets[name];
-      if (!ws || !ws["!ref"]) {
-        sheets[name] = [];
-        return;
-      }
-      const range = XLSX.utils.encode_range({
-        s: {
-          r: 0,
-          c: 0
-        },
-        e: XLSX.utils.decode_range(ws["!ref"]).e
-      });
+  } catch (e) {
+    throw notWorkbook;
+  }
+  const maxRows = SchedImport.LIMITS.maxRows,
+    n = x => x.toLocaleString("en-US");
+  const sheets = {};
+  wb.SheetNames.forEach(name => {
+    const ws = wb.Sheets[name];
+    const used = SchedImport.SHEETS.some(s => SchedImport.canonical(s) === SchedImport.canonical(name));
+    if (!used || !ws || !ws["!ref"]) {
+      sheets[name] = [];
+      return;
+    }
+    const end = XLSX.utils.decode_range(ws["!ref"]).e;
+    if (end.r + 1 > maxRows + 1) throw new Error("The " + name + " sheet goes down to row " + n(end.r + 1) + ". At most " + n(maxRows) + " rows of data are allowed, in rows 2 to " + n(maxRows + 1) + ". Remove the extra rows (or anything typed below your data), save, and choose the file again.");
+    if (end.c + 1 > MAX_SHEET_COLUMNS) throw new Error("The " + name + " sheet has something in column " + XLSX.utils.encode_col(end.c) + ". SchedWiseAI reads columns A to " + XLSX.utils.encode_col(MAX_SHEET_COLUMNS - 1) + " only: delete anything to the right of your data, save, and choose the file again.");
+    try {
       sheets[name] = XLSX.utils.sheet_to_json(ws, {
         header: 1,
         raw: true,
         defval: null,
         blankrows: true,
-        range
+        range: XLSX.utils.encode_range({
+          s: {
+            r: 0,
+            c: 0
+          },
+          e: end
+        })
       });
-    });
-    return sheets;
-  } catch (e) {
-    throw notWorkbook;
-  }
+    } catch (e) {
+      throw notWorkbook;
+    }
+  });
+  return sheets;
 }
 
 // downloadWorkbook(filename, { "Sheet name": rows, ... }): one sheet per key, in key order.
@@ -3466,14 +3483,15 @@ function App() {
     }
   }
 
-  // Replace all data with a fresh sample dataset (asks for confirmation first).
   // Replace all data with fresh sample data (asks for confirmation first).
-  // `kind` = "standard" or "expanded"; the sidebar's Reset keeps whichever sample is loaded.
+  // `kind` = "standard" or "expanded"; the sidebar's Reset keeps whichever sample is loaded,
+  // and after an upload (kind "school") it loads the standard sample.
   function resetDemoData(kind) {
     if (!canManageData) return; // Chair and Faculty cannot wipe the data (the button is hidden for them too)
-    const k = kind === "expanded" || kind === "standard" ? kind : datasetKind;
+    const k = kind === "expanded" || kind === "standard" ? kind : datasetKind === "expanded" ? "expanded" : "standard";
     const label = k === "expanded" ? "the expanded multi-program sample (about 22 faculty, 48 subjects, 10 labs)" : "the standard sample (9 faculty, 18 subjects, 6 labs)";
-    if (!confirm("Replace all data with " + label + "? This clears faculty, subjects, rooms, requests, history and the current schedule.")) return;
+    const question = datasetKind === "school" ? "Replace your school's data" + (datasetInfo ? " (uploaded from " + datasetInfo.fileName + ")" : "") + " with " + label + "?\n\n" + "This clears your faculty, subjects, rooms, requests, history and the current schedule, and cannot be undone. " + "If you may need your school's data later, press Cancel and download a backup first (Settings → Backup and restore)." : "Replace all data with " + label + "? This clears faculty, subjects, rooms, requests, history and the current schedule.";
+    if (!confirm(question)) return;
     const d = normalizeData(freshData(k));
     setFaculty(d.faculty);
     setRooms(d.rooms);
@@ -7115,7 +7133,7 @@ function SettingsPage({
     className: "text-xs text-slate-500 mb-2"
   }, "Currently loaded: ", /*#__PURE__*/React.createElement("span", {
     className: "font-medium text-slate-700"
-  }, datasetKind === "expanded" ? "expanded multi-program sample" : "standard sample"), ". Loading replaces all data. The sidebar's Reset Demo Data reloads whichever sample is current."), /*#__PURE__*/React.createElement("div", {
+  }, datasetKind === "school" ? "your school's data (not a sample)" : datasetKind === "expanded" ? "expanded multi-program sample" : "standard sample"), ". Loading replaces all data. ", datasetKind === "school" ? "The sidebar's Reset Demo Data loads the standard sample." : "The sidebar's Reset Demo Data reloads whichever sample is current."), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 sm:grid-cols-2 gap-2"
   }, /*#__PURE__*/React.createElement("button", {
     className: btn,

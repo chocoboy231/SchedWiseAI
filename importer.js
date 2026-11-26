@@ -65,8 +65,12 @@
     return Number.isInteger(n) && n >= min && n <= max ? { value: n } : fail;
   }
 
+  // Lookup tables keyed by text from the file have no prototype, so a cell holding "constructor"
+  // or "__proto__" is an ordinary key instead of something every JavaScript object already has.
+  const dict = entries => Object.assign(Object.create(null), entries);
+
   // "mon" / "monday" -> "Mon" (Monday to Saturday only; classes are never on Sunday).
-  const DAY_BY_NAME = {};
+  const DAY_BY_NAME = dict();
   const FULL_DAY_NAMES = { Mon: "monday", Tue: "tuesday", Wed: "wednesday", Thu: "thursday", Fri: "friday", Sat: "saturday" };
   E.DAYS.forEach(d => { DAY_BY_NAME[d.toLowerCase()] = d; DAY_BY_NAME[FULL_DAY_NAMES[d]] = d; });
   function dayError(word) {
@@ -162,7 +166,7 @@
   const cellText = v => (v == null ? "" : String(v).replace(/\s+/g, " ").trim());   // 101 -> "101"
   const label = c => c.header.replace(/\s*\*\s*$/, "");                               // "Max units *" -> "Max units"
   const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
-  const EMPLOYMENT = { fulltime: "Full-time", parttime: "Part-time", contractual: "Contractual" };
+  const EMPLOYMENT = dict({ fulltime: "Full-time", parttime: "Part-time", contractual: "Contractual" });
 
   function parseWorkbook(sheets, options) {
     const defaultSchoolYear = (options && options.schoolYear) || E.currentSchoolYear();
@@ -237,7 +241,7 @@
     }
 
     // Subject areas keep the spelling of their first appearance (Faculty first, then Subjects).
-    const areaSpelling = {};
+    const areaSpelling = dict();
     function area(sheet, row, column, written) {
       const key = canonical(written);
       if (!areaSpelling[key]) areaSpelling[key] = written;
@@ -248,7 +252,7 @@
     const defaults = { preferredDays: 0, employment: 0, schoolYear: 0, category: 0, program: 0 };
 
     // 3. Faculty
-    const faculty = [], teacherRow = {}, facultyRows = [];
+    const faculty = [], teacherRow = dict(), facultyRows = [];
     (tables.Faculty || []).forEach(r => {
       counts.faculty++;
       facultyRows.push(r.row);
@@ -286,7 +290,7 @@
     });
 
     // 4. Subjects
-    const sections = [], offeredRow = {}, subjectRows = [];
+    const sections = [], offeredRow = dict(), subjectRows = [];
     (tables.Subjects || []).forEach(r => {
       counts.sections++;
       subjectRows.push(r.row);
@@ -343,7 +347,7 @@
     });
 
     // 5. Rooms (all laboratories; online classes need none)
-    const rooms = [], roomRow = {};
+    const rooms = [], roomRow = dict();
     (tables.Rooms || []).forEach(r => {
       counts.rooms++;
       const x = reader("Rooms", r);
@@ -370,7 +374,7 @@
 
   // Warnings: things that will not stop the upload but will show up in the schedule.
   function addWarnings(faculty, sections, rooms, facultyRows, subjectRows, warn) {
-    const teachersByArea = {};
+    const teachersByArea = dict();
     faculty.forEach(f => f.specializations.forEach(a => (teachersByArea[a] = teachersByArea[a] || []).push(f)));
     const neededAreas = new Set(sections.map(s => s.requiredSpecialization));
     const codes = new Set(sections.map(s => canonical(s.subjectCode)));
@@ -390,6 +394,12 @@
     const labs = sections.filter(s => s.roomTypeRequired === "laboratory").length;
     if (labs && !rooms.length)
       warn(null, null, null, plural(labs, "laboratory subject needs", "laboratory subjects need") + " a room, but there are no rooms, so they will show as Cannot be scheduled.");
+    // Every subject in the file goes into one weekly timetable, so a whole year's offerings would be mixed.
+    if (new Set(sections.map(s => s.semester)).size > 1)
+      warn("Subjects", null, "Semester", "The Subjects sheet has subjects for both the 1st and the 2nd semester. SchedWiseAI puts every subject in the file into one weekly timetable, so upload one semester at a time.");
+    const years = Array.from(new Set(sections.map(s => s.schoolYear))).sort();
+    if (years.length > 1)
+      warn("Subjects", null, "School year", "The Subjects sheet has subjects for more than one school year (" + years.join(", ") + "). SchedWiseAI puts every subject in the file into one weekly timetable, so upload one school year at a time.");
     const units = sections.reduce((t, s) => t + s.units, 0), capacity = faculty.reduce((t, f) => t + f.maxUnits, 0);
     if (units > capacity)
       warn(null, null, null, "The subjects add up to " + units + " units, but the teachers' maximum units add up to " + capacity + ", so some teachers will be overloaded.");
@@ -440,7 +450,7 @@
       "Class type *: Online (needs no room) or Laboratory (needs a lab with enough seats).",
       "Students *: a whole number from 1 to 300.",
       "Year level *: 1 to 4.",
-      "Semester *: 1st or 2nd.",
+      "Semester *: 1st or 2nd. Upload one semester at a time: every subject in the file goes into the same weekly timetable.",
       "School year: for example 2026-2027. If empty: the current school year.",
       "Category: Major or Minor. If empty: Major.",
       "Fixed day and Fixed period: for a subject whose time is set elsewhere (for example GE, PE or NSTP): a day from Mon to Sat and a period from 1 to " + E.PERIODS + ". Give both or leave both empty.",

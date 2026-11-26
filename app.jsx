@@ -8,6 +8,8 @@
    HOW THE PIECES FIT TOGETHER
      engine.js   → the AI scheduling logic (Genetic Algorithm). It exposes
                    `window.SchedEngine`, which this file calls "E".
+     accounts.js → sign-in accounts and password hashing. It exposes
+                   `window.SchedAccounts`, which this file calls "SA".
      app.jsx     → everything you see and click: pages, forms, tables.
      styles.css  → a few global styles (colors, print layout).
      index.html  → loads the libraries and the three files above.
@@ -24,7 +26,8 @@
    WHERE THE DATA LIVES
      All data is held in state inside the App() component and saved to the
      browser's localStorage (see saveState/loadState), so it survives a
-     page refresh. Nothing is sent to a server.
+     page refresh. Nothing is sent to a server. Sign-in accounts are kept
+     apart from it, under their own key (see accounts.js).
 
    MAP OF THIS FILE (top to bottom)
      1. Icons ........................ small SVG icon components
@@ -37,7 +40,9 @@
      6. Forms (modals) ............... Faculty, Subject, Room, Assignment,
                                        Profile, SlotPicker + Availability/Leave
                                        request, CSV Import
-     7. Login & notifications ........ LoginScreen, NotificationPanel
+     7. Sign-in, accounts & notifications .. SetupScreen, SignInScreen,
+                                       ChangePasswordScreen, AccountsPage,
+                                       YourAccountCard, NotificationPanel
      8. Charts & cards ............... StatCard, ConvergenceChart, BarChart
      9. App() ........................ the main component: all state + page switching
     10. Overview pages ............... one per role (Admin, Chair, Faculty, IT)
@@ -62,6 +67,8 @@ function firstName(name) { return stripTitle(name).split(" ")[0]; }
 function initials(name) { return stripTitle(name).split(" ").map(p => p[0]).slice(0, 2).join(""); }
 // Shortcut to the scheduling engine defined in engine.js (E.runGA, E.DAYS, etc.).
 const E = window.SchedEngine;
+// Shortcut to the sign-in accounts defined in accounts.js (SA.makeAccount, SA.verifyPassword, etc.).
+const SA = window.SchedAccounts;
 
 /* ---------------------------------------------------------------------
    1. ICONS
@@ -105,6 +112,7 @@ const IconDownload = (p) => <Icon {...p} d={<g><path d="M12 3v12"/><path d="M7 1
 const IconUpload = (p) => <Icon {...p} d={<g><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M4 3h16"/></g>} />;
 const IconPrinter = (p) => <Icon {...p} d={<g><rect x="6" y="9" width="12" height="7" rx="1"/><path d="M6 9V4h12v5"/><path d="M6 17v3h12v-3"/></g>} />;
 const IconLogOut = (p) => <Icon {...p} d={<g><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></g>} />;
+const IconKey = (p) => <Icon {...p} d={<g><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></g>} />;
 const IconHistory = (p) => <Icon {...p} d={<g><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></g>} />;
 const IconThumbsUp = (p) => <Icon {...p} d={<path d="M7 22V11M2 13v7a2 2 0 0 0 2 2h12.7a2 2 0 0 0 2-1.6l1.3-6A2 2 0 0 0 18 11h-5l1-5a2 2 0 0 0-2-2.4L7 11"/>} />;
 const IconThumbsDown = (p) => <Icon {...p} d={<path d="M17 2v11M22 11V4a2 2 0 0 0-2-2H7.3a2 2 0 0 0-2 1.6l-1.3 6A2 2 0 0 0 6 12h5l-1 5a2 2 0 0 0 2 2.4L17 13"/>} />;
@@ -134,6 +142,7 @@ const NAV_ITEMS = [
   { key: "departments", label: "Departments", icon: IconBuilding, roles: ["admin","it"] },
   { key: "conflicts", label: "Conflict Detection", icon: IconAlert, roles: ["admin","chair","it"] },
   { key: "reports", label: "Reports", icon: IconChart, roles: ["admin","chair","it"] },
+  { key: "accounts", label: "Accounts", icon: IconKey, roles: ["admin","it"] },
 ];
 
 /* ---------------------------------------------------------------------
@@ -836,7 +845,7 @@ function FacultyModal({ initial, allFaculty, subjectAreas, onSave, onClose }) {
         onClick={() => {
           // Faculty sign in by name, so two teachers must not share one.
           const problem = !name.trim() ? "Enter the teacher's full name."
-            : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because faculty sign in by name."
+            : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because a teacher's sign-in account is linked by name."
             : specs.length === 0 ? "Tick or add at least one subject area."
             : wholeNumberError(maxUnits, 1, 40, "Maximum teaching units");
           if (problem) { setError(problem); return; }
@@ -1494,16 +1503,21 @@ function CSVImportModal({ kind, onImportFaculty, onImportSections, onImportRooms
 }
 
 /* ---------------------------------------------------------------------
-   7. LOGIN & NOTIFICATIONS
+   7. SIGN-IN, ACCOUNTS & NOTIFICATIONS
+   Every person signs in with their own account (accounts.js). The very first
+   time, when there are no accounts yet, SetupScreen creates the first
+   Administrator. Someone whose password was set by another person (a new
+   account or a reset) must choose their own before going on. Administrators
+   and IT staff manage everyone's accounts on the Accounts page.
    --------------------------------------------------------------------- */
 
-// LoginScreen: prototype sign-in. The user types a name and picks a role.
-// There is intentionally no password — this is a respondent-testing build.
-function LoginScreen({ onLogin }) {
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("admin");
+const roleLabelOf = key => (ROLES.find(r => r.key === key) || {}).label || key;
+const authBtn = "w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2 disabled:opacity-60";
+
+// AuthCard: the centred card the sign-in screens share.
+function AuthCard({ title, subtitle, children }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#eef1f8] px-4">
+    <div className="min-h-screen flex items-center justify-center bg-[#eef1f8] px-4 py-8">
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 w-full max-w-sm">
         <div className="flex items-center gap-2.5 mb-6">
           <div className="w-10 h-10 rounded-xl bg-amber-400 flex items-center justify-center">
@@ -1514,20 +1528,389 @@ function LoginScreen({ onLogin }) {
             <div className="text-slate-400 text-xs leading-tight">World Citi Colleges</div>
           </div>
         </div>
-        <Field label="Full Name">
-          <input className={inputCls} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Alex Dela Cruz" />
-        </Field>
-        <Field label="Sign in as">
-          <select className={inputCls} value={role} onChange={e=>setRole(e.target.value)}>
+        <h1 className="font-semibold text-slate-900 mb-1">{title}</h1>
+        {subtitle && <p className="text-xs text-slate-500 mb-4 leading-relaxed">{subtitle}</p>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// SetupScreen: shown only while there are no accounts at all. Creates the first Administrator.
+function SetupScreen({ onCreate }) {
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    if (password !== confirm) { setError("The two passwords do not match."); return; }
+    setBusy(true); setError("");
+    const r = await SA.makeAccount({ name, username, role: "admin", password }, []);
+    setBusy(false);
+    if (r.error) { setError(r.error); return; }
+    onCreate(r.account);
+  }
+  return (
+    <AuthCard title="Set up SchedWiseAI" subtitle="Create the first Administrator account. You will use it to sign in and to make accounts for everyone else.">
+      <form onSubmit={submit} noValidate>
+        <Field label="Full name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} autoComplete="name" /></Field>
+        <Field label="Username"><input className={inputCls} value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="e.g. msantos" /></Field>
+        <Field label="Password (at least 8 characters)"><input className={inputCls} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" /></Field>
+        <Field label="Type the password again"><input className={inputCls} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
+        <FormError message={error} />
+        <button type="submit" className={authBtn} disabled={busy}>{busy ? "Creating…" : "Create account and sign in"}</button>
+      </form>
+    </AuthCard>
+  );
+}
+
+// SignInScreen: username and password. An unknown username and a wrong password get
+// the same message, so the screen does not reveal which usernames exist. A turned-off
+// account is only mentioned after the right password.
+function SignInScreen({ accounts, onSignIn }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true); setError("");
+    const account = SA.findByUsername(accounts, username);
+    const ok = !!account && await SA.verifyPassword(account, password);
+    setBusy(false);
+    if (!ok) { setError("Wrong username or password."); setPassword(""); return; }
+    if (account.disabled) { setError("This account is turned off. Ask an Administrator or IT staff member."); setPassword(""); return; }
+    onSignIn(account);
+  }
+  return (
+    <AuthCard title="Sign in" subtitle="Use the account your Administrator or IT staff made for you.">
+      <form onSubmit={submit} noValidate>
+        <Field label="Username"><input className={inputCls} value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} /></Field>
+        <Field label="Password"><input className={inputCls} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" /></Field>
+        <FormError message={error} />
+        <button type="submit" className={authBtn} disabled={busy}>{busy ? "Checking…" : "Sign In"}</button>
+      </form>
+      <p className="text-xs text-slate-400 mt-4 text-center">Forgot your password? Ask an Administrator or IT staff member to reset it.</p>
+    </AuthCard>
+  );
+}
+
+// ChangePasswordScreen: after signing in with a password someone else set, the person
+// chooses their own (different from the one they were given) before going on.
+function ChangePasswordScreen({ account, onSave, onSignOut }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    const err = SA.checkPassword(password, account.username) || (password !== confirm ? "The two passwords do not match." : "");
+    if (err) { setError(err); return; }
+    setBusy(true); setError("");
+    if (await SA.verifyPassword(account, password)) { setBusy(false); setError("Choose a password different from the one you were given."); return; }
+    const updated = await SA.withNewPassword(account, password, false);
+    setBusy(false);
+    onSave(updated);
+  }
+  return (
+    <AuthCard title="Choose your own password" subtitle={"Hello, " + firstName(account.name) + ". Your password was set by someone else. Choose your own to continue."}>
+      <form onSubmit={submit} noValidate>
+        <Field label="New password (at least 8 characters)"><input className={inputCls} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" /></Field>
+        <Field label="Type it again"><input className={inputCls} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
+        <FormError message={error} />
+        <button type="submit" className={authBtn} disabled={busy}>{busy ? "Saving…" : "Save and continue"}</button>
+      </form>
+      <button type="button" onClick={onSignOut} className="w-full text-xs text-slate-500 hover:text-slate-800 mt-3 py-1">Sign out</button>
+    </AuthCard>
+  );
+}
+
+// suggestPassword(): a random temporary password such as "k7mq-2xw9-hdte"
+// (no 0/o, 1/l/i, so it is easy to read out to the person).
+function suggestPassword() {
+  const abc = "abcdefghjkmnpqrstuvwxyz23456789", b = new Uint8Array(12);
+  crypto.getRandomValues(b);
+  const s = Array.from(b, x => abc[x % abc.length]).join("");
+  return s.slice(0, 4) + "-" + s.slice(4, 8) + "-" + s.slice(8);
+}
+
+// TempPasswordField: the temporary-password box with a "Suggest" button.
+function TempPasswordField({ value, onChange }) {
+  return (
+    <Field label="Temporary password (at least 8 characters)">
+      <div className="flex gap-2">
+        <input className={inputCls} value={value} onChange={e => onChange(e.target.value)} autoComplete="off" spellCheck={false}
+          aria-label="Temporary password (at least 8 characters)" />
+        <button type="button" onClick={() => onChange(suggestPassword())}
+          className="shrink-0 text-xs font-medium border border-slate-200 rounded-lg px-3 hover:bg-slate-50">Suggest</button>
+      </div>
+    </Field>
+  );
+}
+
+// AccountModal: add an account, or edit one's name, role and teacher. A new account
+// gets a temporary password; the person chooses their own at first sign-in.
+function AccountModal({ initial, accounts, me, faculty, onSave, onClose }) {
+  const editing = !!initial;
+  const self = editing && initial.id === me.id;
+  const [name, setName] = useState(initial ? initial.name : "");
+  const [username, setUsername] = useState(initial ? initial.username : "");
+  const [role, setRole] = useState(initial ? initial.role : "faculty");
+  const [teacher, setTeacher] = useState(() => {
+    if (!initial || !initial.facultyName) return "";
+    const linked = SA.linkedFaculty(initial, faculty);
+    return linked ? linked.name : initial.facultyName;
+  });
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const teacherNames = faculty.map(f => f.name).sort((a, b) => a.localeCompare(b));
+  // The other account already linked to this teacher, if any.
+  const takenBy = n => accounts.find(a => a.role === "faculty" && (!editing || a.id !== initial.id) && SA.canonicalName(a.facultyName) === SA.canonicalName(n));
+  async function save(e) {
+    e.preventDefault();
+    if (busy) return;
+    if (role === "faculty") {
+      if (!teacher) { setError("Choose the teacher this account belongs to."); return; }
+      const other = takenBy(teacher);
+      if (other) { setError(teacher + " already has an account (" + other.username + ")."); return; }
+    }
+    if (editing) {
+      const err = SA.checkName(name) || (role !== initial.role ? SA.checkChange(accounts, me.id, initial.id, { kind: "role", role }) : null);
+      if (err) { setError(err); return; }
+      onSave({ ...initial, name: name.trim().replace(/\s+/g, " "), role, facultyName: role === "faculty" ? teacher : null },
+        "Updated the account “" + initial.username + "”");
+      return;
+    }
+    setBusy(true); setError("");
+    const r = await SA.makeAccount({ name, username, role, facultyName: teacher, password, mustChangePassword: true }, accounts);
+    setBusy(false);
+    if (r.error) { setError(r.error); return; }
+    onSave(r.account, "Created the account “" + r.account.username + "” (" + roleLabelOf(r.account.role) + ")");
+  }
+  return (
+    <Modal title={editing ? "Edit account — " + initial.username : "Add account"} onClose={onClose}>
+      <form onSubmit={save} noValidate>
+        <Field label="Full name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></Field>
+        <Field label="Username"><input className={inputCls} value={username} onChange={e => setUsername(e.target.value)} disabled={editing}
+          autoCapitalize="none" spellCheck={false} placeholder="e.g. acruz" /></Field>
+        <Field label="Role">
+          <select className={inputCls} value={role} onChange={e => setRole(e.target.value)} disabled={self}>
             {ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
           </select>
         </Field>
-        <button
-          className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2"
-          onClick={() => onLogin(name.trim() || "Alex Dela Cruz", role)}
-        >Sign In</button>
-        <p className="text-xs text-slate-400 mt-4 text-center">This is a prototype — any name works, no password required.</p>
+        {role === "faculty" && (
+          <Field label="Teacher (from the Faculty list)">
+            <select className={inputCls} value={teacher} onChange={e => setTeacher(e.target.value)}>
+              <option value="">Choose a teacher…</option>
+              {teacher && !teacherNames.some(n => SA.canonicalName(n) === SA.canonicalName(teacher)) &&
+                <option value={teacher}>{teacher} (not in the Faculty list)</option>}
+              {teacherNames.map(n => <option key={n} value={n}>{n}{takenBy(n) ? " — has an account" : ""}</option>)}
+            </select>
+          </Field>
+        )}
+        {!editing && <TempPasswordField value={password} onChange={setPassword} />}
+        {!editing && <p className="text-xs text-slate-500 -mt-1 mb-2">Give this password to the person. They must choose their own the first time they sign in.</p>}
+        {editing && <p className="text-xs text-slate-500 mb-2">The username cannot be changed.{self ? " You cannot change your own role." : ""}</p>}
+        <FormError message={error} />
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" onClick={onClose} className="text-sm px-4 py-2 rounded-lg border border-slate-200 hover:bg-slate-50">Cancel</button>
+          <button type="submit" disabled={busy} className="text-sm font-medium px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60">
+            {busy ? "Saving…" : editing ? "Save changes" : "Create account"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ResetPasswordModal: gives an account a new temporary password (for someone who forgot theirs).
+function ResetPasswordModal({ account, onSave, onClose }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    if (busy) return;
+    const err = SA.checkPassword(password, account.username);
+    if (err) { setError(err); return; }
+    setBusy(true); setError("");
+    const updated = await SA.withNewPassword(account, password, true);
+    setBusy(false);
+    onSave(updated, "Reset the password of “" + account.username + "”");
+  }
+  return (
+    <Modal title={"Reset password — " + account.username} onClose={onClose}>
+      <form onSubmit={save} noValidate>
+        <p className="text-sm text-slate-600 mb-3">{account.name} will sign in with this temporary password, then choose their own.</p>
+        <TempPasswordField value={password} onChange={setPassword} />
+        <FormError message={error} />
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" onClick={onClose} className="text-sm px-4 py-2 rounded-lg border border-slate-200 hover:bg-slate-50">Cancel</button>
+          <button type="submit" disabled={busy} className="text-sm font-medium px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60">
+            {busy ? "Saving…" : "Reset password"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// AccountsPage (Administrator and IT): everyone who can sign in. Add, edit, reset a
+// password, turn an account off or on, or delete it. The rules that keep the school from
+// being locked out (always one active Administrator; nobody removes, turns off or changes
+// the role of their own account) are in accounts.js (checkChange).
+function AccountsPage({ accounts, me, faculty, onChange }) {
+  const [modal, setModal] = useState(null);         // { kind: "add" } | { kind: "edit" | "reset", account }
+  const [msg, setMsg] = useState(null);             // { ok, text } about the last action
+  const sorted = accounts.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const unlinked = accounts.filter(a => a.role === "faculty" && !SA.linkedFaculty(a, faculty));
+  function apply(next, text) { onChange(next, text); setMsg({ ok: true, text: text + "." }); setModal(null); }
+  function toggle(a) {
+    const err = a.disabled ? null : SA.checkChange(accounts, me.id, a.id, { kind: "disable" });
+    if (err) { setMsg({ ok: false, text: err }); return; }
+    apply(accounts.map(x => x.id === a.id ? { ...x, disabled: !a.disabled } : x), (a.disabled ? "Turned on" : "Turned off") + " the account “" + a.username + "”");
+  }
+  function remove(a) {
+    const err = SA.checkChange(accounts, me.id, a.id, { kind: "delete" });
+    if (err) { setMsg({ ok: false, text: err }); return; }
+    if (!confirm("Delete the account “" + a.username + "” (" + a.name + ")? They will no longer be able to sign in. This cannot be undone.")) return;
+    apply(accounts.filter(x => x.id !== a.id), "Deleted the account “" + a.username + "”");
+  }
+  const note = "rounded-xl px-4 py-3 text-sm border";
+  const link = "text-blue-800 hover:underline";
+  return (
+    <div className="space-y-4">
+      {SA.managerCount(accounts) <= 1 && (
+        <div role="note" className={note + " bg-amber-50 border-amber-200 text-amber-900"}>
+          Only one account can manage accounts. If its password is forgotten, nobody can reset it. Add a second Administrator or IT staff account.
+        </div>
+      )}
+      {unlinked.length > 0 && (
+        <div role="note" className={note + " bg-amber-50 border-amber-200 text-amber-900"}>
+          {countOf(unlinked.length, "teacher account")} {unlinked.length === 1 ? "is" : "are"} not linked to anyone in the Faculty list ({unlinked.map(a => a.username).join(", ")}).
+          {" "}{unlinked.length === 1 ? "That person sees" : "They see"} no schedule until you edit the account and choose the teacher.
+        </div>
+      )}
+      {msg && <div role={msg.ok ? "status" : "alert"} className={note + (msg.ok ? " bg-emerald-50 border-emerald-100 text-emerald-800" : " bg-rose-50 border-rose-100 text-rose-800")}>{msg.text}</div>}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
+        <div className="flex items-center justify-between flex-wrap gap-3 px-5 sm:px-6 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="font-semibold text-slate-900">Accounts ({accounts.length})</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Everyone who can sign in. The role decides which pages they see.</p>
+          </div>
+          <button onClick={() => { setMsg(null); setModal({ kind: "add" }); }}
+            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-3.5 py-2 rounded-lg">
+            <IconPlus size={15} /> Add account
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-slate-100">
+                <th className="px-5 sm:px-6 py-3 font-medium">Name</th>
+                <th className="px-3 py-3 font-medium">Username</th>
+                <th className="px-3 py-3 font-medium">Role</th>
+                <th className="px-3 py-3 font-medium">Teacher</th>
+                <th className="px-3 py-3 font-medium">Status</th>
+                <th className="px-5 sm:px-6 py-3 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(a => {
+                const self = a.id === me.id, teacher = a.role === "faculty" ? SA.linkedFaculty(a, faculty) : null;
+                return (
+                  <tr key={a.id} className="border-b border-slate-50 last:border-0">
+                    <td className="px-5 sm:px-6 py-3 text-slate-900 font-medium">{a.name}{self && <span className="ml-1.5 text-[11px] font-normal text-slate-400">(you)</span>}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-slate-600">{a.username}</td>
+                    <td className="px-3 py-3 text-slate-600">{roleLabelOf(a.role)}</td>
+                    <td className="px-3 py-3">
+                      {a.role !== "faculty" ? <span className="text-slate-300">—</span>
+                        : teacher ? <span className="text-slate-600">{teacher.name}</span>
+                        : <span className="text-rose-700">Not linked{a.facultyName && <span className="block text-[11px] text-slate-400">was {a.facultyName}</span>}</span>}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={"inline-block text-xs font-medium px-2 py-1 rounded-full " + (a.disabled ? "bg-slate-100 text-slate-500" : a.mustChangePassword ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
+                        {a.disabled ? "Turned off" : a.mustChangePassword ? "Must choose a password" : "Active"}
+                      </span>
+                    </td>
+                    <td className="px-5 sm:px-6 py-3 text-xs font-medium">
+                      <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+                        <button onClick={() => { setMsg(null); setModal({ kind: "edit", account: a }); }} className={link}>Edit</button>
+                        {!self && <button onClick={() => { setMsg(null); setModal({ kind: "reset", account: a }); }} className={link}>Reset password</button>}
+                        {!self && <button onClick={() => toggle(a)} className={link}>{a.disabled ? "Turn on" : "Turn off"}</button>}
+                        {!self && <button onClick={() => remove(a)} className="text-rose-700 hover:underline">Delete</button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="px-5 sm:px-6 py-4 text-xs text-slate-500 border-t border-slate-100 leading-relaxed">
+          Passwords are never stored, only a scrambled form of them (PBKDF2). Accounts are kept in this browser, apart from the school's data:
+          Reset Demo Data, uploading a school's workbook and restoring a backup do not change them. To change your own password, open Settings.
+        </p>
       </div>
+      {modal && modal.kind === "add" && (
+        <AccountModal accounts={accounts} me={me} faculty={faculty} onClose={() => setModal(null)}
+          onSave={(account, text) => apply([...accounts, account], text)} />
+      )}
+      {modal && modal.kind === "edit" && (
+        <AccountModal initial={modal.account} accounts={accounts} me={me} faculty={faculty} onClose={() => setModal(null)}
+          onSave={(account, text) => apply(accounts.map(x => x.id === account.id ? account : x), text)} />
+      )}
+      {modal && modal.kind === "reset" && (
+        <ResetPasswordModal account={modal.account} onClose={() => setModal(null)}
+          onSave={(account, text) => apply(accounts.map(x => x.id === account.id ? account : x), text)} />
+      )}
+    </div>
+  );
+}
+
+// YourAccountCard (Settings, every role): who is signed in, and changing one's own password.
+function YourAccountCard({ me, onChangePassword }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    const err = (!current ? "Enter your current password." : "") || SA.checkPassword(next, me.username)
+      || (next !== confirm ? "The two new passwords do not match." : "") || (next === current ? "The new password must be different from the current one." : "");
+    if (err) { setMsg({ ok: false, text: err }); return; }
+    setBusy(true); setMsg(null);
+    if (!(await SA.verifyPassword(me, current))) { setBusy(false); setMsg({ ok: false, text: "Your current password is not right." }); return; }
+    const updated = await SA.withNewPassword(me, next, false);
+    setBusy(false);
+    onChangePassword(updated);
+    setCurrent(""); setNext(""); setConfirm("");
+    setMsg({ ok: true, text: "Your password has been changed." });
+  }
+  return (
+    <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100">
+      <h2 className="font-semibold text-slate-900">Your account</h2>
+      <p className="text-sm text-slate-500 mt-1">{me.name} · <span className="font-mono text-xs">{me.username}</span> · {roleLabelOf(me.role)}</p>
+      <form onSubmit={submit} noValidate className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-x-3">
+        <Field label="Current password"><input className={inputCls} type="password" value={current} onChange={e => setCurrent(e.target.value)} autoComplete="current-password" /></Field>
+        <Field label="New password"><input className={inputCls} type="password" value={next} onChange={e => setNext(e.target.value)} autoComplete="new-password" /></Field>
+        <Field label="New password again"><input className={inputCls} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
+        <div className="sm:col-span-3">
+          {msg && <div role={msg.ok ? "status" : "alert"} className={"text-sm rounded-lg px-3 py-2 mb-2 " + (msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800")}>{msg.text}</div>}
+          <button type="submit" disabled={busy} className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-60">
+            {busy ? "Saving…" : "Change password"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -1874,7 +2257,14 @@ function App() {
     const violations = E.countViolations(faculty, rooms, sections, timeSlots, storedResult.genes);
     return { ...storedResult, violations, feasible: violations.total === 0 };
   }, [storedResult, faculty, rooms, sections, timeSlots]);
-  const [role, setRole] = useState(init.role || "admin"); // which role is signed in
+  // ---- Sign-in (accounts.js) ----
+  // Accounts are kept under their own key, apart from the data above, so resets, uploads
+  // and backups never touch them. Who is signed in is kept for this tab only: closing
+  // the browser signs the person out, reloading the page does not.
+  const [accounts, setAccounts] = useState(() => SA.loadAccounts());
+  const [sessionId, setSessionId] = useState(() => SA.loadSession());
+  const me = accounts.find(a => a.id === sessionId && !a.disabled) || null;   // the signed-in account
+  const role = me ? me.role : null;                       // which role is signed in (null: nobody)
   const [page, setPage] = useState("dashboard");          // which page is on screen
 
   // ---- UI state (which pop-up is open, which tab is selected, etc.) ----
@@ -1895,24 +2285,35 @@ function App() {
   const [notifications, setNotifications] = useState(init.notifications || []);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [scheduleHistory, setScheduleHistory] = useState(init.scheduleHistory || []);
-  const [loggedIn, setLoggedIn] = useState(init.loggedIn || false);
-  const [userName, setUserName] = useState(init.userName || "Alex Dela Cruz");
   const [csvImportKind, setCsvImportKind] = useState(null);
   const [datasetKind, setDatasetKind] = useState(init.datasetKind || "standard");   // "standard" / "expanded" sample, or "school" (uploaded)
   const [datasetInfo, setDatasetInfo] = useState(init.datasetInfo || null);           // { fileName, uploadedAt } of the uploaded school data
   const [testLog, setTestLog] = useState([]);                                         // results of test-conflict buttons
   const [toast, setToast] = useState(null);           // short "what happens next" message (see Toast)
-  const [activityLog, setActivityLog] = useState(init.activityLog || []);   // import/export log (IT overview)
+  const [activityLog, setActivityLog] = useState(init.activityLog || []);   // imports, exports, uploads and account changes (IT overview)
   const [chairDept, setChairDept] = useState(init.chairDept || "All");       // department filter (Chair overview)
   const [leaveRequestLockedTo, setLeaveRequestLockedTo] = useState(null);    // faculty id a request form is locked to
 
   // Save everything to the browser whenever any of these values change.
 
   useEffect(() => {
-    saveState({ faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName, activityLog, chairDept, datasetKind, datasetInfo });
-  }, [faculty, rooms, sections, timeSlots, result, role, leaveRequests, curriculumAware, notifications, scheduleHistory, loggedIn, userName, activityLog, chairDept, datasetKind, datasetInfo]);
+    saveState({ faculty, rooms, sections, timeSlots, result, leaveRequests, curriculumAware, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo });
+  }, [faculty, rooms, sections, timeSlots, result, leaveRequests, curriculumAware, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo]);
 
-  // Adds an entry to the import/export activity log (newest first, max 30 kept).
+  // Saves a changed account list. Other open tabs pick it up through the "storage" event below.
+  function updateAccounts(next) {
+    setAccounts(next);
+    if (!SA.saveAccounts(next)) setToast("The accounts could not be saved in this browser (its storage is blocked or full).");
+  }
+  useEffect(() => {
+    function onStorage(e) { if (e.key === null || e.key === SA.ACCOUNTS_KEY) setAccounts(SA.loadAccounts()); }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  function signIn(account) { SA.saveSession(account.id); setSessionId(account.id); setPage("dashboard"); }
+  function signOut() { SA.saveSession(null); setSessionId(null); setSidebarOpen(false); }
+
+  // Adds an entry to the activity log: imports, exports, uploads and account changes (newest first, max 30 kept).
   function logActivity(kind, detail) {
     setActivityLog(prev => [{ id: Date.now() + Math.random(), kind, detail, timestamp: new Date().toISOString() }, ...prev].slice(0, 30));
   }
@@ -1932,6 +2333,7 @@ function App() {
   // Runs ONLY when the role changes (on purpose), so it can't fight normal navigation.
   // Settings lives in the Account menu, not NAV_ITEMS, and every role may open it.
   useEffect(() => {
+    if (!role) return;                                    // nobody signed in: the sign-in screen is showing
     if (page !== "settings" && !visibleNav.find(n => n.key === page)) setPage(visibleNav[0].key);
   }, [role]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2357,14 +2759,15 @@ function App() {
   const roomById = Object.fromEntries(rooms.map(r => [r.id, r]));
   const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
 
-  const roleLabel = ROLES.find(r => r.key === role).label;
-  // Who "I" am when signed in as Faculty: the faculty record whose name matches
-  // the login name; if none matches (it's a prototype), the first faculty member.
-  const myFaculty = faculty.find(f => f.name === userName) || faculty[0] || null;
+  const roleLabel = role ? roleLabelOf(role) : "";
+  // Who "I" am when signed in as Faculty: the teacher the account is linked to (by name,
+  // on the Accounts page). There is no fallback: an account that is not linked sees a
+  // message, never another teacher's schedule.
+  const myFaculty = role === "faculty" ? SA.linkedFaculty(me, faculty) : null;
   // Only Administrator and IT may replace all data (Reset Demo Data), the same roles that see
-  // Backup and restore and Testing tools in Settings. It stops accidental clicks; it is not real security.
+  // Backup and restore and Testing tools in Settings, and the Accounts page.
   const canManageData = role === "admin" || role === "it";
-  const currentUserName = role === "faculty" && myFaculty ? myFaculty.name : userName;
+  const currentUserName = me ? me.name : "";
   const unreadCount = notifications.filter(n => !n.read).length;
 
   // Change page and close the mobile sidebar.
@@ -2372,10 +2775,27 @@ function App() {
     setPage(key);
     setSidebarOpen(false);
   }
+  // Replaces one account in the list (after a password change) and records it.
+  function saveOwnAccount(updated, detail) {
+    updateAccounts(accounts.map(a => a.id === updated.id ? updated : a));
+    logActivity("Account", detail);
+  }
 
-  // Not signed in yet → show only the login screen.
-  if (!loggedIn) {
-    return <LoginScreen onLogin={(name, r) => { setUserName(name); setRole(r); setLoggedIn(true); }} />;
+  // Nobody signed in → the sign-in screen (or, the very first time, the setup screen).
+  if (!me) {
+    if (accounts.length === 0) {
+      return <SetupScreen onCreate={account => {
+        updateAccounts([account]);
+        logActivity("Account", "Created the first Administrator account “" + account.username + "”");
+        signIn(account);
+      }} />;
+    }
+    return <SignInScreen accounts={accounts} onSignIn={signIn} />;
+  }
+  // A password someone else set (a new account or a reset) must be replaced before going on.
+  if (me.mustChangePassword) {
+    return <ChangePasswordScreen account={me} onSignOut={signOut}
+      onSave={updated => saveOwnAccount(updated, "“" + updated.username + "” chose their own password")} />;
   }
 
   return (
@@ -2433,18 +2853,14 @@ function App() {
             <button onClick={() => goToPage("settings")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
               <IconSettings size={17} /><span>Settings</span>
             </button>
-            <button onClick={() => { setLoggedIn(false); setSidebarOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
+            <button onClick={signOut} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5">
               <IconLogOut size={17} /><span>Sign Out</span>
             </button>
           </nav>
         </div>
 
+        {/* Who is signed in. The role comes from the account; there is no role switch. */}
         <div className="mx-3 px-2 shrink-0">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5 px-1">Viewing as</div>
-          <select value={role} onChange={e => setRole(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 text-white text-xs rounded-lg px-2 py-2 mb-2 focus:outline-none">
-            {ROLES.map(r => <option key={r.key} value={r.key} className="text-slate-900">{r.label}</option>)}
-          </select>
           <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-white/5">
             <div className="w-8 h-8 rounded-full bg-amber-400 flex items-center justify-center text-[#0b1d4a] font-semibold text-xs shrink-0">
               {initials(currentUserName)}
@@ -2569,8 +2985,14 @@ function App() {
 
           {page === "reports" && <ReportsPage faculty={faculty} rooms={rooms} sections={sections} result={result} slotById={slotById} />}
 
+          {page === "accounts" && canManageData && (
+            <AccountsPage accounts={accounts} me={me} faculty={faculty}
+              onChange={(next, text) => { updateAccounts(next); logActivity("Account", text + " — by " + me.username); }} />
+          )}
+
           {page === "settings" && (
-            <SettingsPage role={role} hasSchedule={!!result} datasetKind={datasetKind}
+            <SettingsPage role={role} me={me} hasSchedule={!!result} datasetKind={datasetKind}
+              onChangeOwnPassword={updated => saveOwnAccount(updated, "“" + updated.username + "” changed their password")}
               violationsTotal={result ? result.violations.total : 0}
               onLoadDataset={resetDemoData} onCreateTestConflict={handleCreateTestConflict}
               onDownloadBackup={handleDownloadBackup} onRestoreBackup={handleRestoreBackup}
@@ -2586,7 +3008,12 @@ function App() {
 
       {facultyModal && (
         <FacultyModal initial={facultyModal === "new" ? null : facultyModal} allFaculty={faculty} subjectAreas={subjectAreasOf(faculty, sections)}
-          onSave={f => setFaculty(facultyModal === "new" ? [...faculty, f] : faculty.map(x=>x.id===f.id?f:x))}
+          onSave={f => {
+            // A renamed teacher keeps their sign-in account: accounts are linked by name.
+            const old = facultyModal !== "new" && faculty.find(x => x.id === f.id);
+            if (old && !sameText(old.name, f.name)) updateAccounts(SA.relinkAfterRename(accounts, old.name, f.name));
+            setFaculty(facultyModal === "new" ? [...faculty, f] : faculty.map(x=>x.id===f.id?f:x));
+          }}
           onClose={() => setFacultyModal(null)} />
       )}
       {sectionModal && (
@@ -2644,7 +3071,7 @@ function App() {
                 department-level workload (filterable by department)
      Faculty -> my classes this week, my load, my requests, preference match
      IT      -> AI engine performance, data health, room utilization,
-                recent import/export activity
+                recent activity (imports, exports, account changes)
 
    DashboardPage below is only a "dispatcher": it looks at the current
    role and renders the matching overview component.
@@ -3008,7 +3435,7 @@ function ChairOverview(props) {
 // Faculty never generate schedules, so there is no Generate button here.
 function FacultyOverview(props) {
   const { myFaculty, sections, result, slotById, leaveRequests, onNavigate, onNewRequest } = props;
-  if (!myFaculty) return <EmptyNote>No faculty profile found. Ask an administrator to add you to the Faculty list.</EmptyNote>;
+  if (!myFaculty) return <EmptyNote>Your account is not linked to a teacher in the Faculty list, so there is no schedule to show yet. Ask an Administrator or IT staff member to check your account on the Accounts page.</EmptyNote>;
 
   const status = loadStatusFor(myFaculty, sections, result, props.faculty);
 
@@ -3189,13 +3616,14 @@ function ITOverview(props) {
         {result ? <RoomHeatmap rooms={rooms} result={result} slotById={slotById} /> : <EmptyNote>Generate a schedule to see room usage.</EmptyNote>}
       </Panel>
 
-      <Panel title="Recent Import / Export Activity">
-        {activityLog.length === 0 ? <EmptyNote>No imports or exports yet.</EmptyNote> : (
+      <Panel title="Recent Activity">
+        {activityLog.length === 0 ? <EmptyNote>No imports, exports or account changes yet.</EmptyNote> : (
           <ul className="divide-y divide-slate-50">
             {activityLog.slice(0, 8).map(a => (
               <li key={a.id} className="py-2 flex items-center justify-between gap-3 text-sm">
                 <span className="flex items-center gap-2">
-                  {a.kind === "Import" || a.kind === "Upload" ? <IconUpload size={14} className="text-blue-600" /> : <IconDownload size={14} className="text-amber-600" />}
+                  {a.kind === "Account" ? <IconKey size={14} className="text-slate-600" />
+                    : a.kind === "Import" || a.kind === "Upload" ? <IconUpload size={14} className="text-blue-600" /> : <IconDownload size={14} className="text-amber-600" />}
                   <span className="font-medium text-slate-900">{a.kind}</span>
                   <span className="text-slate-500">{a.detail}</span>
                 </span>
@@ -4878,7 +5306,7 @@ function SchoolDataCard({ datasetKind, datasetInfo, onDownloadTemplate, onDownlo
 //   • Sample data: load the standard or the expanded multi-program sample.
 //   • Create test conflicts: break one rule on purpose (see makeTestConflict),
 //     then check Conflict Detection and try "Update affected classes".
-function SettingsPage({ role, hasSchedule, datasetKind, violationsTotal, onLoadDataset, onCreateTestConflict, onDownloadBackup, onRestoreBackup,
+function SettingsPage({ role, me, onChangeOwnPassword, hasSchedule, datasetKind, violationsTotal, onLoadDataset, onCreateTestConflict, onDownloadBackup, onRestoreBackup,
   datasetInfo, onDownloadTemplate, onDownloadCurrentData, onApplySchoolData, testLog, onGoTo }) {
   const canTest = role === "admin" || role === "it";
   const [backupMsg, setBackupMsg] = useState(null);     // { ok, message } shown under the backup buttons
@@ -4895,6 +5323,8 @@ function SettingsPage({ role, hasSchedule, datasetKind, violationsTotal, onLoadD
   const btn = "text-left border border-slate-200 hover:border-amber-400 hover:bg-amber-50 rounded-lg px-3 py-2 text-sm text-slate-800 disabled:opacity-50 disabled:hover:bg-white";
   return (
     <div className="space-y-5 max-w-3xl">
+      <YourAccountCard me={me} onChangePassword={onChangeOwnPassword} />
+
       <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100">
         <h2 className="font-semibold text-slate-900 mb-4">About this prototype</h2>
         <p className="text-sm text-slate-500 leading-relaxed mb-3">
@@ -4903,8 +5333,10 @@ function SettingsPage({ role, hasSchedule, datasetKind, violationsTotal, onLoadD
           no data is sent to a server. Everything you enter is stored only in this browser's local storage.
         </p>
         <p className="text-sm text-slate-500 leading-relaxed">
-          Use the role selector in the sidebar to explore the system from the perspective of an Academic Administrator,
-          Department Chair, Faculty Member, or IT Professional/Staff.
+          Each person signs in with their own account, and the account's role (Academic Administrator, Department Chair,
+          Faculty Member or IT Professional/Staff) decides what they can see and do. Administrators and IT staff create
+          accounts and reset forgotten passwords on the Accounts page. Accounts are kept in this browser too: anyone with
+          full access to this computer could still read or change what it stores.
         </p>
       </div>
 

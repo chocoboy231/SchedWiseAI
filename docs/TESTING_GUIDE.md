@@ -40,22 +40,20 @@ A step-by-step manual test plan for the whole system. It is written for responde
 
 - Everything is stored in *your* browser and nothing is sent anywhere. A different browser or computer starts with its own sample data.
 - The sample data is random. **Names, subjects and conflict counts differ each time you load a sample**, so the steps say "any teacher" instead of a name.
-- To start a test from a known state: sign in as **Academic Administrator**, open **Settings → Testing tools → Standard sample** and confirm. That gives 9 faculty, 18 subjects and 6 labs, with no schedule yet.
+- To start a test from a known state: sign in as **Administrator**, open **Settings → Testing tools → Standard sample** and confirm. That gives 9 faculty, 18 subjects and 6 labs, with no schedule yet. Sign-in accounts are not part of the data: loading a sample keeps every account.
 
 **Roles**
 
-| Role | Sign-in choice | Pages in the sidebar |
-|---|---|---|
-| Academic Administrator | *Academic Administrator* | Overview, Faculty, Workload Management, Subjects, Class Schedules, Schedule History, Rooms, Departments, Conflict Detection, Reports |
-| Department Chair | *Department Chair* | Same as Administrator, **without Departments** |
-| Faculty Member | *Faculty Member* | Overview and Class Schedules only |
-| IT Professional / Staff | *IT Professional/Staff* | Same as Administrator |
+| Role (set by the account) | Pages in the sidebar |
+|---|---|
+| Academic Administrator | Overview, Faculty, Workload Management, Subjects, Class Schedules, Schedule History, Rooms, Departments, Conflict Detection, Reports, Accounts |
+| Department Chair | Same as Administrator, **without Departments and Accounts** |
+| Faculty Member | Overview and Class Schedules only |
+| IT Professional / Staff | Same as Administrator |
 
-Every role also has **Settings** and **Sign Out** in the Account part of the sidebar. Only Administrator and IT also see **Reset Demo Data** there, and *Set up with your school's data*, *Backup and restore* and *Testing tools* in Settings.
+Every role also has **Settings** and **Sign Out** in the Account part of the sidebar; Settings starts with *Your account*, where anyone can change their own password. Only Administrator and IT also see **Reset Demo Data** there, and *Set up with your school's data*, *Backup and restore* and *Testing tools* in Settings.
 
-Sign-in takes any name and no password. A Faculty Member is matched by name: type the exact name of a teacher from the Faculty list. If no name matches, the app uses the first teacher in the list.
-
-You can also switch role without signing out, using the **Viewing as** selector at the bottom of the sidebar.
+**Test accounts.** Everyone signs in with their own username and password, and the account decides the role; there is no way to switch role without signing out. The first time the app opens in a browser, it asks for the first Administrator account (test A1). Then make one account for each other role (test A2): a Department Chair (`chair1`), an IT Professional/Staff (`it1`) and a Faculty Member (`teacher1`) linked to any teacher in the Faculty list. Write the usernames and passwords on your results sheet. In this guide, "sign in as Administrator" (or another role) means "sign in with that role's test account".
 
 **How to record results**
 
@@ -71,37 +69,82 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 
 ## A. Sign-in and access by role
 
-**A1. Sign in as each role**
-1. Open the app. Type a name and choose *Academic Administrator*, then **Sign In**.
-2. Repeat for the other three roles (use **Sign Out** in the sidebar between them).
+**A1. The first Administrator account**
+1. Open the app in a browser where nobody has made an account yet. The *Set up SchedWiseAI* screen appears. (If the *Sign in* screen appears instead, an account already exists: sign in with it and go to A2.)
+2. Try a password of 7 characters, a username with a space, and two passwords that differ, pressing **Create account and sign in** each time.
+3. Enter the full name `Dr. Maria Santos`, the username `msantos` and a password of at least 8 characters, twice. Press **Create account and sign in**.
 
-*Expected:* Each role lands on its own Overview page with the greeting "Welcome back, <first name>". The Administrator page has "Schedule Approval" and "Pending Leave & Availability Requests"; the Faculty page shows that person's own classes and requests.
+*Expected:* (2) Each attempt shows a red message saying what is wrong, and no account is made. (3) The Administrator Overview opens with the greeting "Welcome back, Maria" (not "Dr."); the round avatar shows **MS** and "Academic Administrator". There is no menu for switching roles.
 ☐ Pass ☐ Fail
 
-**A2. Sidebar pages per role**
+**A2. One account per role**
+1. Open **Accounts** and press **Add account**. Make a *Department Chair* account `chair1`, an *IT Professional/Staff* account `it1` and a *Faculty Member* account `teacher1` with any teacher. For each, type a temporary password or press **Suggest**, and write it down.
+2. Try to make a second account with the username `TEACHER1`, and another Faculty Member account for the same teacher.
+
+*Expected:* (1) Each account is listed with its role and the status "Must choose a password"; `teacher1` shows its teacher. The yellow note "Only one account can manage accounts…" goes away once `it1` exists. (2) Both are refused with a red message (the username is taken, ignoring capitals; the teacher already has an account).
+☐ Pass ☐ Fail
+
+**A3. Signing in and choosing your own password**
+1. Press **Sign Out**. Sign in as `teacher1` with a wrong password, then with its temporary password.
+2. On *Choose your own password*, type the temporary password again twice and press **Save and continue**. Then type a new password twice and press it again.
+3. Do the same for `chair1` and `it1`.
+
+*Expected:* (1) A wrong password shows "Wrong username or password."; the temporary one opens *Choose your own password*. (2) Reusing the temporary password is refused; the new one opens the person's own Overview, greeted by first name. (3) Each role lands on its own Overview: the Faculty page shows that person's own classes and requests, the Chair page its department view, and the IT page its system view.
+☐ Pass ☐ Fail
+
+**A4. Sidebar pages per role**
 1. For each role, compare the sidebar with the table in section 1.
 
-*Expected:* Faculty Member sees only Overview and Class Schedules. Department Chair has no Departments. Administrator and IT see all ten pages. **Reset Demo Data** is shown only to Administrator and IT.
+*Expected:* Faculty Member sees only Overview and Class Schedules. Department Chair has no Departments and no Accounts. Administrator and IT see all eleven pages, including Accounts. **Reset Demo Data** is shown only to Administrator and IT.
 ☐ Pass ☐ Fail
 
-**A3. Titles in names**
-1. Sign out. Sign in as *Academic Administrator* with the name `Dr. Maria Santos`.
-
-*Expected:* The greeting says "Welcome back, Maria" (not "Dr."), and the round avatar shows **MS**.
-☐ Pass ☐ Fail
-
-**A4. Faculty see only their own classes**
-1. As Administrator, generate a schedule (test B1). Note one teacher's name from the Faculty page.
-2. Sign out, then sign in as *Faculty Member* using that exact name.
-3. Open **Class Schedules**.
+**A5. Faculty see only their own classes**
+1. As Administrator, generate a schedule (test B1).
+2. Sign out, then sign in as `teacher1`. Open **Class Schedules**.
 
 *Expected:* Only that teacher's classes are shown. There are no Approve, Reject, Generate or Full Regenerate buttons.
 ☐ Pass ☐ Fail
 
-**A5. Switch role without signing out**
-1. Sign in as Administrator. At the bottom of the sidebar, use **Viewing as** to choose *Faculty Member*.
+**A6. Staying signed in, and closing the browser**
+1. While signed in, reload the page (F5).
+2. Close the browser completely (every window), open it again and go back to the app.
 
-*Expected:* The sidebar and page change to the Faculty view immediately. If you were on a page that role cannot open, you are moved to its Overview.
+*Expected:* (1) You are still signed in. (2) The *Sign in* screen appears.
+☐ Pass ☐ Fail
+
+**A7. Turning an account off and resetting a password**
+1. As Administrator, open **Accounts** and press **Turn off** on `teacher1`. Sign out and sign in as `teacher1` with its password.
+2. Sign in as Administrator, press **Turn on** on `teacher1`, then **Reset password** and give a new temporary password. Sign in as `teacher1` with the old password, then with the new one.
+
+*Expected:* (1) The status says "Turned off", and signing in says "This account is turned off. Ask an Administrator or IT staff member." (2) After Turn on the status is "Active"; after the reset it is "Must choose a password". The old password no longer works; the new one works and leads to *Choose your own password*.
+☐ Pass ☐ Fail
+
+**A8. Nobody can lock the school out**
+1. As Administrator, find your own row in **Accounts** (marked "(you)") and press **Edit**.
+2. Sign in as `it1`. While `msantos` is the only Administrator, press **Delete** and then **Turn off** on its row.
+
+*Expected:* (1) Your own row has only **Edit**, and its Role cannot be changed. (2) Both show "SchedWiseAI needs at least one active Administrator account…", and `msantos` stays Active.
+☐ Pass ☐ Fail
+
+**A9. Changing your own password**
+1. As any role, open **Settings → Your account**. Enter a wrong current password and a new password twice, and press **Change password**.
+2. Enter the right current password and the new password twice, and press it again. Sign out and sign in with the new password.
+
+*Expected:* (1) "Your current password is not right." (2) "Your password has been changed." The new password works and the old one does not.
+☐ Pass ☐ Fail
+
+**A10. Accounts are kept when the data is replaced**
+1. As Administrator, open **Faculty** and rename the teacher linked to `teacher1`. Open **Accounts**.
+2. Use **Reset Demo Data** (standard sample) and open **Accounts** again. Sign in as `teacher1`.
+3. As Administrator, edit `teacher1` and choose one of the new teachers. Sign in as `teacher1` again.
+
+*Expected:* (1) `teacher1` shows the new name (still linked). (2) Every account is still there. The new sample has new teachers, so `teacher1` says "Not linked", a yellow note lists it, and `teacher1` sees a message about the account instead of a schedule (never another teacher's). (3) `teacher1` sees the chosen teacher's Overview.
+☐ Pass ☐ Fail
+
+**A11. Passwords are never stored**
+1. As Administrator, press **F12** and open **Application** (Chrome, Edge) or **Storage** (Firefox) → **Local Storage** → this site. Look at `schedwiseai_accounts_v1`. Then look at **Session Storage**.
+
+*Expected:* Each account has a `salt` and a `hash` (long strings of letters and digits), and none of the passwords you typed appears anywhere. Session Storage holds only the signed-in account's id under `schedwiseai_session_v1`.
 ☐ Pass ☐ Fail
 
 ---
@@ -280,7 +323,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 1. Open **Add Faculty** and press **Save** after each of these: (a) leave the name empty; (b) type the name of an existing teacher in different capitals; (c) untick every subject area; (d) set **Maximum Teaching Units** to `0`, then `-5`, then leave it empty.
 2. Finally enter valid values and save.
 
-*Expected:* Each time a red message says what is wrong and nothing is saved: "Enter the teacher's full name.", "Another teacher is already called … Names must be different, because faculty sign in by name.", "Tick or add at least one subject area.", "Maximum teaching units must be between 1 and 40." or "… must be a whole number." With valid values the teacher is saved and the dialog closes.
+*Expected:* Each time a red message says what is wrong and nothing is saved: "Enter the teacher's full name.", "Another teacher is already called … Names must be different, because a teacher's sign-in account is linked by name.", "Tick or add at least one subject area.", "Maximum teaching units must be between 1 and 40." or "… must be a whole number." With valid values the teacher is saved and the dialog closes.
 ☐ Pass ☐ Fail
 
 ---
@@ -407,7 +450,7 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 ## I. Availability and leave
 
 **I1. A faculty member asks for a change**
-1. Sign in as *Faculty Member* (exact teacher name). Open **Class Schedules → My Schedule**. Press **Request Availability Change / Leave**, choose **Availability Change** as the request type, pick the day-and-period times you cannot teach, add a "prefer instead" time, and submit.
+1. Sign in as `teacher1` (the Faculty Member account from A2). Open **Class Schedules → My Schedule**. Press **Request Availability Change / Leave**, choose **Availability Change** as the request type, pick the day-and-period times you cannot teach, add a "prefer instead" time, and submit.
 
 *Expected:* A message at the bottom says the request was sent for approval and that the schedule changes only after a chair or administrator approves it. The request is listed as **Pending**. A notification is created. Nothing about the schedule changes yet, and there is no update button (nothing has been approved).
 ☐ Pass ☐ Fail
@@ -616,7 +659,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs both.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `32 passed, 0 failed`, and the *Importer tests* end with `18 passed, 0 failed`. A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `32 passed, 0 failed`, the *Importer tests* with `18 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**
@@ -689,7 +732,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 **N8. The sample-data reminder**
 1. With the school's data loaded, open **Overview**.
 2. Open **Settings → Testing tools → Standard sample** and confirm. Open **Overview** again and press **Set up with your school's data →**.
-3. Use **Viewing as** to look at the IT, Department Chair and Faculty Member overviews.
+3. Sign in as `it1`, `chair1` and `teacher1` in turn and look at their overviews.
 
 *Expected:* With the school's data there is no reminder. With the sample loaded, the Administrator overview shows "You are looking at sample data." and the link opens Settings, where the card says "Currently loaded: sample data (standard sample)". IT sees the same reminder; Department Chair and Faculty Member never see it.
 ☐ Pass ☐ Fail
@@ -721,13 +764,13 @@ Run these after the individual tests. Each should work from start to finish with
 ☐ Pass ☐ Fail
 
 **S3. Moving to another computer**
-1. Download a backup. Open the app in a different browser. Restore the file. Check faculty, subjects, schedule and history.
+1. Download a backup. Open the app in a different browser and create the first Administrator account there (backups do not contain accounts). Restore the file. Check faculty, subjects, schedule and history.
 
-*Expected:* Everything matches the original browser.
+*Expected:* Everything matches the original browser. The accounts are only the ones made in this browser; make the others on the Accounts page.
 ☐ Pass ☐ Fail
 
 **S4. Every role in one session**
-1. Use **Viewing as** to visit each role. Confirm each sees only its allowed pages and actions.
+1. Sign in with each role's test account in turn. Confirm each sees only its allowed pages and actions.
 
 *Expected:* No role can reach a page or button outside the table in section 1.
 ☐ Pass ☐ Fail
@@ -745,17 +788,17 @@ If your study evaluates the system against the ISO/IEC 25010 product quality mod
 | **Compatibility** | Does it work in different environments? | L2, L1, L5, N6 and N9 (workbooks from Excel, Google Sheets and LibreOffice) |
 | **Usability** | Can people learn and use it? Is it accessible? | A1, A3, E3, E6, F8, F9, G3, I1, J6, J7, L1, L4, N1, N2 (each mistake named by sheet, row and column), N8, and respondent feedback |
 | **Reliability** | Does it keep working, and keep data? | K1, K3, K4, K7, K8, C2 (live recount), C7, M1, N2 and N4 (nothing changes until the file is valid and you confirm; a backup is offered first) |
-| **Security** | Is access limited to the right people? | A2, A4, A5, I9, J7, S4, N8 (role limits only); G5, K7 and N2 (harmful or wrong file contents are neutralised or refused) |
+| **Security** | Is access limited to the right people? | A1–A11 (own accounts and passwords, the role set by the account, passwords stored only as salted hashes, turned-off accounts, no lock-out), I9, J7, S4, N8 (role limits); G5, K7 and N2 (harmful or wrong file contents are neutralised or refused) |
 | **Maintainability** | Can it be changed and tested easily? | M1, M2 (automated engine and importer tests and the build check; the code is documented in the README) |
 | **Portability** | Can it run elsewhere? | K2, K3, S3, L2, N6 (the data can be taken out to Excel and brought back) |
 
-**Be honest about security:** there is no password and no server. The role limits only control what the screen shows, and all data stays in the user's own browser. This is acceptable for a research prototype, but it is *not* evidence of real access control. Say so in your paper.
+**Be honest about security:** every person now signs in with their own password, passwords are stored only as salted PBKDF2-SHA256 hashes, and the role comes from the account. But there is no server: the accounts and the data live in the browser on that computer, so someone with full access to it (for example through the browser's developer tools) can still read or change them. Describe it in your paper as access control for a shared computer, not as protection against someone who controls the machine.
 
 ---
 
 ## Known limits (do not report these)
 
-Please read the README section *Limitations and known issues*. Examples: data lives only in one browser, and sign-in has no password.
+Please read the README section *Limitations and known issues*. Examples: data and accounts live only in one browser (people sign in on that computer, not from their own devices), and a forgotten password can only be reset by another Administrator or IT account.
 
 ---
 
@@ -767,7 +810,7 @@ Please read the README section *Limitations and known issues*. Examples: data li
 
 | Section | Tests | Passed | Failed | Notes |
 |---|---:|---:|---:|---|
-| A. Sign-in and access | 5 | | | |
+| A. Sign-in, accounts and access | 11 | | | |
 | B. Generation and approval | 8 | | | |
 | C. Conflicts | 7 | | | |
 | D. Manual editing | 4 | | | |
@@ -782,7 +825,7 @@ Please read the README section *Limitations and known issues*. Examples: data li
 | M. Automated tests and build check | 2 | | | |
 | N. Setting up with a school's data | 9 | | | |
 | End-to-end scenarios | 4 | | | |
-| **Total** | **92** | | | |
+| **Total** | **98** | | | |
 
 **Defect log**
 

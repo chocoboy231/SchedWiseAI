@@ -18,13 +18,15 @@
    THE ALGORITHM (hybrid: constraint-based seed + Genetic Algorithm)
      1. greedySeed()    — builds one schedule that tries hard to obey every
                           hard rule (no double-booking, right room, qualified
-                          teacher). This gives the GA a good starting point.
+                          teacher) and keeps teachers within their maximum
+                          units. This gives the GA a good starting point.
      2. runGA()         — keeps a "population" of many candidate schedules and
                           improves them over many "generations" using
                           selection, crossover, and mutation.
      3. fitness()       — scores each candidate. Hard-rule violations are
-                          punished heavily; softer goals (balanced workload,
-                          preferred days, efficient rooms) fine-tune the score.
+                          punished heavily, then units over a teacher's maximum;
+                          softer goals (balanced workload, preferred days,
+                          efficient rooms) fine-tune the score.
      4. countViolations() — the rule checker used by fitness() and by the UI.
 
    TWO WAYS TO PRODUCE A SCHEDULE
@@ -34,7 +36,8 @@
                         a teacher's availability changed). Nothing else moves.
 
    NOTE ON THE SEED STEP: the starting schedule is built with a *greedy*
-   constraint-respecting heuristic (first free slot/faculty/room that fits).
+   constraint-respecting heuristic (the qualified teacher with the most room
+   under their maximum units, at their first free slot with a free room).
    The Genetic Algorithm then improves a whole group of candidate schedules,
    starting from that one.
    ===================================================================== */
@@ -66,6 +69,10 @@ function schoolYearOptions() {
 const HARD_PENALTY = 1000;                          // fitness penalty per hard-rule violation.
                                                     // It is much bigger than any soft-goal score, so the GA
                                                     // always prefers a conflict-free schedule first.
+const OVERLOAD_PENALTY = 300;                       // fitness penalty per unit a teacher is given above their
+                                                    // maximum. Bigger than all the soft goals together, so no
+                                                    // preference is ever bought with a teacher's maximum, but
+                                                    // smaller than one broken rule.
 const SPECIALIZATIONS = ["Programming", "Networking", "Databases", "Web Development", "Mathematics", "General Education", "Systems Analysis", "AI/ML"];
 const EMPLOYMENT_STATUSES = ["Full-time", "Part-time", "Contractual"];
 const ACADEMIC_RANKS = ["Instructor I", "Instructor II", "Instructor III", "Assistant Professor", "Associate Professor", "Professor"];
@@ -147,6 +154,15 @@ function validRooms(rooms, section) {
   if (isOnline(section)) return [ONLINE_ROOM_ID];
   return rooms.filter(r => r.type === section.roomTypeRequired && r.capacity >= section.enrolledStudents).map(r => r.id);
 }
+// byRoomForUnits(load, facultyById, units): a sort order for teacher ids. Teachers who can
+// take `units` more without going over their maximum come first, least loaded (as a share
+// of their maximum) first; teachers who would go over come last, in the same order.
+// `load` maps a teacher id to the units they already have.
+function byRoomForUnits(load, facultyById, units) {
+  const share = id => (load[id] || 0) / Math.max(1, facultyById[id].maxUnits);
+  const over = id => (load[id] || 0) + units > facultyById[id].maxUnits;
+  return (a, b) => (over(a) - over(b)) || (share(a) - share(b));
+}
 // Small random helpers: randInt(5) -> 0..4, choice([a,b,c]) -> one of them at random.
 function randInt(n) { return Math.floor(Math.random() * n); }
 function choice(arr) { return arr[randInt(arr.length)]; }
@@ -169,11 +185,15 @@ function randomGene(faculty, rooms, timeSlots, section) {
 }
 // ---------------------------------------------------------------------
 // greedySeed(faculty, rooms, timeSlots, sections)   — the CSP seed step
-// Builds ONE schedule by walking through the sections in order and giving
-// each one the first (time slot, faculty, room) combination that does not
-// clash with anything already placed and that the teacher has NOT marked
-// as unavailable. This respects the hard constraints wherever possible,
-// giving the GA a strong starting individual.
+// Builds ONE schedule by walking through the sections in order. Each section
+// goes to the qualified teacher with the most room left (byRoomForUnits:
+// teachers who can take it without going over their maximum units first,
+// least loaded first), at the first time slot where that teacher is free and
+// has NOT marked themselves unavailable and a suitable room is free. This
+// respects the hard constraints wherever possible and spreads the teaching
+// load, giving the GA a strong starting individual. (Trying the slots first
+// and the teachers in list order, as before, gave the first teachers on the
+// list a class in nearly every period whenever the labs were the bottleneck.)
 // Online classes never compete for rooms, so only the teacher is checked.
 // If a section cannot be placed without a clash, it falls back to a
 // random gene and lets the GA repair it later.
@@ -183,32 +203,32 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
   const facultySlotUsed = new Set();
   const roomSlotUsed = new Set();
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
+  const load = {};                                   // units given to each teacher so far
   const genes = [];
   for (const sec of sections) {
-    const qf = qualifiedFaculty(faculty, sec);
+    const teachers = qualifiedFaculty(faculty, sec).sort(byRoomForUnits(load, facultyById, sec.units));
     const qr = validRooms(rooms, sec);
-    let placed = false;
-    // Try every slot, then every qualified teacher, then every valid room, until one fits.
     // A section with a fixed day/period only tries its fixed slot.
     const candidateSlots = sec.fixedSlotId != null ? timeSlots.filter(t => t.id === sec.fixedSlotId) : timeSlots;
-    for (const slot of candidateSlots) {
-      for (const fid of qf) {
-        if (facultySlotUsed.has(fid + "-" + slot.id)) continue;
-        const unavailableHere = (facultyById[fid].unavailableSlotIds || []).includes(slot.id);
-        if (unavailableHere) continue;               // respect approved availability changes / leave
-        for (const rid of qr) {
-          if (rid !== ONLINE_ROOM_ID && roomSlotUsed.has(rid + "-" + slot.id)) continue;
-          genes.push({ facultyId: fid, roomId: rid, slotId: slot.id });
-          facultySlotUsed.add(fid + "-" + slot.id);
-          roomSlotUsed.add(rid + "-" + slot.id);
-          placed = true;
-          break;
-        }
-        if (placed) break;
+    let placed = null;
+    for (const fid of teachers) {
+      const unavailable = facultyById[fid].unavailableSlotIds || [];
+      for (const slot of candidateSlots) {
+        // Skip times the teacher already teaches, or has marked unavailable (approved changes / leave).
+        if (facultySlotUsed.has(fid + "-" + slot.id) || unavailable.includes(slot.id)) continue;
+        const rid = qr.find(r => r === ONLINE_ROOM_ID || !roomSlotUsed.has(r + "-" + slot.id));
+        if (rid === undefined) continue;             // every suitable room is taken at this time
+        placed = { facultyId: fid, roomId: rid, slotId: slot.id };
+        break;
       }
       if (placed) break;
     }
-    if (!placed) genes.push(randomGene(faculty, rooms, timeSlots, sec));
+    if (placed) {
+      genes.push(placed);
+      facultySlotUsed.add(placed.facultyId + "-" + placed.slotId);
+      roomSlotUsed.add(placed.roomId + "-" + placed.slotId);
+      load[placed.facultyId] = (load[placed.facultyId] || 0) + sec.units;
+    } else genes.push(randomGene(faculty, rooms, timeSlots, sec));
   }
   return genes;
 }
@@ -226,7 +246,8 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
 //   unplaceable       — sections that CANNOT be scheduled at all: no qualified teacher,
 //                       or (for a laboratory class) no lab big enough. Counted in `total`,
 //                       so such a schedule is never called conflict-free.
-//   overload          — total units ABOVE each teacher's maximum (reported, not in `total`)
+//   overload          — total units ABOVE each teacher's maximum (reported, not in `total`;
+//                       fitness() penalises it, so the GA avoids it whenever another teacher has room)
 //   unscheduled       — sections manually removed by an admin (reported, not in `total`)
 // `total` is the number used to decide if a schedule is "conflict-free".
 // ---------------------------------------------------------------------
@@ -301,6 +322,7 @@ function curriculumOverlapCount(sections, timeSlots, genes) {
 // breeds high-scoring schedules and discards low-scoring ones.
 //
 //   score = - (hard violations × 1000)      must-follow rules
+//           - (units over maximums × 300)    keep every teacher within their maximum units
 //           - (workload variance × 2)        spread teaching units evenly
 //           + (preferred-day share × 50)     honour faculty day preferences
 //           + (requested-time share × 60)    honour approved "Prefer instead" times
@@ -310,6 +332,8 @@ function curriculumOverlapCount(sections, timeSlots, genes) {
 //
 // Because 1000 is so much bigger than the other terms, any schedule with
 // even one hard violation scores worse than every conflict-free schedule.
+// A unit over a teacher's maximum (300) costs more than all the soft goals
+// together, so a teacher only goes over when there is no other way.
 // ---------------------------------------------------------------------
 function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
   opts = opts || {};
@@ -373,7 +397,7 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
       if (g.slotId !== a.slotId) changePenalty += 1;
     });
   }
-  return -hardPenalty - variance * 2.0 + prefScore * 50.0 + requestScore * 60.0 - avgWaste * 0.5 - curriculumPenalty - changePenalty;
+  return -hardPenalty - v.overload * OVERLOAD_PENALTY - variance * 2.0 + prefScore * 50.0 + requestScore * 60.0 - avgWaste * 0.5 - curriculumPenalty - changePenalty;
 }
 // ---------------------------------------------------------------------
 // runGA(faculty, rooms, sections, timeSlots, opts)   — THE GENETIC ALGORITHM
@@ -544,7 +568,9 @@ function findConflictingIndices(faculty, rooms, sections, timeSlots, genes) {
 //   2. Everything else is FROZEN: its teacher/room/time is treated as taken.
 //   3. Greedy repair: for each affected class, try the SAME teacher first (at
 //      one of their free, available times — preferred days first), then other
-//      qualified teachers with the lightest load; same room first if possible.
+//      qualified teachers who still have room under their maximum units (least
+//      loaded first), and only then teachers it would take over their maximum;
+//      same room first if possible.
 //      If no free option exists, "make room": shift the one class that blocks
 //      the best option to another free spot (undone if that fails too).
 //   4. Run the Genetic Algorithm on ONLY those affected classes (every other
@@ -595,14 +621,17 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
   });
 
   // Every rule-abiding (teacher, time, room) option for class i, best first:
-  // the class's current teacher first, then lighter-loaded teachers; the
-  // times the teacher asked for in an approved "Prefer instead" request first,
-  // then their preferred days, then the rest; the current room first. Times
-  // the teacher is unavailable are never offered.
+  // the class's current teacher first, then the teachers who still have room
+  // for it (least loaded, as a share of their maximum, first), and last those
+  // it would take over their maximum; the times the teacher asked for in an
+  // approved "Prefer instead" request first, then their preferred days, then
+  // the rest; the current room first. Times the teacher is unavailable are
+  // never offered.
   function options(i) {
     const sec = sections[i], old = genes[i];
+    const byRoom = byRoomForUnits(load, facultyById, sec.units);
     const teachers = qualifiedFaculty(faculty, sec).sort((a, b) =>
-      (a === old.facultyId ? -1 : 0) - (b === old.facultyId ? -1 : 0) || (load[a] || 0) - (load[b] || 0));
+      (a === old.facultyId ? -1 : 0) - (b === old.facultyId ? -1 : 0) || byRoom(a, b));
     const roomsToTry = validRooms(rooms, sec).sort((a, b) => (a === old.roomId ? -1 : 0) - (b === old.roomId ? -1 : 0));
     const slotsToTry = sec.fixedSlotId != null ? [sec.fixedSlotId] : timeSlots.map(t => t.id);
     const out = [];

@@ -333,6 +333,33 @@
     assert(bad.length === 0, "broke rules: " + bad.slice(0, 3).join(", "));
   });
 
+  // Teaching loads. Two part-timers (maximum 3 units) and two full-timers (maximum 12) share
+  // 8 lab classes (24 units) and two labs, so at most two lab classes fit in a period. The
+  // first teachers on the list used to get a class in almost every period, and evening out
+  // the units alone puts 6 units on each part-timer.
+  function loadsData() {
+    const faculty = [3, 3, 12, 12].map((max, i) => ({ id: i, name: "T" + i, specializations: ["Programming"], maxUnits: max, unavailableSlotIds: [], preferredDays: [] }));
+    const rooms = [{ id: 0, name: "Lab 1", type: "laboratory", capacity: 40 }, { id: 1, name: "Lab 2", type: "laboratory", capacity: 40 }];
+    return { faculty, rooms, sections: Array.from({ length: 8 }, (_, i) => sec({ id: i })) };
+  }
+  const unitsByTeacher = (d, genes) => {
+    const u = {}; d.faculty.forEach(f => { u[f.id] = 0; });
+    genes.forEach((g, i) => { if (g.facultyId >= 0) u[g.facultyId] += d.sections[i].units; });
+    return u;
+  };
+
+  test("runGA: nobody is given more than their maximum units while other qualified teachers have room", () => {
+    const d = loadsData();
+    for (let run = 0; run < 3; run++) {
+      const r = E.runGA(d.faculty, d.rooms, d.sections, SLOTS, { generations: 140, popSize: 50 });
+      eq(brokenRules(d, r.genes).length, 0, "broke a rule");
+      const units = unitsByTeacher(d, r.genes);
+      const over = d.faculty.filter(f => units[f.id] > f.maxUnits).map(f => f.name + " has " + units[f.id] + " of " + f.maxUnits);
+      eq(over.length, 0, "over their maximum: " + over.join(", "));
+      eq(r.violations.overload, 0, "overload reported");
+    }
+  });
+
   // ====================================================================
   // 5. INCREMENTAL UPDATE (repairSchedule)
   // ====================================================================
@@ -373,6 +400,24 @@
     eq(r.genes.length, sections.length, "new subject needs a gene");
     assert(r.genes[sections.length - 1].slotId !== -1, "new subject was not placed");
     eq(brokenRules({ faculty: d.faculty, rooms: d.rooms, sections }, r.genes).length, 0, "result breaks a rule");
+  });
+
+  test("repairSchedule: a new subject goes to a qualified teacher who still has room", () => {
+    // A (maximum 6) already teaches 6 units; B (maximum 24) teaches 9. A has fewer units,
+    // but one more class would take A over the maximum, so the new class must go to B.
+    const online = over => sec(Object.assign({ roomTypeRequired: "online" }, over));
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 6, unavailableSlotIds: [], preferredDays: [] },
+                { id: 1, name: "B", specializations: ["Programming"], maxUnits: 24, unavailableSlotIds: [], preferredDays: [] }],
+      rooms: [],
+      sections: [0, 1, 2, 3, 4].map(i => online({ id: i })),
+    };
+    const genes = [[0, 0], [0, 1], [1, 2], [1, 3], [1, 4]].map(([f, s]) => ({ facultyId: f, roomId: E.ONLINE_ROOM_ID, slotId: s }));
+    const sections = d.sections.concat([online({ id: 5 })]);
+    const r = E.repairSchedule(d.faculty, d.rooms, sections, SLOTS, genes, GA);
+    eq(r.genes[5].facultyId, 1, "the new class should go to B");
+    eq(r.violations.overload, 0, "nobody should be over their maximum");
+    eq(brokenRules(Object.assign({}, d, { sections }), r.genes).length, 0, "result breaks a rule");
   });
 
   test("repairSchedule: removing a room that classes used re-places only those classes", () => {

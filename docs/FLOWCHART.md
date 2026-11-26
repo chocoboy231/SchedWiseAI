@@ -30,7 +30,7 @@ Each chart has a diagram (GitHub draws it from the Mermaid code) and a step tabl
 ```mermaid
 flowchart TD
     A([Start: Generate Schedule]) --> B[/Input: faculty, rooms, subject sections,<br/>36 time slots Mon-Sat x 6 periods, settings/]
-    B --> C["Greedy seed: take the next section; try the time slots,<br/>qualified teachers and suitable rooms in order<br/>(a fixed-time section only tries its fixed slot)"]
+    B --> C["Greedy seed: take the next section; give it to the qualified<br/>teacher with the most room under their maximum units,<br/>at their first free time with a free suitable room<br/>(a fixed-time section only tries its fixed slot)"]
     C --> D{Found a slot, teacher and room that are free<br/>and not a time the teacher marked unavailable?}
     D -- Yes --> D2[Place the section there]
     D -- No --> E[Give it a random gene;<br/>the GA will fix it later]
@@ -61,7 +61,7 @@ flowchart TD
 |---|---|---|
 | 1 | Oval | **Start** (Generate Schedule or Full Regenerate). |
 | 2 | Parallelogram | **Input**: faculty (specializations, maximum units, preferred days, unavailable times), rooms (capacity), subject sections (specialization needed, online or laboratory, students, optional fixed day/period), 36 time slots, settings. |
-| 3 | Rectangle | **Greedy seed**: take the next section and try the time slots, qualified teachers and suitable rooms in order. A fixed-time section only tries its fixed slot. |
+| 3 | Rectangle | **Greedy seed**: take the next section and give it to the qualified teacher with the most room left under their maximum units (least loaded first; teachers it would take over their maximum come last), at that teacher's first free, available time with a free suitable room. A fixed-time section only tries its fixed slot. |
 | 4 | Diamond | Is there a combination that is free and not a time the teacher marked unavailable? **Yes** → step 5. **No** → step 6. |
 | 5 | Rectangle | Place the section in the first such combination. |
 | 6 | Rectangle | Give the section a random gene (a qualified teacher and a suitable room at a random time, or its fixed time). The GA fixes it later. |
@@ -90,7 +90,8 @@ flowchart TD
 flowchart TD
     A([Start: one candidate schedule]) --> B[F1. Count hard-rule violations]
     B --> C["F2. Hard penalty = violations x 1000"]
-    C --> D["F3. Workload balance: variance of teaching units<br/>between teachers, x 2 (subtract)"]
+    C --> C2["F2b. Overload: units given above teachers'<br/>maximums, x 300 (subtract)"]
+    C2 --> D["F3. Workload balance: variance of teaching units<br/>between teachers, x 2 (subtract)"]
     D --> E["F4. Preferred days: share of classes on the<br/>teacher's preferred days, x 50 (add)"]
     E --> F["F5. Requested times: share of classes in times a teacher<br/>asked for in an approved request, x 60 (add)"]
     F --> G["F6. Room efficiency: average empty seats per class,<br/>x 0.5 (subtract)"]
@@ -107,6 +108,7 @@ flowchart TD
 | Step | Term | Effect on the score |
 |---|---|---|
 | F1–F2 | **Hard rules.** Each violation of: teacher qualified for the subject; teacher not double-booked; teacher not in an unavailable time; room not double-booked (online classes need no room); laboratory class in a laboratory, online class with no room; enough seats; fixed day/period respected; and every subject can be placed at all (it has a qualified teacher and, for a laboratory class, a lab big enough). | −1000 each |
+| F2b | **Overload**: every unit a teacher is given above their maximum units. | −300 per unit |
 | F3 | **Workload balance**: variance of total teaching units per teacher (0 = perfectly even). | −2 × variance |
 | F4 | **Preferred days**: share of classes on the teacher's preferred days (0 to 1). | +50 × share |
 | F5 | **Requested times**: share of classes placed in times a teacher asked for in an approved "prefer instead" request. It is 0 when no teacher has such times. | +60 × share |
@@ -116,7 +118,7 @@ flowchart TD
 
 Because −1000 is far larger than every other term, any schedule with a hard-rule violation scores below every conflict-free schedule. The GA therefore removes conflicts first, then improves fairness, preferences and room use.
 
-**Not in the score:** a teacher going over their maximum units (*overload*) is reported on the Workload, Faculty, Departments and Schedules pages, but it is not a hard rule and is not penalised.
+**Overload** (a teacher going over their maximum units) is not a hard rule, so it never stops a schedule from being called conflict-free; it is reported on the Workload, Faculty, Departments and Schedules pages. But each unit over costs 300, more than all the preference terms together, so the GA only leaves a teacher over their maximum when the subject's other teachers have no room left.
 
 ---
 
@@ -130,7 +132,7 @@ flowchart TD
     D -- No --> E[/Output: schedule unchanged,<br/>no classes needed to move/]
     E --> Z([End])
     D -- Yes --> F[Freeze every other class:<br/>its teacher, room and time are taken]
-    F --> G["List options for each affected class, best first:<br/>same teacher, then lighter-loaded qualified teachers;<br/>requested times, then preferred days, then other times;<br/>same room first; never an unavailable time"]
+    F --> G["List options for each affected class, best first:<br/>same teacher, then qualified teachers with room under<br/>their maximum (least loaded first), then the rest;<br/>requested times, then preferred days, then other times;<br/>same room first; never an unavailable time"]
     G --> H{A free option exists?}
     H -- Yes --> I[Place the class there]
     H -- No --> J["Make room: try an option held by one or two other classes,<br/>move those classes to free places of their own"]
@@ -153,7 +155,7 @@ flowchart TD
 | U3 | Rectangle | **Find affected classes**: every class that breaks a hard rule. For a double-booking only the later class is affected, so as few classes as possible move. A newly added subject with no place is also affected. |
 | U4 | Diamond | Any affected classes? **No** → output "no classes needed to move" and end. **Yes** → continue. |
 | U5 | Rectangle | **Freeze** every other class. |
-| U6 | Rectangle | **Rank options** for each affected class: its current teacher first, then qualified teachers with the lightest load; the teacher's requested times first, then their preferred days, then other times; its current room first. Times the teacher is unavailable are never used. |
+| U6 | Rectangle | **Rank options** for each affected class: its current teacher first, then qualified teachers who still have room under their maximum units (least loaded first), and last those it would take over their maximum; the teacher's requested times first, then their preferred days, then other times; its current room first. Times the teacher is unavailable are never used. |
 | U7 | Diamond | Is any option free? **Yes** → place the class (U9). **No** → U8. |
 | U8 | Rectangle + diamond | **Make room**: take an option held by one or two other classes and move those classes to free places. If they cannot all be moved, undo everything and leave the class where it was (it still shows as a conflict). |
 | U9 | Rectangle | Place the class. Repeat U7 to U9 for every affected class. |

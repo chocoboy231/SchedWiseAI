@@ -150,7 +150,7 @@ A schedule is a list of **genes**, one per subject section. Each gene is `{ facu
 
 ### Full generation (`runGA`)
 
-1. **Seed**: one schedule built greedily, placing each subject in the first slot/teacher/room that fits.
+1. **Seed**: one schedule built greedily. Each subject goes to the qualified teacher with the most room left under their maximum units (least loaded first; teachers it would take over their maximum come last), at that teacher's first free, available time with a free suitable room.
 2. **Population**: the seed plus 49 random schedules.
 3. **Evolve** for up to 140 generations: keep the best 10% (*elitism*), pick parents by 4-way *tournament*, join them with *single-point crossover*, then *mutate* (starts at 8% per gene and shrinks over time).
 4. **Stop early** once the best score has not changed for 20 generations and the best schedule breaks no hard rule (a subject that cannot be placed at all does not block stopping, since no schedule can fix it).
@@ -160,13 +160,14 @@ A schedule is a list of **genes**, one per subject section. Each gene is `{ facu
 | Term | Weight |
 |---|---|
 | Each hard-rule violation | −1000 |
+| Each unit a teacher is given above their maximum | −300 per unit |
 | Variance of teaching units between teachers | −2 × variance |
 | Share of classes on the teacher's preferred days | +50 × share |
 | Share of classes in times a teacher asked for in an approved "prefer instead" request (0 if nobody has) | +60 × share |
 | Average empty seats per class (online classes count as 0) | −0.5 × average |
 | Same-program, same-year/semester overlap (curriculum-aware only) | −150 each |
 
-Because 1000 is far larger than every other term, the algorithm always prefers a conflict-free schedule first and only then optimizes fairness and preferences.
+Because 1000 is far larger than every other term, the algorithm always prefers a conflict-free schedule first and only then optimizes fairness and preferences. A unit over a teacher's maximum (300) costs more than all the preferences together, so a teacher only goes over their maximum when the subject's other teachers have no room left.
 
 ### Incremental update (`repairSchedule`)
 
@@ -232,7 +233,7 @@ If you forget, nothing breaks: `loader.js` sees that `app.js` was built from an 
 | `validRooms(rooms, section)` | Ids of suitable rooms. Online classes return the "Online" pseudo-room. |
 | `isOnline(section)` | Whether a subject is an online class. |
 | `randomGene(...)` | One random assignment for a subject (respects qualification, room type and fixed time). |
-| `greedySeed(...)` | Builds the first, mostly conflict-free schedule (the constraint-based seed). |
+| `greedySeed(...)` | Builds the first, mostly conflict-free schedule (the constraint-based seed), giving each subject to the qualified teacher with the most room left under their maximum units. |
 | `countViolations(...)` | The rule checker. Returns a count per rule and a `total`. |
 | `curriculumOverlapCount(...)` | Counts same-year/semester time collisions. |
 | `fitness(...)` | Scores a schedule (see the table above). |
@@ -299,14 +300,14 @@ Accounts are saved in the browser under their own key (`schedwiseai_accounts_v1`
 
 ## Testing
 
-**Automated (engine):** 33 tests in `tests/engine.test.js` cover the time slots and their 12-hour labels, the 30-minute grid rows, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
+**Automated (engine):** 35 tests in `tests/engine.test.js` cover the time slots and their 12-hour labels, the 30-minute grid rows, teaching loads (nobody over their maximum while a qualified teacher has room, in a full run and in an update), every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
 
 **Automated (school data workbook):** 19 tests in `tests/importer.test.js` cover reading each kind of cell, turning a correct workbook into the app's data, every kind of error (each pointing to its sheet, row and column), the warnings (including a file that mixes semesters or school years), the notes about defaults, columns in any order, skipped `EXAMPLE` and blank rows, numbers typed as text, text that looks like a formula, words such as `constructor` read as plain names, the template (including where it says to upload it), and a round trip (current data → workbook → the same data).
 
 **Automated (sign-in and accounts):** 13 tests in `tests/accounts.test.js` check the password hash against the standard SHA-256 and PBKDF2 test values, that the browser's `crypto.subtle` and the plain-JavaScript version give the same hash, that an account stores a salted hash and never the password, the username, password and name rules, the rules that stop lock-outs (always one active Administrator; nobody removes, turns off or demotes themselves), teacher links by name (and after a rename), and that damaged saved accounts are dropped.
 
 ```bash
-node tests/engine.test.js        # needs Node.js; ends with "33 passed, 0 failed"
+node tests/engine.test.js        # needs Node.js; ends with "35 passed, 0 failed"
 node tests/importer.test.js      # ends with "19 passed, 0 failed"
 node tests/accounts.test.js      # needs Node.js 19 or newer; ends with "13 passed, 0 failed"
 ```
@@ -345,7 +346,7 @@ This is a research prototype. Please read this list before relying on it.
 - **Conflict counts are live.** The "Conflict-free" label and the Conflict Detection page are recalculated whenever a teacher, room or subject changes. If an edit creates a conflict, the schedule page shows a banner with **Update affected classes**. (The counts saved in *Schedule History* are a snapshot from when each version was made.)
 - **Fixed times can make a schedule impossible.** If more subjects are pinned to the same day and period than there are qualified teachers, the schedule shows teacher double-booking conflicts. The app reports this rather than hiding it.
 - **Load status mixes two comparisons.** Overloaded and Near capacity compare a teacher with their own maximum; Light load compares them with colleagues (fewer than half the average units per teacher). The 80% cutoff and the "half the average" line are prototype settings, and only teaching units are counted. The Workload page explains the rules with the current numbers.
-- **Overload is a warning, not a conflict.** A teacher above their maximum units shows as *Overloaded* on the Workload, Faculty and Departments pages, and the schedule page adds an orange "teachers over maximum units" badge next to the *Conflict-free* label. The engine does not try to remove overload, so it can still occur when there are too few teachers for the number of subjects. This does not happen with the default sample data.
+- **Overload is a warning, not a conflict.** A teacher above their maximum units shows as *Overloaded* on the Workload, Faculty and Departments pages, and the schedule page adds an orange "teachers over maximum units" badge next to the *Conflict-free* label. The engine avoids it: subjects go to teachers who still have room, and every unit over a maximum costs more in the score than any preference. It only remains when a subject's teachers do not have enough units between them, and then the badge shows it. (A school-sized test with 153 teachers and 624 subjects went from 15 teachers over their maximum, the worst at 42 of 21 units, to none.)
 - IT staff can approve or deny leave requests, although schedule approval is limited to administrators and chairs.
 - CSV import rejects rows with a missing code or name, a missing subject area, a subject area longer than 120 characters, or an invalid number. Any subject area name is accepted, so a misspelled one becomes a new area that no teacher has (that subject then shows as *Cannot be scheduled*).
 - **Uploading a workbook replaces everything**: faculty, subjects and rooms are replaced and the schedule, its versions and the requests are cleared. There is no merge. To change a few things, use **Download current data**, edit the file and upload it again, or edit in the app.

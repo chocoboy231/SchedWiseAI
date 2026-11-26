@@ -243,8 +243,9 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 **C6. Overload warning**
 1. In **Faculty**, edit a teacher who has classes and set **Maximum Teaching Units** to 1. Save.
 2. Open **Class Schedules**.
+3. Press **Full Regenerate**.
 
-*Expected:* An orange badge "⚠ 1 teacher over maximum units" appears next to **✓ Conflict-free** (overload is a warning, not a conflict). Hover the badge to see the teacher's name. The Workload page shows that teacher as **Overloaded**.
+*Expected:* (2) An orange badge "⚠ 1 teacher over maximum units" appears next to **✓ Conflict-free** (overload is a warning, not a conflict). Hover the badge to see the teacher's name. The Workload page shows that teacher as **Overloaded**. (3) If another teacher of that subject area has room, the new schedule gives that teacher's classes to others and the badge disappears; the teacher keeps at most 1 unit's worth (with 3-unit subjects, no classes).
 ☐ Pass
 
 **C7. A subject that cannot be scheduled**
@@ -659,7 +660,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs all three.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `33 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `35 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**

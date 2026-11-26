@@ -77,34 +77,40 @@ const ACADEMIC_RANKS = ["Instructor I", "Instructor II", "Instructor III", "Assi
 // which is what genes store in `slotId`. Sunday has no slots at all.
 // Because Saturday is added AFTER Friday, the ids for Mon–Fri (0..29) are the
 // same as in the earlier Mon–Fri version, so older saved schedules still line up.
-// Example: { id: 7, day: "Tue", period: 2, label: "Tue 08:30-10:00" }
+// start and end are minutes after midnight; time and label use 12-hour clock times.
+// Example: { id: 7, day: "Tue", period: 2, start: 510, end: 600, time: "8:30-10:00 AM", label: "Tue 8:30-10:00 AM" }
 // ---------------------------------------------------------------------
 function buildTimeSlots() {
   const slots = [];
   let id = 0;
   for (const day of DAYS) {
     for (let period = 1; period <= PERIODS; period++) {
-      const startHour = 7 + (period - 1) * 1.5;   // period 1 = 7:00, period 2 = 8:30, ...
-      const h1 = Math.floor(startHour), m1 = Math.round((startHour - h1) * 60);
-      const endHour = startHour + 1.5;
-      const h2 = Math.floor(endHour), m2 = Math.round((endHour - h2) * 60);
-      const label = day + " " + String(h1).padStart(2,"0") + ":" + String(m1).padStart(2,"0") + "-" + String(h2).padStart(2,"0") + ":" + String(m2).padStart(2,"0");
-      slots.push({ id: id++, day, period, label });
+      const start = DAY_START_MINUTES + (period - 1) * PERIOD_MINUTES;   // period 1 = 7:00, period 2 = 8:30, ...
+      const end = start + PERIOD_MINUTES;
+      const time = timeRangeLabel(start, end);
+      slots.push({ id: id++, day, period, start, end, time, label: day + " " + time });
     }
   }
   return slots;
 }
 // ---------------------------------------------------------------------
-// clockLabel(minutes) and halfHourRows()
-// The weekly grid shows the day in 30-minute rows (7:00 AM, 7:30 AM, ...),
-// so each 1.5-hour period covers three rows. This only changes how the
-// timetable is SHOWN: classes are still placed in whole periods.
-// clockLabel(13 * 60) -> "1:00 PM"
-// halfHourRows()[3]   -> { minutes: 510, label: "8:30 AM", period: 2, first: true }
+// clockLabel(minutes), timeRangeLabel(start, end) and halfHourRows()
+// Times are shown on a 12-hour clock. The weekly grid shows the day in
+// 30-minute rows (7:00 AM, 7:30 AM, ...), so each 1.5-hour period covers
+// three rows. This only changes how the timetable is SHOWN: classes are
+// still placed in whole periods.
+// clockLabel(13 * 60)                -> "1:00 PM"
+// timeRangeLabel(7 * 60, 8 * 60 + 30) -> "7:00-8:30 AM"   (AM/PM once when both times share it)
+// timeRangeLabel(690, 780)           -> "11:30 AM-1:00 PM"
+// halfHourRows()[3]                  -> { minutes: 510, label: "8:30 AM", period: 2, first: true }
 // ---------------------------------------------------------------------
 function clockLabel(minutes) {
   const h = Math.floor(minutes / 60), m = minutes % 60;
   return ((h + 11) % 12 + 1) + ":" + String(m).padStart(2, "0") + (h < 12 ? " AM" : " PM");
+}
+function timeRangeLabel(start, end) {
+  const from = clockLabel(start), to = clockLabel(end);
+  return (from.slice(-2) === to.slice(-2) ? from.slice(0, -3) : from) + "-" + to;
 }
 function halfHourRows() {
   const rows = [];
@@ -852,7 +858,7 @@ function generateExpandedData(seed) {
 // PUBLIC API — everything app.jsx is allowed to use from this file.
 // ---------------------------------------------------------------------
 window.SchedEngine = {
-  buildTimeSlots, clockLabel, halfHourRows, qualifiedFaculty, validRooms, canBePlaced, runGA, countViolations, generateSyntheticData, DAYS, PERIODS,
+  buildTimeSlots, clockLabel, timeRangeLabel, halfHourRows, qualifiedFaculty, validRooms, canBePlaced, runGA, countViolations, generateSyntheticData, DAYS, PERIODS,
   SPECIALIZATIONS, EMPLOYMENT_STATUSES, ACADEMIC_RANKS,
   CALENDAR_DAYS, ONLINE_ROOM_ID, isOnline,
   repairSchedule, findConflictingIndices, currentSchoolYear, schoolYearOptions,

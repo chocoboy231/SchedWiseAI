@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-26T12:59:57.145Z with Babel 7.23.5. source-hash: 5d0ffa2e597a0 */
+   Built 2026-11-26T15:37:56.585Z with Babel 7.23.5. source-hash: 1052c1fea876fb */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -1627,7 +1627,7 @@ function SectionModal({
   }, allSlots.filter(t => t.day === "Mon").map(t => /*#__PURE__*/React.createElement("option", {
     key: t.period,
     value: t.period
-  }, "P", t.period, " (", t.label.split(" ")[1], ")")))), category === "Minor" && /*#__PURE__*/React.createElement("p", {
+  }, "P", t.period, " (", t.time, ")")))), category === "Minor" && /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-slate-500 mt-1.5"
   }, "If another department (e.g. General Education) sets this subject's time, enter it here. The AI will keep it there and schedule the majors around it.")), /*#__PURE__*/React.createElement(Field, {
     label: "Prerequisite Subject (optional)"
@@ -1932,7 +1932,7 @@ function SlotPicker({
     className: "text-slate-600 hover:text-blue-800 underline decoration-dotted"
   }, d))))), /*#__PURE__*/React.createElement("tbody", null, periods.map(p => {
     const anySlot = slotAt["Mon"][p];
-    const time = anySlot ? anySlot.label.split(" ")[1] : "";
+    const time = anySlot ? anySlot.time : "";
     return /*#__PURE__*/React.createElement("tr", {
       key: p
     }, /*#__PURE__*/React.createElement("td", {
@@ -4661,7 +4661,7 @@ function FacultyOverview(props) {
     className: "text-xs text-slate-400"
   }, c.sec.sectionName)), /*#__PURE__*/React.createElement("div", {
     className: "text-xs text-slate-500 text-right"
-  }, c.slot.label.split(" ")[1]))))))))), /*#__PURE__*/React.createElement(Panel, {
+  }, c.slot.time))))))))), /*#__PURE__*/React.createElement(Panel, {
     title: "My Requests",
     action: "+ New",
     onAction: () => onNewRequest(myFaculty.id)
@@ -5925,7 +5925,7 @@ function WorkloadPage({
         className: "text-slate-500"
       }, sec.subjectName, " \xB7 ", sec.sectionName)), /*#__PURE__*/React.createElement("span", {
         className: "text-xs text-slate-500 whitespace-nowrap"
-      }, slot ? describeSlots([g.slotId], slotById) + " (" + slot.label.split(" ")[1] + ")" : "—", " \xB7 ", roomLabel(g.roomId, roomById), " \xB7 ", /*#__PURE__*/React.createElement("span", {
+      }, slot ? describeSlots([g.slotId], slotById) + " (" + slot.time + ")" : "—", " \xB7 ", roomLabel(g.roomId, roomById), " \xB7 ", /*#__PURE__*/React.createElement("span", {
         className: "font-semibold text-slate-700"
       }, sec.units, " units")));
     })), /*#__PURE__*/React.createElement("div", {

@@ -224,7 +224,7 @@
   test("the template has four sheets, exact headers and EXAMPLE rows that are skipped", () => {
     const t = I.templateRows(); eq(Object.keys(t).join(","), "Instructions,Faculty,Subjects,Rooms");
     I.SHEETS.forEach(s => { eq(t[s][0].join("|"), I.COLUMNS[s].map(c => c.header).join("|")); eq(t[s].length, 3); });
-    const text = t.Instructions.map(r => r.join(" ")).join("\n"); assert(/P1/.test(text) && /07:00/.test(text) && /EXAMPLE/.test(text));
+    const text = t.Instructions.map(r => r.join(" ")).join("\n"); assert(/P1 +7:00-8:30 AM/.test(text) && /P4 +11:30 AM-1:00 PM/.test(text) && /EXAMPLE/.test(text), "the periods are listed with 12-hour times");
     const r = I.parseWorkbook(t); assert(!r.ok); assert(r.errors.some(e => e.sheet === "Faculty" && e.row === null), "only the examples, so no data");
   });
 

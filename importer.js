@@ -419,7 +419,7 @@
   const toRow = (sheet, values) => COLUMNS[sheet].map(c => (values[c.key] == null ? "" : values[c.key]));
 
   function instructionRows() {
-    const periods = SLOTS.filter(t => t.day === E.DAYS[0]).map(t => "   P" + t.period + "  " + t.label.split(" ")[1]);
+    const periods = SLOTS.filter(t => t.day === E.DAYS[0]).map(t => "   P" + t.period + "  " + t.time);
     const lines = [
       "SchedWiseAI school data template",
       "",

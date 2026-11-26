@@ -964,7 +964,7 @@ function SectionModal({ initial, allSections, subjectAreas, programs, onSave, on
             {E.DAYS.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
           <select className={inputCls} value={fixedPeriod} disabled={!fixedDay} onChange={e=>setFixedPeriod(Number(e.target.value))}>
-            {allSlots.filter(t => t.day === "Mon").map(t => <option key={t.period} value={t.period}>P{t.period} ({t.label.split(" ")[1]})</option>)}
+            {allSlots.filter(t => t.day === "Mon").map(t => <option key={t.period} value={t.period}>P{t.period} ({t.time})</option>)}
           </select>
         </div>
         {category === "Minor" && (
@@ -1181,7 +1181,7 @@ function SlotPicker({ timeSlots, selected, onToggle, onToggleDay, unavailable, c
         <tbody>
           {periods.map(p => {
             const anySlot = slotAt["Mon"][p];
-            const time = anySlot ? anySlot.label.split(" ")[1] : "";
+            const time = anySlot ? anySlot.time : "";
             return (
               <tr key={p}>
                 <td className="p-1.5 text-slate-500 whitespace-nowrap"><span className="font-semibold">P{p}</span> <span className="text-slate-400">{time}</span></td>
@@ -3085,7 +3085,7 @@ function FacultyOverview(props) {
                             <div className="text-sm font-medium text-slate-900">{c.sec.subjectCode} — {c.sec.subjectName}</div>
                             <div className="text-xs text-slate-400">{c.sec.sectionName}</div>
                           </div>
-                          <div className="text-xs text-slate-500 text-right">{c.slot.label.split(" ")[1]}</div>
+                          <div className="text-xs text-slate-500 text-right">{c.slot.time}</div>
                         </div>
                       ))}
                     </div>
@@ -3968,7 +3968,7 @@ function WorkloadPage({ faculty, sections, result, slotById, roomById }) {
                                     <li key={sec.id} className="px-3 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-sm">
                                       <span><span className="font-medium text-slate-900">{sec.subjectCode}</span> <span className="text-slate-500">{sec.subjectName} · {sec.sectionName}</span></span>
                                       <span className="text-xs text-slate-500 whitespace-nowrap">
-                                        {slot ? describeSlots([g.slotId], slotById) + " (" + slot.label.split(" ")[1] + ")" : "—"} · {roomLabel(g.roomId, roomById)} · <span className="font-semibold text-slate-700">{sec.units} units</span>
+                                        {slot ? describeSlots([g.slotId], slotById) + " (" + slot.time + ")" : "—"} · {roomLabel(g.roomId, roomById)} · <span className="font-semibold text-slate-700">{sec.units} units</span>
                                       </span>
                                     </li>
                                   );

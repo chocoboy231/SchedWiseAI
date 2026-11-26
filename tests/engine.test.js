@@ -92,9 +92,20 @@
     eq(SLOTS.length, 36);
     SLOTS.forEach((s, i) => eq(s.id, i, "slot id order"));
     assert(SLOTS.every(s => E.DAYS.includes(s.day)) && !SLOTS.some(s => s.day === "Sun"), "unexpected day");
-    eq(SLOTS[0].label, "Mon 07:00-08:30");
-    eq(SLOTS[5].label, "Mon 14:30-16:00", "period 6 should end at 16:00");
+    eq(SLOTS[0].label, "Mon 7:00-8:30 AM");
+    eq(SLOTS[3].label, "Mon 11:30 AM-1:00 PM", "a period across noon shows AM and PM");
+    eq(SLOTS[5].label, "Mon 2:30-4:00 PM", "period 6 should end at 4:00 PM");
+    eq(SLOTS[7].time, "8:30-10:00 AM", "the time without the day");
+    eq(SLOTS[0].start, 7 * 60, "period 1 starts at 7:00 AM");
+    eq(SLOTS[5].end, 16 * 60, "period 6 ends at 4:00 PM");
     eq(SLOTS[30].day, "Sat", "Saturday follows Friday");
+  });
+
+  test("timeRangeLabel: one AM/PM when both times share it, both when the range crosses noon", () => {
+    eq(E.timeRangeLabel(7 * 60, 8 * 60 + 30), "7:00-8:30 AM");
+    eq(E.timeRangeLabel(10 * 60, 11 * 60 + 30), "10:00-11:30 AM");
+    eq(E.timeRangeLabel(11 * 60 + 30, 13 * 60), "11:30 AM-1:00 PM");
+    eq(E.timeRangeLabel(14 * 60 + 30, 16 * 60), "2:30-4:00 PM");
   });
 
   test("clockLabel: 12-hour times with AM and PM", () => {
@@ -116,9 +127,8 @@
       const own = rows.filter(r => r.period === p);
       eq(own.length, 3, "period " + p + " covers three rows");
       assert(own[0].first && !own[1].first && !own[2].first, "only the first row of period " + p + " is marked first");
-      // The period's first row starts when its time slot starts (Mon 08:30-10:00 -> 8:30 AM).
-      const start = SLOTS.find(s => s.day === "Mon" && s.period === p).label.split(" ")[1].split("-")[0];
-      eq(own[0].minutes, Number(start.slice(0, 2)) * 60 + Number(start.slice(3)), "period " + p + " starts with its time slot");
+      // The period's first row starts when its time slot starts (Mon 8:30-10:00 AM -> the 8:30 AM row).
+      eq(own[0].minutes, SLOTS.find(s => s.day === "Mon" && s.period === p).start, "period " + p + " starts with its time slot");
     }
   });
 

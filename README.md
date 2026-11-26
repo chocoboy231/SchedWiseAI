@@ -44,7 +44,7 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 
 | Module | What it does |
 |---|---|
-| **AI Schedule Generation** | Builds a full Monday–Saturday timetable (6 periods of 1.5 hours a day, 07:00–16:00, no classes on Sunday) using constraint-based seeding and a Genetic Algorithm. The weekly grid shows the day in 30-minute rows (7:00 AM, 7:30 AM, 8:00 AM …), and each class covers the three rows of its period. Shows a convergence chart for every run: the best and average score per generation, each on its own labelled scale, with a plain-language caption. |
+| **AI Schedule Generation** | Builds a full Monday–Saturday timetable (6 periods of 1.5 hours a day, 7:00 AM to 4:00 PM, no classes on Sunday) using constraint-based seeding and a Genetic Algorithm. The weekly grid shows the day in 30-minute rows (7:00 AM, 7:30 AM, 8:00 AM …), and each class covers the three rows of its period. Times are shown on a 12-hour clock everywhere, for example "Mon 11:30 AM-1:00 PM". Shows a convergence chart for every run: the best and average score per generation, each on its own labelled scale, with a plain-language caption. |
 | **Set up with your school's data** (Settings, Admin and IT) | Download a blank Excel template (an *Instructions* sheet and *Faculty*, *Subjects* and *Rooms* sheets with example rows), fill it in with Excel (or another spreadsheet program that saves `.xlsx`), and upload it. The file is checked before anything changes. **Errors** (a missing required cell, a number out of range, an unknown day or class type, a duplicate teacher) are listed by sheet, row and column and block the upload. **Warnings** (a subject area no teacher has, a lab class bigger than every lab, more units than the teachers can take, subjects from both semesters or from more than one school year) explain what will go wrong but do not block it. **Replace my data with this file** asks first and offers a backup, then replaces the faculty, subjects and rooms and clears the old schedule, its versions and the requests. **Download current data** gives everything in the same layout, to edit and upload again. Subject areas, programs, employment statuses and ranks in the forms then come from the school's data. While sample data is loaded, the Administrator and IT overviews say so and link to this card. The workbook uses the app's current time model (Monday–Saturday, six 1.5-hour periods, one meeting per subject section). |
 | **Incremental Update** | After an approved availability change or leave, a new or edited subject, or an import, **Update affected classes** moves only the classes that now break a rule. Everything else stays exactly where it was, and a "What changed" panel lists each move. *Full Regenerate* is still available. |
 | **Faculty Management** | Add, edit and delete faculty with subject areas (the school's own areas, taken from the data; a new one can be added in the form), preferred days, maximum units, employment status and academic rank (the built-in choices plus any the data already uses). Profile view, current load and workload status per person. Forms say what is wrong (missing name, a number out of range, a duplicate name, subject or room) instead of silently refusing to save. |
@@ -218,7 +218,8 @@ If you forget, nothing breaks: `loader.js` sees that `app.js` was built from an 
 
 | Function | Purpose |
 |---|---|
-| `buildTimeSlots()` | Creates the 36 weekly slots (Mon–Sat × 6 periods). Sunday has none. |
+| `buildTimeSlots()` | Creates the 36 weekly slots (Mon–Sat × 6 periods), each with its start and end (minutes after midnight), its time ("7:00-8:30 AM") and a label ("Mon 7:00-8:30 AM"). Sunday has none. |
+| `timeRangeLabel(start, end)` | A 12-hour time range, with AM or PM written once when both times share it: "7:00-8:30 AM", "11:30 AM-1:00 PM". |
 | `clockLabel(minutes)` | Turns minutes after midnight into a 12-hour time, for example 780 → "1:00 PM". |
 | `halfHourRows()` | The weekly grid's 18 rows, one per 30 minutes from 7:00 AM to 3:30 PM, each with its period and whether it is the period's first row. |
 | `qualifiedFaculty(faculty, section)` | Ids of teachers whose specializations match the subject. |
@@ -275,12 +276,12 @@ It works on plain rows (one array per spreadsheet row), so it needs no spreadshe
 
 ## Testing
 
-**Automated (engine):** 32 tests in `tests/engine.test.js` cover the time slots and the 30-minute grid rows, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
+**Automated (engine):** 33 tests in `tests/engine.test.js` cover the time slots and their 12-hour labels, the 30-minute grid rows, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
 
 **Automated (school data workbook):** 18 tests in `tests/importer.test.js` cover reading each kind of cell, turning a correct workbook into the app's data, every kind of error (each pointing to its sheet, row and column), the warnings (including a file that mixes semesters or school years), the notes about defaults, columns in any order, skipped `EXAMPLE` and blank rows, numbers typed as text, text that looks like a formula, words such as `constructor` read as plain names, the template, and a round trip (current data → workbook → the same data).
 
 ```bash
-node tests/engine.test.js        # needs Node.js; ends with "32 passed, 0 failed"
+node tests/engine.test.js        # needs Node.js; ends with "33 passed, 0 failed"
 node tests/importer.test.js      # ends with "18 passed, 0 failed"
 ```
 

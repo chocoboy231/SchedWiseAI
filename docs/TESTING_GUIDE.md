@@ -19,10 +19,11 @@ A step-by-step manual test plan for the whole system. It is written for responde
 11. [J. History, reports and notifications](#j-history-reports-and-notifications)
 12. [K. Saving, backup and reset](#k-saving-backup-and-reset)
 13. [L. Devices, browsers and performance](#l-devices-browsers-and-performance)
-14. [M. Automated engine tests](#m-automated-engine-tests)
-15. [End-to-end scenarios](#end-to-end-scenarios)
-16. [Quality characteristics (ISO/IEC 25010)](#quality-characteristics-isoiec-25010)
-17. [Results sheet and defect log](#results-sheet-and-defect-log)
+14. [M. Automated tests](#m-automated-tests)
+15. [N. Setting up with a school's data](#n-setting-up-with-a-schools-data)
+16. [End-to-end scenarios](#end-to-end-scenarios)
+17. [Quality characteristics (ISO/IEC 25010)](#quality-characteristics-isoiec-25010)
+18. [Results sheet and defect log](#results-sheet-and-defect-log)
 
 ---
 
@@ -33,6 +34,7 @@ A step-by-step manual test plan for the whole system. It is written for responde
 - A modern browser (Chrome, Edge, Firefox or Safari). No internet connection is needed once the app is being served: its libraries and font are stored in the `vendor/` folder.
 - The app open in the browser. Use the published site, or serve the folder and open it (see the README, *Getting started*). Opening `index.html` by double-clicking usually does not work.
 - For section M only: Node.js, or the `tests/run.html` page.
+- For section N: Microsoft Excel or another spreadsheet program that saves `.xlsx` files. For N9, also Google Sheets and LibreOffice Calc if you have them.
 
 **How the data works**
 
@@ -49,7 +51,7 @@ A step-by-step manual test plan for the whole system. It is written for responde
 | Faculty Member | *Faculty Member* | Overview and Class Schedules only |
 | IT Professional / Staff | *IT Professional/Staff* | Same as Administrator |
 
-Every role also has **Settings** and **Sign Out** in the Account part of the sidebar. Only Administrator and IT also see **Reset Demo Data** there, and *Backup and restore* and *Testing tools* in Settings.
+Every role also has **Settings** and **Sign Out** in the Account part of the sidebar. Only Administrator and IT also see **Reset Demo Data** there, and *Set up with your school's data*, *Backup and restore* and *Testing tools* in Settings.
 
 Sign-in takes any name and no password. A Faculty Member is matched by name: type the exact name of a teacher from the Faculty list. If no name matches, the app uses the first teacher in the list.
 
@@ -243,41 +245,41 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 ## E. Faculty
 
 **E1. Add a teacher**
-1. Open **Faculty → Add Faculty**. Enter a name, tick at least one specialization and some preferred days, set the maximum units, then save.
+1. Open **Faculty → Add Faculty**. Enter a name, tick at least one subject area (or type a new one in the box under them and press **Add**) and some preferred days, set the maximum units, then save.
 
-*Expected:* The teacher appears in the list with 0 units and the status **Underloaded** (or "No assignment yet" if no schedule exists).
-☐ Pass
+*Expected:* The form starts with no subject area ticked. The teacher appears in the list with 0 units and the status **Underloaded** (or "No assignment yet" if no schedule exists).
+☐ Pass ☐ Fail
 
 **E2. Edit a teacher and see conflicts update**
-1. With a generated schedule, edit a teacher who has classes. Untick their specializations and tick only one they do not teach. Save.
+1. With a generated schedule, edit a teacher who has classes. Untick their subject areas and tick only one they do not teach. Save.
 2. Open **Class Schedules** and **Conflict Detection**.
 
 *Expected:* The conflict count rises straight away ("Unqualified" rows), and the banner from C5 appears.
-☐ Pass
+☐ Pass ☐ Fail
 
 **E3. Validation**
-1. In the Add Faculty form, leave the name empty or untick every specialization, then try to save.
+1. In the Add Faculty form, leave the name empty or leave every subject area unticked, then try to save.
 
 *Expected:* The form does not save and the dialog stays open.
-☐ Pass
+☐ Pass ☐ Fail
 
 **E4. Delete a teacher who has classes**
 1. Delete a teacher who is teaching in the current schedule. First press **Cancel** in the confirmation, then delete again and confirm.
 
 *Expected:* The confirmation names the teacher and how many classes they teach; Cancel changes nothing. After confirming, the teacher is removed. The schedule is flagged ("… was removed — N class(es) need a new teacher") and the count shows conflicts. **Update affected classes** gives those classes a new teacher.
-☐ Pass
+☐ Pass ☐ Fail
 
 **E5. Profile and schedule links**
 1. In the Faculty list, press **View Profile**, then **View Schedule** for a teacher.
 
 *Expected:* The profile shows employment status, rank, maximum units, current load, specializations, preferred days, unavailable times and requested preferred times. View Schedule opens Class Schedules on that teacher.
-☐ Pass
+☐ Pass ☐ Fail
 
 **E6. Form messages and limits**
-1. Open **Add Faculty** and press **Save** after each of these: (a) leave the name empty; (b) type the name of an existing teacher in different capitals; (c) untick every specialization; (d) set **Maximum Teaching Units** to `0`, then `-5`, then leave it empty.
+1. Open **Add Faculty** and press **Save** after each of these: (a) leave the name empty; (b) type the name of an existing teacher in different capitals; (c) untick every subject area; (d) set **Maximum Teaching Units** to `0`, then `-5`, then leave it empty.
 2. Finally enter valid values and save.
 
-*Expected:* Each time a red message says what is wrong and nothing is saved: "Enter the teacher's full name.", "Another teacher is already called … Names must be different, because faculty sign in by name.", "Tick at least one specialization.", "Maximum teaching units must be between 1 and 40." or "… must be a whole number." With valid values the teacher is saved and the dialog closes.
+*Expected:* Each time a red message says what is wrong and nothing is saved: "Enter the teacher's full name.", "Another teacher is already called … Names must be different, because faculty sign in by name.", "Tick or add at least one subject area.", "Maximum teaching units must be between 1 and 40." or "… must be a whole number." With valid values the teacher is saved and the dialog closes.
 ☐ Pass ☐ Fail
 
 ---
@@ -285,7 +287,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 ## F. Subjects and rooms
 
 **F1. Add an online subject**
-1. Open **Subjects → Add Subject**. Fill in the fields (code, name, section such as `BSIT-2A`, units, required specialization, **Class Type: Online**, students) and save.
+1. Open **Subjects → Add Subject**. Fill in the fields (code, name, section such as `BSIT-2A`, units, subject area, **Class Type: Online**, students) and save.
 
 *Expected:* The subject appears in the list. If a schedule exists, a banner says the new subject needs to be placed. **Update affected classes** places it without moving other classes.
 ☐ Pass ☐ Fail
@@ -358,9 +360,9 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 ☐ Pass ☐ Fail
 
 **G3. Bad rows are rejected**
-1. Press **Import CSV** on Faculty and press **Load example template**. In the data row, change the specialization (for example `"Programming;Databases"`) to `Cooking`. Press **Import**.
+1. Press **Import CSV** on Faculty and press **Load example template**. In the data row, delete the specializations `"Programming;Databases"`, keeping the commas on both sides. Press **Import**.
 
-*Expected:* A red message "Nothing was imported. Row 1: unknown specialization Cooking." and no teacher is added. Also try a blank name, and a subject with `units` set to `abc`.
+*Expected:* A red message "Nothing was imported. Row 1: specialization is missing." and no teacher is added. Also try a blank name, and a subject with `units` set to `abc`. (Any subject area name is accepted, because every school has its own: a new name becomes a new subject area.)
 ☐ Pass ☐ Fail
 
 **G4. Subject import with a fixed time**
@@ -396,7 +398,7 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 **H3. Departments**
 1. Open **Departments** (Administrator or IT).
 
-*Expected:* Each specialization appears as a department with load %, overload and conflict counts, and an "Issues Requiring Attention" list. Department Chair does not see this page.
+*Expected:* Each subject area found in the data (the teachers' and the subjects') appears as a department with load %, overload and conflict counts, and an "Issues Requiring Attention" list. Department Chair does not see this page.
 ☐ Pass ☐ Fail
 
 ---
@@ -591,9 +593,9 @@ These must be checked by hand in real browsers and on a real phone.
 ☐ Pass ☐ Fail
 
 **L5. Works without internet**
-1. Serve the app on the same computer (for example with Live Server or `npx serve`), then switch the internet off (airplane mode or unplug the cable) and reload the page. Sign in and generate a schedule.
+1. Serve the app on the same computer (for example with Live Server or `npx serve`), then switch the internet off (airplane mode or unplug the cable) and reload the page. Sign in and generate a schedule. As Administrator, open **Settings** and press **Download blank template**, then upload a filled workbook (N3).
 
-*Expected:* The app loads fully styled in the Inter font and everything works as normal. (A copy published on the web needs the internet to reach the page itself; the libraries are not the problem.)
+*Expected:* The app loads fully styled in the Inter font and everything works as normal, including the template download and the upload check. (A copy published on the web needs the internet to reach the page itself; the libraries are not the problem.)
 ☐ Pass ☐ Fail
 
 **L6. Start-up speed**
@@ -604,21 +606,98 @@ These must be checked by hand in real browsers and on a real phone.
 
 ---
 
-## M. Automated engine tests
+## M. Automated tests
 
-The engine (`engine.js`) has its own tests that you can run in seconds.
+The engine (`engine.js`) and the workbook checker (`importer.js`) have their own tests that you can run in seconds.
 
 **M1. Run the tests**
-1. With Node.js: from the project folder run `node tests/engine.test.js`.
-2. Without Node.js: serve the folder and open `/tests/run.html`.
+1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
+2. Without Node.js: serve the folder and open `/tests/run.html`. It runs both.
 
-*Expected:* A list of `ok` lines and a last line `30 passed, 0 failed`. A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `30 passed, 0 failed`, and the *Importer tests* end with `16 passed, 0 failed`. A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**
 1. Serve the folder and open `/tools/build.html`. Do this before the defense and after any change to `app.jsx`.
 
 *Expected:* "✓ app.js is up to date with app.jsx." If it says *out of date*, press **Build app.js**, save the downloaded `app.js` into the project folder (replacing the old one) and open the page again: it should now say up to date.
+☐ Pass ☐ Fail
+
+---
+
+## N. Setting up with a school's data
+
+*Start from a fresh Standard sample, signed in as Administrator, and generate a schedule (B1) so there is something to replace. IT sees the same card; Department Chair and Faculty Member do not.* The tests use one small example school, built in N3.
+
+**N1. Download the blank template**
+1. Open **Settings**. In the card **Set up with your school's data**, press **Download blank template**. Open the file in Excel.
+
+*Expected:* The card says "Currently loaded: sample data (standard sample)". A file `SchedWiseAI-template.xlsx` downloads and a green message says "Downloaded the blank template." It has four sheets: **Instructions**, **Faculty**, **Subjects** and **Rooms**. Row 1 of each data sheet holds the column names (required ones end in `*`), and the rows under it start with `EXAMPLE`. The Instructions sheet explains every column and lists the six periods.
+☐ Pass ☐ Fail
+
+**N2. A workbook with mistakes is refused**
+1. In the template's **Faculty** sheet, copy the first `EXAMPLE` row to the row under the examples, remove the word `EXAMPLE` from its name, and change **Max units** to `50`. In the **Subjects** sheet, copy the second `EXAMPLE` row the same way, remove `EXAMPLE` from its code, and empty its **Section** cell. Save it as an Excel workbook (`.xlsx`).
+2. In the card press **Choose filled workbook (.xlsx)…** and choose the file.
+3. Then choose a file that is not a workbook, for example a photo renamed to `photo.xlsx`.
+
+*Expected:* For the workbook, the result starts with ✗ and says "fix the errors in the file, save it, and choose it again". The **Errors** list is grouped by sheet and shows "Row N, Max units: Use a whole number from 1 to 40." and "Row N, Section: This cell is required.", where N is the row number Excel shows. **Replace my data with this file** cannot be pressed. For the photo, a red message ends "This file could not be read as an Excel workbook (.xlsx)." Nothing changes in either case: the Faculty page still shows the sample teachers.
+☐ Pass ☐ Fail
+
+**N3. Warnings explain but do not block**
+1. Make a new copy of the template and fill it with this school (delete the `EXAMPLE` rows or leave them; they are skipped):
+   - **Faculty:** `Ana Cruz` · Subject areas `Accounting` · Max units `18` · Employment status `Contractual` · Academic rank `Dean`; and `Ben Lim` · `Programming` · `21` (leave status and rank empty).
+   - **Subjects:** `ACC101` · Program `BSA` · `Financial Accounting` · Section `BSA-1A` · Units `3` · Subject area `Accounting` · Class type `Online` · Students `40` · Year level `1` · Semester `1st`; `IT101` · `BSIT` · `Introduction to Computing` · `BSIT-1A` · `3` · `Programming` · `Laboratory` · `35` · `1` · `1st`; `NUR101` · `BSN` · `Nursing Care 1` · `BSN-1A` · `3` · `Nursing` · `Online` · `30` · `1` · `1st`.
+   - **Rooms:** `Lab 101` · Capacity `40`.
+2. Save it as `Our-School.xlsx` and choose it in the card.
+
+*Expected:* "✓ 2 teachers · 3 subjects · 1 room". There are no errors. **Warnings (1)** says "Row 4, Subject area: No teacher has the subject area 'Nursing', so NUR101 (BSN-1A) will show as Cannot be scheduled." (the row number may differ if you kept the examples). **Notes** (closed until you open them) list the defaults used, for example "1 teacher has no employment status: Full-time used." **Replace my data with this file** can be pressed.
+☐ Pass ☐ Fail
+
+**N4. Replace asks first, and offers a backup**
+1. With the result of N3 shown, press **Replace my data with this file**. Read the dialog, then press **Cancel**.
+2. Press **Replace my data with this file** again, then **Download a backup first**.
+3. Press **Replace my data**. Then reload the page (F5).
+
+*Expected:* The dialog "Replace your data?" says the faculty, subjects and rooms will be replaced by the 2 teachers, 3 subjects and 1 room in Our-School.xlsx, and that the schedule, its saved versions and all requests will be cleared. Cancel changes nothing. *Download a backup first* downloads a backup, shows a green message, and keeps the dialog open. After **Replace my data**, Class Schedules opens with no schedule and a **Generate Schedule** button; Faculty lists only Ana Cruz and Ben Lim; Schedule History is empty; the bell has "Uploaded school data from Our-School.xlsx: 2 teachers, 3 subjects, 1 room."; Settings says "Currently loaded: your school's data, uploaded <date and time> from Our-School.xlsx". After the reload all of this is still there. (Restoring the backup from step 2 brings the sample back; see K3.)
+☐ Pass ☐ Fail
+
+**N5. Generate from the uploaded data**
+1. On Class Schedules press **Generate Schedule**. Then open **Conflict Detection**.
+2. Edit **Ana Cruz** on the Faculty page, tick **Nursing** as well as Accounting, and save. On Class Schedules press **Full Regenerate**.
+
+*Expected:* (1) ACC101 is placed as an online class with Ana Cruz, and IT101 in Lab 101 with Ben Lim. Under *Subjects that cannot be scheduled*, NUR101 is listed with what to change ("No teacher has the Nursing specialization. Add one in Faculty, …"), so the schedule is not conflict-free. (2) All three subjects are placed (NUR101 with Ana Cruz) and the schedule is conflict-free.
+☐ Pass ☐ Fail
+
+**N6. Edit the data in Excel and upload it again**
+1. In Settings press **Download current data** and open the file.
+2. Change Ana Cruz's **Max units** from `18` to `15`. Save, choose the file in the card, and replace (N4).
+
+*Expected:* The file is named `SchedWiseAI-data-<date>.xlsx` and has the same three sheets with the current teachers, subjects and room, in the template's layout. The check shows "✓ 2 teachers · 3 subjects · 1 room" with no errors and no warnings. After replacing, Ana Cruz has 15 maximum units and still teaches Accounting and Nursing; the other teacher, the subjects and the room are unchanged (the schedule is cleared, as in N4).
+☐ Pass ☐ Fail
+
+**N7. The forms use the school's subject areas**
+1. Open **Faculty → Add Faculty**. Look at the subject areas. Type `accounting` in the box under them and press **Add**. Close the form with Esc.
+2. Edit **Ana Cruz** and look at Employment Status and Academic Rank. Press **Save** without changing anything. Edit **Ben Lim** and look at Academic Rank.
+3. Open **Subjects → Add Subject**. Look at **Program** and **Subject area**. Choose **New subject area…**, type `Midwifery`, fill in code `MID101`, a name and section `BSM-1A`, and save. Open **Faculty → Add Faculty** again.
+4. Open **Departments**.
+
+*Expected:* (1) The list shows the school's areas, Accounting, Nursing and Programming, and none is ticked; typing `accounting` ticks the existing Accounting instead of adding a second one. (2) Ana Cruz shows Contractual and Dean, and still has Dean after saving; Ben Lim's rank shows "— (none)". (3) Program lists BSA, BSIT and BSN first and starts on BSA; Subject area lists the school's areas and **New subject area…**; MID101 is saved with Midwifery, and Add Faculty now lists Midwifery too. (4) Departments lists exactly the school's areas, including Midwifery.
+☐ Pass ☐ Fail
+
+**N8. The sample-data reminder**
+1. With the school's data loaded, open **Overview**.
+2. Open **Settings → Testing tools → Standard sample** and confirm. Open **Overview** again and press **Set up with your school's data →**.
+3. Use **Viewing as** to look at the IT, Department Chair and Faculty Member overviews.
+
+*Expected:* With the school's data there is no reminder. With the sample loaded, the Administrator overview shows "You are looking at sample data." and the link opens Settings, where the card says "Currently loaded: sample data (standard sample)". IT sees the same reminder; Department Chair and Faculty Member never see it.
+☐ Pass ☐ Fail
+
+**N9. Workbooks saved by Google Sheets and LibreOffice**
+1. Open `Our-School.xlsx` from N3 in **Google Sheets** (upload it to Google Drive and open it) and use **File → Download → Microsoft Excel (.xlsx)**. Choose the downloaded copy in the card.
+2. Open `Our-School.xlsx` in **LibreOffice Calc** and use **File → Save As**, type *Excel 2007-365 (.xlsx)*. Choose that copy in the card.
+3. Do not replace; just compare each result with N3.
+
+*Expected:* Both copies give the same result as in N3: "✓ 2 teachers · 3 subjects · 1 room", the same warning and the same notes. If you do not have one of the programs, test the other and write which one you skipped under Notes.
 ☐ Pass ☐ Fail
 
 ---
@@ -659,14 +738,14 @@ If your study evaluates the system against the ISO/IEC 25010 product quality mod
 
 | Characteristic | What it asks | Tests that give evidence |
 |---|---|---|
-| **Functional suitability** | Does it do what it should, correctly and completely? | B, C, D, E, F, G, H, I, J, M, S1, S2 |
+| **Functional suitability** | Does it do what it should, correctly and completely? | B, C, D, E, F, G, H, I, J, M, N, S1, S2 |
 | **Performance efficiency** | Is it fast enough? | L3, L6, K5 |
-| **Compatibility** | Does it work in different environments? | L2, L1, L5 |
-| **Usability** | Can people learn and use it? Is it accessible? | A1, A3, E3, E6, F8, F9, G3, I1, J6, J7, L1, L4, and respondent feedback |
-| **Reliability** | Does it keep working, and keep data? | K1, K3, K4, K7, K8, C2 (live recount), C7, M1 |
-| **Security** | Is access limited to the right people? | A2, A4, A5, I9, J7, S4 (role limits only); G5 and K7 (harmful file contents are neutralised or refused) |
-| **Maintainability** | Can it be changed and tested easily? | M1, M2 (automated tests and build check; the code is documented in the README) |
-| **Portability** | Can it run elsewhere? | K2, K3, S3, L2 |
+| **Compatibility** | Does it work in different environments? | L2, L1, L5, N6 and N9 (workbooks from Excel, Google Sheets and LibreOffice) |
+| **Usability** | Can people learn and use it? Is it accessible? | A1, A3, E3, E6, F8, F9, G3, I1, J6, J7, L1, L4, N1, N2 (each mistake named by sheet, row and column), N8, and respondent feedback |
+| **Reliability** | Does it keep working, and keep data? | K1, K3, K4, K7, K8, C2 (live recount), C7, M1, N2 and N4 (nothing changes until the file is valid and you confirm; a backup is offered first) |
+| **Security** | Is access limited to the right people? | A2, A4, A5, I9, J7, S4, N8 (role limits only); G5, K7 and N2 (harmful or wrong file contents are neutralised or refused) |
+| **Maintainability** | Can it be changed and tested easily? | M1, M2 (automated engine and importer tests and the build check; the code is documented in the README) |
+| **Portability** | Can it run elsewhere? | K2, K3, S3, L2, N6 (the data can be taken out to Excel and brought back) |
 
 **Be honest about security:** there is no password and no server. The role limits only control what the screen shows, and all data stays in the user's own browser. This is acceptable for a research prototype, but it is *not* evidence of real access control. Say so in your paper.
 
@@ -699,8 +778,9 @@ Please read the README section *Limitations and known issues*. Examples: data li
 | K. Saving, backup, reset | 8 | | | |
 | L. Devices and performance | 6 | | | |
 | M. Automated tests and build check | 2 | | | |
+| N. Setting up with a school's data | 9 | | | |
 | End-to-end scenarios | 4 | | | |
-| **Total** | **83** | | | |
+| **Total** | **92** | | | |
 
 **Defect log**
 

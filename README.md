@@ -6,7 +6,7 @@ SchedWiseAI is a web-based prototype that builds conflict-free class schedules f
 
 Instead of scheduling by hand, an administrator presses **Generate Schedule**. A hybrid *constraint-based seeding + Genetic Algorithm* engine then produces a weekly timetable that respects teacher qualifications, teacher availability, room types and capacity, and (optionally) curriculum year-level overlaps. When something changes later, for example a teacher's leave is approved, the system can **update only the affected classes** instead of rebuilding everything.
 
-> **Status:** working prototype for research and respondent testing. It runs entirely in the browser with sample data. See [Limitations](#limitations-and-known-issues).
+> **Status:** working prototype for research and respondent testing. It runs entirely in the browser, with sample data or with a school's own teachers, subjects and rooms uploaded from an Excel workbook. See [Limitations](#limitations-and-known-issues).
 
 ---
 
@@ -36,7 +36,7 @@ Once this repository is published with **GitHub Pages** (see [Getting started](#
 https://<your-username>.github.io/<repository-name>/
 ```
 
-Sign in with **any name** and choose a role. There is no password. The first visit loads randomly generated sample data (9 faculty, 18 subjects, 6 laboratory rooms) so you can explore immediately.
+Sign in with **any name** and choose a role. There is no password. The first visit loads randomly generated sample data (9 faculty, 18 subjects, 6 laboratory rooms) so you can explore immediately. To schedule a school's real teachers, subjects and rooms instead, see [Set up with your school's data](#features).
 
 ---
 
@@ -45,22 +45,23 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 | Module | What it does |
 |---|---|
 | **AI Schedule Generation** | Builds a full Monday–Saturday timetable (6 periods per day, 07:00–16:00, no classes on Sunday) using constraint-based seeding and a Genetic Algorithm. Shows a convergence chart for every run: the best and average score per generation, each on its own labelled scale, with a plain-language caption. |
+| **Set up with your school's data** (Settings, Admin and IT) | Download a blank Excel template (an *Instructions* sheet and *Faculty*, *Subjects* and *Rooms* sheets with example rows), fill it in with Excel (or another spreadsheet program that saves `.xlsx`), and upload it. The file is checked before anything changes. **Errors** (a missing required cell, a number out of range, an unknown day or class type, a duplicate teacher) are listed by sheet, row and column and block the upload. **Warnings** (a subject area no teacher has, a lab class bigger than every lab, more units than the teachers can take) explain what will go wrong but do not block it. **Replace my data with this file** asks first and offers a backup, then replaces the faculty, subjects and rooms and clears the old schedule, its versions and the requests. **Download current data** gives everything in the same layout, to edit and upload again. Subject areas, programs, employment statuses and ranks in the forms then come from the school's data. While sample data is loaded, the Administrator and IT overviews say so and link to this card. The workbook uses the app's current time model (Monday–Saturday, six 1.5-hour periods, one meeting per subject section). |
 | **Incremental Update** | After an approved availability change or leave, a new or edited subject, or an import, **Update affected classes** moves only the classes that now break a rule. Everything else stays exactly where it was, and a "What changed" panel lists each move. *Full Regenerate* is still available. |
-| **Faculty Management** | Add, edit and delete faculty with specializations, preferred days, maximum units, employment status and academic rank. Profile view, current load and workload status per person. Forms say what is wrong (missing name, a number out of range, a duplicate name, subject or room) instead of silently refusing to save. |
+| **Faculty Management** | Add, edit and delete faculty with subject areas (the school's own areas, taken from the data; a new one can be added in the form), preferred days, maximum units, employment status and academic rank (the built-in choices plus any the data already uses). Profile view, current load and workload status per person. Forms say what is wrong (missing name, a number out of range, a duplicate name, subject or room) instead of silently refusing to save. |
 | **Workload Management** | Load % (assigned ÷ maximum units) with a bar, comparison with the group average, summary cards (teachers per status, units vs. capacity, average load, highest-to-lowest gap), each teacher's classes on click with how many subjects they can teach, and a built-in explanation of how the status is calculated and why a load can be low. |
 | **Testing tools** (Settings, Admin and IT) | Load the standard sample (9 faculty, 18 subjects, 6 labs) or an expanded multi-program sample (22 faculty including part-time, 48 subjects across BSIT, BSCS and BSIS, 10 labs), and create deliberate conflicts of seven kinds (plus teacher overload) to test conflict detection and repair. The expanded subject list is illustrative test data, not an official curriculum. |
 | **Availability and Leave** | Faculty request a change of availability or a leave with a **day-and-period picker**. A message confirms the request is waiting for approval. When a chair or administrator approves it, those times are saved as the teacher's unavailable times, and if they clash with a class, an **Update affected classes** button appears right there on the Leave & Availability tab (and on Class Schedules). An approved leave can be ended, and an approved availability change can be undone, which makes those times available again (the current schedule is left as it is; use Full Regenerate to use them). |
-| **Subject Management** | School year, Major/Minor category, academic year level, semester, class type (**Online** or **Laboratory**), optional **fixed day/period** (for subjects whose time is set by another department, such as GE, PE or NSTP), and optional prerequisite with sequence checking. |
+| **Subject Management** | Program (the programs in the data, plus BSIT, BSCS and BSIS), subject area (one of the school's areas, or **New subject area…**), school year, Major/Minor category, academic year level, semester, class type (**Online** or **Laboratory**), optional **fixed day/period** (for subjects whose time is set by another department, such as GE, PE or NSTP), and optional prerequisite with sequence checking. |
 | **Room Management** | Laboratory rooms with capacity. Online classes need no room. |
 | **Curriculum-aware scheduling** | Optional. Avoids overlapping classes that share the same program, year level and semester (different programs may share a time). |
 | **Manual editing** | Click any scheduled class to change its teacher, room or time, or remove it. Conflicts are re-checked immediately. |
 | **Approval workflow** | Every generated or changed schedule starts as *Pending Review*. Administrators and chairs approve or reject it with a comment. |
 | **Conflict Detection** | Reports eight constraint categories: teacher double-booking, room double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, room capacity, and subjects that cannot be scheduled at all (no qualified teacher, or no lab big enough), which it lists with what to change. Overload is shown separately on the Workload, Faculty and Departments pages (see Limitations). |
-| **Departments** | Each specialization is treated as a department, with summary cards, teaching load %, overload and conflict counts, expandable workload charts, and an *Issues Requiring Attention* list. |
+| **Departments** | Each subject area in the data (every teacher's and every subject's) is treated as a department, with summary cards, teaching load %, overload and conflict counts, expandable workload charts, and an *Issues Requiring Attention* list. |
 | **Reports** | Faculty Teaching Load, Room Utilization (with room × day heatmap), Department Summary, and Conflict Report. Every report exports to CSV; everything can be printed or saved as PDF. |
 | **Schedule History** | Keeps up to 20 versions (full and update) with a fitness comparison chart. Any version can be restored. |
 | **Search** | The search box in the top bar finds faculty, subjects and rooms as you type and opens the one you pick (keyboard: arrows, Enter, Esc). A Faculty Member searches their own classes. |
-| **Notifications** | Bell icon with unread count for schedule, approval, request and import events. |
+| **Notifications** | Bell icon with unread count for schedule, approval, request, import and upload events. |
 | **Role-specific Overview pages** | A different landing page for each role showing what that role acts on. |
 | **Bulk CSV import/export** | Faculty, subjects and rooms. Each import page has a built-in example template. Exported text that starts with `=`, `+`, `-` or `@` gets a leading apostrophe, so Excel or Google Sheets shows it as text instead of running it as a formula. |
 | **Backup and restore** (Settings, Admin and IT) | Download all data (faculty, subjects, rooms, schedule, history, requests) as one `.json` file and restore it later, in the same or another browser. A restore file is fully checked first (every entry and every displayed field), and nothing changes unless it is valid and you confirm. If saved data is ever damaged anyway, the app shows a recovery screen (download the saved data, or reset) instead of a blank page. Who is signed in is not part of a backup. |
@@ -84,6 +85,7 @@ There are four roles, matching the study's respondent groups. Access is controll
 | Schedule History | ✅ | ✅ | – | ✅ |
 | Departments | ✅ | – | – | ✅ |
 | Conflict Detection, Reports | ✅ | ✅ | – | ✅ |
+| Settings: set up with your school's data, backup and restore, testing tools; Reset Demo Data | ✅ | – | – | ✅ |
 
 ---
 
@@ -92,7 +94,7 @@ There are four roles, matching the study's respondent groups. Access is controll
 ### Requirements
 
 - A modern browser (Chrome, Edge, Firefox or Safari)
-- **No internet needed to run the app** once it is being served: React, Babel, Tailwind CSS and the Inter font are stored in the `vendor/` folder
+- **No internet needed to run the app** once it is being served: React, Babel, Tailwind CSS, SheetJS (for Excel files) and the Inter font are stored in the `vendor/` folder
 - To run `npx serve` or the Node test command: [Node.js](https://nodejs.org) 16 or newer *(optional)*
 
 ### Option A: publish with GitHub Pages (recommended)
@@ -119,6 +121,7 @@ Then open the address it prints. Without Node.js, use the **Live Server** extens
 2. Use the **Viewing as** dropdown at the bottom of the sidebar to switch roles without signing out.
 3. Open **Class Schedules → Generate Schedule**.
 4. To start over, an Administrator or IT user can use **Reset Demo Data** in the sidebar (other roles do not see it).
+5. To use a school's real data, an Administrator or IT user opens **Settings → Set up with your school's data**, downloads the blank template, fills it in, and uploads it. The *Instructions* sheet in the template explains every column.
 
 > **Tip:** to test as a specific teacher, sign in with the **Faculty Member** role and type that teacher's name exactly as it appears in the Faculty list. Otherwise the first teacher in the list is used.
 
@@ -176,18 +179,21 @@ In one check on 40 generated sample datasets (955 classes in total), where one t
 
 ```
 schedwiseai/
-├── index.html              Entry page: loads libraries, engine.js, then loader.js
+├── index.html              Entry page: loads libraries, engine.js, importer.js, then loader.js
 ├── engine.js               The scheduling engine (Genetic Algorithm, rule checker, update logic)
+├── importer.js             Reads and checks a school data workbook, and writes the template (no libraries)
 ├── app.jsx                 The user interface (React): all pages, forms and state. EDIT THIS ONE.
 ├── app.js                  app.jsx compiled to plain JavaScript by tools/build.html (do not edit)
 ├── loader.js               Starts the interface: app.js if it is up to date, otherwise compiles app.jsx
 ├── styles.css              Global styles, colours and print rules
 ├── vendor/                 Third-party libraries and the Inter font, stored locally so the app works offline
+│   └── xlsx.full.min.js    SheetJS, reads and writes Excel files; loaded only when the Settings setup card needs it
 ├── tools/
 │   └── build.html          Rebuilds app.js after app.jsx changes (runs in a browser, no Node.js needed)
 ├── tests/
 │   ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
-│   └── run.html            Runs those tests in a browser page
+│   ├── importer.test.js    Automated tests for importer.js (Node.js or browser, no libraries)
+│   └── run.html            Runs both test files in a browser page
 └── docs/
     ├── FLOWCHART.md        Flowcharts of the optimization engine (full generation, scoring, update)
     └── TESTING_GUIDE.md    Step-by-step manual test plan, with a results sheet
@@ -227,6 +233,18 @@ If you forget, nothing breaks: `loader.js` sees that `app.js` was built from an 
 | `generateSyntheticData(...)` | Builds solvable sample data from a random seed. |
 | `currentSchoolYear()` / `schoolYearOptions()` | School year labels such as `2026–2027`. |
 
+### `importer.js`, the school data workbook (exposed as `window.SchedImport`)
+
+It works on plain rows (one array per spreadsheet row), so it needs no spreadsheet library and is tested on its own. The app turns the `.xlsx` file into rows with SheetJS first.
+
+| Function | Purpose |
+|---|---|
+| `SHEETS`, `COLUMNS`, `LIMITS` | The template: the sheet names, every column (header, required or not, example) and the limits (5 MB file, 2,000 rows per sheet, 120 characters of text). |
+| `parseWorkbook(sheets)` | Checks every row and turns a correct workbook into the app's faculty, subjects and rooms. Returns `{ ok, data, counts, errors, warnings, notes }`; each problem names its sheet, Excel row and column. Columns are found by name in any order, `EXAMPLE` rows and blank rows are skipped, and any error means `data` is `null`. |
+| `templateRows()` | The blank template: an *Instructions* sheet and the three data sheets with `EXAMPLE` rows. |
+| `currentDataRows(data)` | The current faculty, subjects and rooms in the template's layout, so they can be edited and uploaded again. |
+| `parseWholeNumber()`, `parseDayList()`, `parseSlotList()` / `formatSlotList()`, `parseYearLevel()`, `parseSemester()`, `parseSchoolYear()`, `canonical()` | Read one cell: numbers, days (`Mon; Wed`), unavailable times (`Sat; Mon P1; Fri P4-P6`), year level, semester and school year; `canonical()` compares names ignoring capitals and extra spaces. |
+
 ### `app.jsx`, the interface
 
 | Piece | Purpose |
@@ -246,6 +264,10 @@ If you forget, nothing breaks: `loader.js` sees that `app.js` was built from an 
 | `normalizeData()` | Upgrades data saved by older versions so nothing is lost. |
 | `makeBackup()`, `parseBackup()` | Build the backup file, and check a chosen file before it replaces any data. |
 | `downloadCSV()`, `parseCSV()` | CSV export and import helpers. |
+| `SchoolDataCard`, `UploadIssueList`, `handleApplySchoolData()` | Settings → *Set up with your school's data*: the three steps, the check result grouped by sheet, the "Replace your data?" dialog, and replacing the data. |
+| `loadSheetLibrary()`, `readWorkbookFile()`, `downloadWorkbook()` | Load SheetJS on first use, read a chosen `.xlsx` file into rows (refusing files over 5 MB or that are not Excel workbooks), and save rows as an `.xlsx` file. |
+| `SampleDataBanner` | "You are looking at sample data." on the Administrator and IT overviews, with a link to the setup card. |
+| `subjectAreasOf()` | The school's subject areas, taken from the data (every teacher's and every subject's). The forms, Departments and Reports use it. |
 
 ---
 
@@ -253,13 +275,16 @@ If you forget, nothing breaks: `loader.js` sees that `app.js` was built from an 
 
 **Automated (engine):** 30 tests in `tests/engine.test.js` cover the time slots, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
 
+**Automated (school data workbook):** 16 tests in `tests/importer.test.js` cover reading each kind of cell, turning a correct workbook into the app's data, every kind of error (each pointing to its sheet, row and column), the warnings, the notes about defaults, columns in any order, skipped `EXAMPLE` and blank rows, numbers typed as text, text that looks like a formula, the template, and a round trip (current data → workbook → the same data).
+
 ```bash
 node tests/engine.test.js        # needs Node.js; ends with "30 passed, 0 failed"
+node tests/importer.test.js      # ends with "16 passed, 0 failed"
 ```
 
-No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs the same tests and prints the results on the page.
+No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs both test files and prints the results on the page.
 
-**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It has 83 step-by-step test cases with expected results for all four roles (sign-in and access, generation and approval, conflicts, editing, faculty, subjects and rooms, CSV, workload, availability and leave, history and reports, backup and reset, phone and browser checks), four end-to-end scenarios, a mapping to the ISO/IEC 25010 quality characteristics, and a results sheet and defect log. Mobile layout, printing, file downloads and running with the internet switched off must be checked by hand in real browsers. The Settings page has **Testing tools** (Admin and IT) to load the standard or the expanded sample and to create deliberate conflicts.
+**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It has 92 step-by-step test cases with expected results for all four roles (sign-in and access, generation and approval, conflicts, editing, faculty, subjects and rooms, CSV, workload, availability and leave, history and reports, backup and reset, phone and browser checks, setting up with a school's data), four end-to-end scenarios, a mapping to the ISO/IEC 25010 quality characteristics, and a results sheet and defect log. Mobile layout, printing, file downloads and running with the internet switched off must be checked by hand in real browsers. The Settings page has **Testing tools** (Admin and IT) to load the standard or the expanded sample and to create deliberate conflicts.
 
 ---
 
@@ -267,7 +292,8 @@ No Node.js? Serve the folder (for example with VS Code Live Server) and open `te
 
 - All sample data is **synthetic**. Faculty names are randomly generated.
 - Everything you enter is stored in your own browser's `localStorage` (key `schedwiseai_prototype_v1`). **Nothing is sent to a server**, and each browser or device has its own separate data.
-- **Do not commit real faculty, student or schedule data** to this repository.
+- **Do not commit real faculty, student or schedule data** to this repository, including filled templates and downloaded data workbooks.
+- An uploaded workbook is read inside the browser. The file is not sent anywhere or kept; the teachers, subjects and rooms in it are saved in this browser like everything else you enter (with the file's name, to show where the data came from).
 - To keep a copy of your data, or move it to another browser, use **Settings → Backup and restore**. Backup files contain everything you entered, so treat them like the data itself.
 - To clear everything: an Administrator or IT user can use **Reset Demo Data**, or clear this site's storage in your browser's developer tools.
 
@@ -289,16 +315,20 @@ This is a research prototype. Please read this list before relying on it.
 - **Load status mixes two comparisons.** Overloaded and Near capacity compare a teacher with their own maximum; Light load compares them with colleagues (fewer than half the average units per teacher). The 80% cutoff and the "half the average" line are prototype settings, and only teaching units are counted. The Workload page explains the rules with the current numbers.
 - **Overload is a warning, not a conflict.** A teacher above their maximum units shows as *Overloaded* on the Workload, Faculty and Departments pages, and the schedule page adds an orange "teachers over maximum units" badge next to the *Conflict-free* label. The engine does not try to remove overload, so it can still occur when there are too few teachers for the number of subjects. This does not happen with the default sample data.
 - IT staff can approve or deny leave requests, although schedule approval is limited to administrators and chairs.
-- CSV import rejects rows with a missing code or name, an unknown specialization or an invalid number. A blank specialization list is still accepted and stays empty (IT's *Data Health* panel flags it).
+- CSV import rejects rows with a missing code or name, a missing subject area, a subject area longer than 120 characters, or an invalid number. Any subject area name is accepted, so a misspelled one becomes a new area that no teacher has (that subject then shows as *Cannot be scheduled*).
+- **Uploading a workbook replaces everything**: faculty, subjects and rooms are replaced and the schedule, its versions and the requests are cleared. There is no merge. To change a few things, use **Download current data**, edit the file and upload it again, or edit in the app.
+- **Subject areas are matched by name.** A teacher can teach a subject only if one of their subject areas is the subject's area. In an uploaded workbook, capitals and extra spaces do not matter (`accounting` and `Accounting` become one area, and a note says so), and the forms pick the existing spelling; a CSV import keeps names exactly as written. The upload check warns about a subject area that no teacher has.
+- **The workbook follows the current time model**: one 1.5-hour period per subject section per week, Monday to Saturday. Real class hours (for example a 3-hour subject meeting twice a week) are a planned later step.
 
 ---
 
 ## Technology
 
 - **React 18** (UMD build). The interface is written in JSX (`app.jsx`) and compiled to `app.js` with **Babel Standalone** in the browser by `tools/build.html`, so no Node.js build tools are needed
-- **Tailwind CSS** (in-browser build) and the **Inter** font. These and React and Babel are stored in `vendor/` (see `vendor/README.md` for versions and licenses), so the app works offline
-- Plain JavaScript for the engine; charts are hand-drawn SVG
-- The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and `node tests/engine.test.js`
+- **Tailwind CSS** (in-browser build) and the **Inter** font. These, React, Babel and SheetJS are stored in `vendor/` (see `vendor/README.md` for versions and licenses), so the app works offline
+- **SheetJS Community Edition** (`vendor/xlsx.full.min.js`) reads and writes the Excel workbooks. It is loaded only when the Settings setup card needs it, so it does not slow down the start
+- Plain JavaScript for the engine and the workbook checker (`importer.js`); charts are hand-drawn SVG
+- The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and the two `node tests/…` commands
 - The whole system is written in **HTML, CSS and JavaScript**, with no server code and no database
 
 ---

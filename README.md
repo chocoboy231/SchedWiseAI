@@ -36,7 +36,7 @@ Once this repository is published with **GitHub Pages** (see [Getting started](#
 https://<your-username>.github.io/<repository-name>/
 ```
 
-Sign in with **any name** and choose a role. There is no password. The first visit loads randomly generated sample data (9 faculty, 18 subjects, 6 laboratory rooms) so you can explore immediately. To schedule a school's real teachers, subjects and rooms instead, see [Set up with your school's data](#features).
+The first time it opens, SchedWiseAI asks you to create the first **Administrator account** (full name, username and password). After that everyone signs in with their own account, and Administrators and IT staff create accounts for the others on the **Accounts** page. The first visit loads randomly generated sample data (9 faculty, 18 subjects, 6 laboratory rooms) so you can explore immediately. To schedule a school's real teachers, subjects and rooms instead, see [Set up with your school's data](#features).
 
 ---
 
@@ -62,6 +62,7 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 | **Schedule History** | Keeps up to 20 versions (full and update) with a fitness comparison chart. Any version can be restored. |
 | **Search** | The search box in the top bar finds faculty, subjects and rooms as you type and opens the one you pick (keyboard: arrows, Enter, Esc). A Faculty Member searches their own classes. |
 | **Notifications** | Bell icon with unread count for schedule, approval, request, import and upload events. |
+| **Sign-in and accounts** | Everyone signs in with their own username and password, and the account decides the role; there is no role switch. The first visit creates the first Administrator. Administrators and IT staff add accounts (a Faculty Member account is linked to one teacher by name), edit them, reset forgotten passwords, turn accounts off or on, and delete them. A new or reset password is temporary: the person chooses their own at the next sign-in. There is always at least one active Administrator, and nobody can delete, turn off or change the role of their own account. Anyone can change their own password in Settings. Passwords are stored only as salted PBKDF2-SHA256 hashes; closing the browser signs the person out. Account changes appear in the IT overview's *Recent Activity*. |
 | **Role-specific Overview pages** | A different landing page for each role showing what that role acts on. |
 | **Bulk CSV import/export** | Faculty, subjects and rooms. Each import page has a built-in example template. Exported text that starts with `=`, `+`, `-` or `@` gets a leading apostrophe, so Excel or Google Sheets shows it as text instead of running it as a formula. |
 | **Backup and restore** (Settings, Admin and IT) | Download all data (faculty, subjects, rooms, schedule, history, requests) as one `.json` file and restore it later, in the same or another browser. A restore file is fully checked first (every entry and every displayed field), and nothing changes unless it is valid and you confirm. If saved data is ever damaged anyway, the app shows a recovery screen (download the saved data, or reset) instead of a blank page. Who is signed in is not part of a backup. |
@@ -71,7 +72,7 @@ Sign in with **any name** and choose a role. There is no password. The first vis
 
 ## User roles
 
-There are four roles, matching the study's respondent groups. Access is controlled by the sidebar and by which action buttons are shown.
+There are four roles, matching the study's respondent groups. Each person's account decides their role. Access is controlled by the sidebar and by which action buttons are shown.
 
 | Page / action | Academic Administrator | Department Chair | Faculty Member | IT Professional / Staff |
 |---|:-:|:-:|:-:|:-:|
@@ -86,6 +87,8 @@ There are four roles, matching the study's respondent groups. Access is controll
 | Departments | ✅ | – | – | ✅ |
 | Conflict Detection, Reports | ✅ | ✅ | – | ✅ |
 | Settings: set up with your school's data, backup and restore, testing tools; Reset Demo Data | ✅ | – | – | ✅ |
+| Accounts: add, edit, reset passwords, turn off or on, delete | ✅ | – | – | ✅ |
+| Settings: change your own password | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -95,7 +98,7 @@ There are four roles, matching the study's respondent groups. Access is controll
 
 - A modern browser (Chrome, Edge, Firefox or Safari)
 - **No internet needed to run the app** once it is being served: React, Babel, Tailwind CSS, SheetJS (for Excel files) and the Inter font are stored in the `vendor/` folder
-- To run `npx serve` or the Node test command: [Node.js](https://nodejs.org) 16 or newer *(optional)*
+- To run `npx serve` or the Node test commands: [Node.js](https://nodejs.org) 16 or newer, 19 or newer for the accounts tests *(optional)*
 
 ### Option A: publish with GitHub Pages (recommended)
 
@@ -117,13 +120,13 @@ Then open the address it prints. Without Node.js, use the **Live Server** extens
 
 ### First use
 
-1. Enter any name, choose a role, and press **Sign In**.
-2. Use the **Viewing as** dropdown at the bottom of the sidebar to switch roles without signing out.
+1. The first time, create the **Administrator account** (full name, username, password of at least 8 characters). You are signed in with it.
+2. Open **Accounts** and press **Add account** for each other person: their name, a username, their role and a temporary password (**Suggest** makes one). For a *Faculty Member*, also choose their teacher from the Faculty list. Give each person their username and temporary password; they choose their own password the first time they sign in. Add a second Administrator or IT account too, so a forgotten password can always be reset.
 3. Open **Class Schedules → Generate Schedule**.
-4. To start over, an Administrator or IT user can use **Reset Demo Data** in the sidebar (other roles do not see it).
+4. To start over with sample data, an Administrator or IT user can use **Reset Demo Data** in the sidebar (other roles do not see it). Accounts are not affected.
 5. To use a school's real data, an Administrator or IT user opens **Settings → Set up with your school's data**, downloads the blank template, fills it in, and uploads it. The *Instructions* sheet in the template explains every column.
 
-> **Tip:** to test as a specific teacher, sign in with the **Faculty Member** role and type that teacher's name exactly as it appears in the Faculty list. Otherwise the first teacher in the list is used.
+> **Tip:** a teacher's account follows the teacher by name. After uploading a school's data or resetting to sample data, check **Accounts**: a teacher account whose teacher is no longer in the Faculty list says *Not linked*, and that person sees no schedule until you edit the account and choose their teacher.
 
 ---
 
@@ -179,9 +182,10 @@ In one check on 40 generated sample datasets (955 classes in total), where one t
 
 ```
 schedwiseai/
-├── index.html              Entry page: loads libraries, engine.js, importer.js, then loader.js
+├── index.html              Entry page: loads libraries, engine.js, importer.js, accounts.js, then loader.js
 ├── engine.js               The scheduling engine (Genetic Algorithm, rule checker, update logic)
 ├── importer.js             Reads and checks a school data workbook, and writes the template (no libraries)
+├── accounts.js             Sign-in accounts: rules, password hashing (PBKDF2-SHA256), saving (no libraries)
 ├── app.jsx                 The user interface (React): all pages, forms and state. EDIT THIS ONE.
 ├── app.js                  app.jsx compiled to plain JavaScript by tools/build.html (do not edit)
 ├── loader.js               Starts the interface: app.js if it is up to date, otherwise compiles app.jsx
@@ -193,7 +197,8 @@ schedwiseai/
 ├── tests/
 │   ├── engine.test.js      Automated tests for the engine (Node.js or browser, no libraries)
 │   ├── importer.test.js    Automated tests for importer.js (Node.js or browser, no libraries)
-│   └── run.html            Runs both test files in a browser page
+│   ├── accounts.test.js    Automated tests for accounts.js (Node.js 19+ or browser, no libraries)
+│   └── run.html            Runs the three test files in a browser page
 └── docs/
     ├── FLOWCHART.md        Flowcharts of the optimization engine (full generation, scoring, update)
     └── TESTING_GUIDE.md    Step-by-step manual test plan, with a results sheet
@@ -248,11 +253,28 @@ It works on plain rows (one array per spreadsheet row), so it needs no spreadshe
 | `currentDataRows(data)` | The current faculty, subjects and rooms in the template's layout, so they can be edited and uploaded again. |
 | `parseWholeNumber()`, `parseDayList()`, `parseSlotList()` / `formatSlotList()`, `parseYearLevel()`, `parseSemester()`, `parseSchoolYear()`, `canonical()` | Read one cell: numbers, days (`Mon; Wed`), unavailable times (`Sat; Mon P1; Fri P4-P6`), year level, semester and school year; `canonical()` compares names ignoring capitals and extra spaces. |
 
+### `accounts.js`, sign-in accounts (exposed as `window.SchedAccounts`)
+
+Accounts are saved in the browser under their own key (`schedwiseai_accounts_v1`), apart from the school's data, so Reset Demo Data, uploads and backups never touch them. Who is signed in is kept in `sessionStorage`, so closing the browser signs the person out.
+
+| Function | Purpose |
+|---|---|
+| `makeAccount(input, accounts)` | Checks a new account (name, username, role, teacher for a Faculty Member, password) and stores a random salt and a PBKDF2-SHA256 hash (100,000 rounds), never the password. |
+| `verifyPassword(account, password)`, `withNewPassword(account, password, mustChange)` | Check a password; replace it with a new salt and hash (a temporary one when `mustChange` is true). |
+| `hashPassword()`, `pbkdf2Sha256()`, `sha256()` | The hash. The browser's `crypto.subtle` is used when the page has it; a page served over plain `http://` on a school network has none, so the same calculation is also written in plain JavaScript (same result, about 0.2 s instead of 0.03 s). |
+| `checkUsername()`, `checkPassword()`, `checkName()` | Usernames: 3–32 letters, digits, `.`, `-` or `_`, unique ignoring capitals. Passwords: 8–128 characters, not only spaces, not the username. |
+| `checkChange(accounts, actorId, targetId, change)` | Stops lock-outs: always one active Administrator, and nobody can delete, turn off or change the role of their own account. |
+| `linkedFaculty(account, faculty)`, `relinkAfterRename()` | The teacher a Faculty Member account belongs to (by name, ignoring capitals and extra spaces; never another teacher), and keeping the link when a teacher is renamed. |
+| `normalizeAccounts()`, `loadAccounts()`, `saveAccounts()`, `loadSession()`, `saveSession()` | Read and save accounts, dropping any damaged entry; who is signed in. |
+
 ### `app.jsx`, the interface
 
 | Piece | Purpose |
 |---|---|
-| `App()` | Holds all data and actions: generate, update, edit, approve, requests, notifications, history. |
+| `App()` | Holds all data and actions: generate, update, edit, approve, requests, notifications, history, and who is signed in. |
+| `SetupScreen`, `SignInScreen`, `ChangePasswordScreen` | The first Administrator account, signing in, and choosing one's own password after a temporary one. |
+| `AccountsPage`, `AccountModal`, `ResetPasswordModal` | Accounts (Administrator and IT): the list with each account's role, teacher and status, and adding, editing, resetting, turning off or on, and deleting. |
+| `YourAccountCard` | Settings → *Your account*: who is signed in, and changing one's own password. |
 | `DashboardPage` | Dispatches to `AdminOverview`, `ChairOverview`, `FacultyOverview` or `ITOverview`. |
 | `SchedulesPage` | Weekly grid in 30-minute rows, by-faculty view, approval panel, update banner and the "What changed" panel. |
 | `AvailabilityRequestModal`, `SlotPicker` | The day-and-period request form. |
@@ -280,14 +302,17 @@ It works on plain rows (one array per spreadsheet row), so it needs no spreadshe
 
 **Automated (school data workbook):** 18 tests in `tests/importer.test.js` cover reading each kind of cell, turning a correct workbook into the app's data, every kind of error (each pointing to its sheet, row and column), the warnings (including a file that mixes semesters or school years), the notes about defaults, columns in any order, skipped `EXAMPLE` and blank rows, numbers typed as text, text that looks like a formula, words such as `constructor` read as plain names, the template, and a round trip (current data → workbook → the same data).
 
+**Automated (sign-in and accounts):** 13 tests in `tests/accounts.test.js` check the password hash against the standard SHA-256 and PBKDF2 test values, that the browser's `crypto.subtle` and the plain-JavaScript version give the same hash, that an account stores a salted hash and never the password, the username, password and name rules, the rules that stop lock-outs (always one active Administrator; nobody removes, turns off or demotes themselves), teacher links by name (and after a rename), and that damaged saved accounts are dropped.
+
 ```bash
 node tests/engine.test.js        # needs Node.js; ends with "33 passed, 0 failed"
 node tests/importer.test.js      # ends with "18 passed, 0 failed"
+node tests/accounts.test.js      # needs Node.js 19 or newer; ends with "13 passed, 0 failed"
 ```
 
-No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs both test files and prints the results on the page.
+No Node.js? Serve the folder (for example with VS Code Live Server) and open `tests/run.html`; it runs the three test files and prints the results on the page.
 
-**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It has 92 step-by-step test cases with expected results for all four roles (sign-in and access, generation and approval, conflicts, editing, faculty, subjects and rooms, CSV, workload, availability and leave, history and reports, backup and reset, phone and browser checks, setting up with a school's data), four end-to-end scenarios, a mapping to the ISO/IEC 25010 quality characteristics, and a results sheet and defect log. Mobile layout, printing, file downloads and running with the internet switched off must be checked by hand in real browsers. The Settings page has **Testing tools** (Admin and IT) to load the standard or the expanded sample and to create deliberate conflicts.
+**Manual (whole system):** follow [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). It has 98 step-by-step test cases with expected results for all four roles (sign-in, accounts and access, generation and approval, conflicts, editing, faculty, subjects and rooms, CSV, workload, availability and leave, history and reports, backup and reset, phone and browser checks, setting up with a school's data), four end-to-end scenarios, a mapping to the ISO/IEC 25010 quality characteristics, and a results sheet and defect log. Mobile layout, printing, file downloads and running with the internet switched off must be checked by hand in real browsers. The Settings page has **Testing tools** (Admin and IT) to load the standard or the expanded sample and to create deliberate conflicts.
 
 ---
 
@@ -297,6 +322,7 @@ No Node.js? Serve the folder (for example with VS Code Live Server) and open `te
 - Everything you enter is stored in your own browser's `localStorage` (key `schedwiseai_prototype_v1`). **Nothing is sent to a server**, and each browser or device has its own separate data.
 - **Do not commit real faculty, student or schedule data** to this repository, including filled templates and downloaded data workbooks.
 - An uploaded workbook is read inside the browser. The file is not sent anywhere or kept; the teachers, subjects and rooms in it are saved in this browser like everything else you enter (with the file's name, to show where the data came from).
+- **Sign-in accounts** are saved in the same browser under their own key (`schedwiseai_accounts_v1`), apart from the data. A password is never stored: each account keeps a random salt and a PBKDF2-SHA256 hash of it. Who is signed in is kept only until the browser is closed. Backups do not contain accounts, so on another browser the accounts are made again on the Accounts page.
 - To keep a copy of your data, or move it to another browser, use **Settings → Backup and restore**. Backup files contain everything you entered, so treat them like the data itself.
 - To clear everything: an Administrator or IT user can use **Reset Demo Data**, or clear this site's storage in your browser's developer tools.
 
@@ -308,9 +334,11 @@ This is a research prototype. Please read this list before relying on it.
 
 **Scope**
 - One weekly meeting per subject section. Real subjects that meet several times a week are entered as separate sections.
-- Fixed one-and-a-half-hour periods; no student-facing module; no real login (any name works, roles are chosen from a menu).
+- Fixed one-and-a-half-hour periods; no student-facing module.
+- **Sign-in works per browser.** Accounts live in the browser that runs SchedWiseAI, like the data, so people sign in on that computer (for example a shared office PC), not from their own phones. There is no server: someone with full access to the computer can open the browser's developer tools and read or change what it stores. The sign-in keeps each person in their own role; it is not protection against that. Signing in from any device needs an online database and sign-in service, a planned later step.
+- **A forgotten password needs another manager.** An Administrator or IT staff member resets it on the Accounts page. If the only Administrator or IT account forgets its password, nobody can reset it in the app (the Accounts page warns while there is only one such account).
 - School year is a **label and filter**. The scheduler places every listed subject; it does not generate one school year or semester at a time. An uploaded workbook whose subjects span both semesters or several school years gets a warning saying to upload one semester at a time.
-- Access control is enforced in the interface only, and data lives in the browser, so this is **not a security model**.
+- Access control is enforced in the interface, and the data and accounts live in the browser, so this is **not a security model against someone with full access to the computer**.
 
 **Behaviour to be aware of**
 - **Conflict counts are live.** The "Conflict-free" label and the Conflict Detection page are recalculated whenever a teacher, room or subject changes. If an edit creates a conflict, the schedule page shows a banner with **Update affected classes**. (The counts saved in *Schedule History* are a snapshot from when each version was made.)
@@ -330,8 +358,8 @@ This is a research prototype. Please read this list before relying on it.
 - **React 18** (UMD build). The interface is written in JSX (`app.jsx`) and compiled to `app.js` with **Babel Standalone** in the browser by `tools/build.html`, so no Node.js build tools are needed
 - **Tailwind CSS** (in-browser build) and the **Inter** font. These, React, Babel and SheetJS are stored in `vendor/` (see `vendor/README.md` for versions and licenses), so the app works offline
 - **SheetJS Community Edition** (`vendor/xlsx.full.min.js`) reads and writes the Excel workbooks. It is loaded only when the Settings setup card needs it, so it does not slow down the start
-- Plain JavaScript for the engine and the workbook checker (`importer.js`); charts are hand-drawn SVG
-- The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and the two `node tests/…` commands
+- Plain JavaScript for the engine, the workbook checker (`importer.js`) and the accounts (`accounts.js`, including SHA-256 and PBKDF2 for pages without `crypto.subtle`); charts are hand-drawn SVG
+- The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and the three `node tests/…` commands
 - The whole system is written in **HTML, CSS and JavaScript**, with no server code and no database
 
 ---

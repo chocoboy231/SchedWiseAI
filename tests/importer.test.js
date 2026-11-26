@@ -142,7 +142,7 @@
       ["bad preferred days", () => withF(f => { f[0][5] = "Mon; Sun"; }), ["Faculty", 2, "Preferred days"]],
       ["bad not available", () => withF(f => { f[0][6] = "Mon P9"; }), ["Faculty", 2, "Not available"]],
       ["bad employment status", () => withF(f => { f[0][3] = "Volunteer"; }), ["Faculty", 2, "Employment status"]],
-      ["duplicate teacher", () => withF(f => { f[1][0] = "MARIA  santos"; }), ["Faculty", 3, "Name"], /row 2/],
+      ["duplicate teacher", () => withF(f => { f[1][0] = "MARIA  santos"; }), ["Faculty", 3, "Name"], /row 2\b.*sign-in account is linked by name/],
       ["duplicate subject+section", () => withS(s => { s[1] = s[0].slice(); }), ["Subjects", 3, "Section"]],
       ["duplicate room", () => book({ Faculty: F, Subjects: SUB, Rooms: [["Lab 101", 40], ["lab 101", 30]] }), ["Rooms", 3, "Room name"]],
       ["only one fixed field", () => withS(s => { s[1][13] = ""; }), ["Subjects", 3, "Fixed period"]],
@@ -225,6 +225,7 @@
     const t = I.templateRows(); eq(Object.keys(t).join(","), "Instructions,Faculty,Subjects,Rooms");
     I.SHEETS.forEach(s => { eq(t[s][0].join("|"), I.COLUMNS[s].map(c => c.header).join("|")); eq(t[s].length, 3); });
     const text = t.Instructions.map(r => r.join(" ")).join("\n"); assert(/P1 +7:00-8:30 AM/.test(text) && /P4 +11:30 AM-1:00 PM/.test(text) && /EXAMPLE/.test(text), "the periods are listed with 12-hour times");
+    assert(/different name, because a teacher's sign-in account is linked by name/.test(text) && !/sign in (with it|by name)/.test(text), "the Name line explains the sign-in account link");
     const r = I.parseWorkbook(t); assert(!r.ok); assert(r.errors.some(e => e.sheet === "Faculty" && e.row === null), "only the examples, so no data");
   });
 

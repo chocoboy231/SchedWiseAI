@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-26T16:10:18.064Z with Babel 7.23.5. source-hash: 13041e663be6b8 */
+   Built 2026-11-26T16:25:03.662Z with Babel 7.23.5. source-hash: 104533865e2118 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -1428,7 +1428,7 @@ function FacultyModal({
   }), /*#__PURE__*/React.createElement("button", {
     className: "w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2",
     onClick: () => {
-      // Faculty sign in by name, so two teachers must not share one.
+      // A teacher's sign-in account is linked by name, so two teachers must not share one.
       const problem = !name.trim() ? "Enter the teacher's full name." : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because a teacher's sign-in account is linked by name." : specs.length === 0 ? "Tick or add at least one subject area." : wholeNumberError(maxUnits, 1, 40, "Maximum teaching units");
       if (problem) {
         setError(problem);

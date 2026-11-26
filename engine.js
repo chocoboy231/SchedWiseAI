@@ -715,8 +715,8 @@ function generateSyntheticData(nFaculty, nSections, nRooms, seed) {
       academicRank: pick(ACADEMIC_RANKS),
     });
   }
-  // Make every sample name unique: two "Maria Ramos" are confusing, and faculty
-  // sign in by name. A repeat gets the next unused last name. No random numbers
+  // Make every sample name unique: two "Maria Ramos" are confusing, and a teacher's
+  // sign-in account is linked by name. A repeat gets the next unused last name. No random numbers
   // are drawn here, so everything else in the sample stays exactly the same.
   const usedNames = new Set();
   faculty.forEach(f => {

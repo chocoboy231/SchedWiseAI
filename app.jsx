@@ -843,7 +843,7 @@ function FacultyModal({ initial, allFaculty, subjectAreas, onSave, onClose }) {
       <button
         className="w-full bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm py-2.5 rounded-lg mt-2"
         onClick={() => {
-          // Faculty sign in by name, so two teachers must not share one.
+          // A teacher's sign-in account is linked by name, so two teachers must not share one.
           const problem = !name.trim() ? "Enter the teacher's full name."
             : (allFaculty || []).some(f => (!initial || f.id !== initial.id) && sameText(f.name, name)) ? "Another teacher is already called \"" + name.trim() + "\". Names must be different, because a teacher's sign-in account is linked by name."
             : specs.length === 0 ? "Tick or add at least one subject area."

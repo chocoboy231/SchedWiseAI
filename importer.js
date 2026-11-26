@@ -260,7 +260,7 @@
       const name = x.text("name", true);
       if (name !== undefined && name) {
         const key = canonical(name);
-        if (teacherRow[key]) x.fail("name", "Another teacher on row " + teacherRow[key] + " has the same name. Names must be different, because faculty sign in by name.");
+        if (teacherRow[key]) x.fail("name", "Another teacher on row " + teacherRow[key] + " has the same name. Names must be different, because a teacher's sign-in account is linked by name.");
         else teacherRow[key] = r.row;
       }
       const areasText = x.text("subjectAreas", true);
@@ -432,7 +432,7 @@
       "Names, subject areas and choices may be written in any capitals: 'accounting' and 'Accounting' are the same.",
       "",
       "FACULTY SHEET (one row per teacher)",
-      "Name *: the teacher's full name. Every teacher needs a different name, because faculty sign in with it.",
+      "Name *: the teacher's full name. Every teacher needs a different name, because a teacher's sign-in account is linked by name.",
       "Subject areas *: what the teacher can teach, separated by ; (for example: Programming; Databases). Spell each area exactly as in the Subjects sheet.",
       "Max units *: a whole number from 1 to 40.",
       "Employment status: Full-time, Part-time or Contractual. If empty: Full-time.",

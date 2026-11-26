@@ -97,6 +97,31 @@
     eq(SLOTS[30].day, "Sat", "Saturday follows Friday");
   });
 
+  test("clockLabel: 12-hour times with AM and PM", () => {
+    eq(E.clockLabel(7 * 60), "7:00 AM");
+    eq(E.clockLabel(11 * 60 + 30), "11:30 AM");
+    eq(E.clockLabel(12 * 60), "12:00 PM", "noon");
+    eq(E.clockLabel(12 * 60 + 30), "12:30 PM");
+    eq(E.clockLabel(13 * 60), "1:00 PM");
+    eq(E.clockLabel(16 * 60), "4:00 PM");
+  });
+
+  test("halfHourRows: the weekly grid has a row every 30 minutes from 7:00 AM to 3:30 PM, three per period", () => {
+    const rows = E.halfHourRows();
+    eq(rows.length, 18, "rows from 7:00 AM to 4:00 PM");
+    rows.forEach((r, i) => { eq(r.minutes, 7 * 60 + 30 * i, "row " + i + " start"); eq(r.label, E.clockLabel(r.minutes), "row " + i + " label"); });
+    eq(rows.slice(0, 4).map(r => r.label).join(", "), "7:00 AM, 7:30 AM, 8:00 AM, 8:30 AM");
+    eq(rows[rows.length - 1].label, "3:30 PM", "the last row starts at 3:30 PM");
+    for (let p = 1; p <= E.PERIODS; p++) {
+      const own = rows.filter(r => r.period === p);
+      eq(own.length, 3, "period " + p + " covers three rows");
+      assert(own[0].first && !own[1].first && !own[2].first, "only the first row of period " + p + " is marked first");
+      // The period's first row starts when its time slot starts (Mon 08:30-10:00 -> 8:30 AM).
+      const start = SLOTS.find(s => s.day === "Mon" && s.period === p).label.split(" ")[1].split("-")[0];
+      eq(own[0].minutes, Number(start.slice(0, 2)) * 60 + Number(start.slice(3)), "period " + p + " starts with its time slot");
+    }
+  });
+
   test("qualifiedFaculty returns only teachers with the required specialization", () => {
     const d = mini();
     assert(JSON.stringify(E.qualifiedFaculty(d.faculty, d.sections[0])) === "[0]");

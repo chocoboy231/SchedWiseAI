@@ -45,7 +45,10 @@
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];  // days classes CAN be scheduled on
 const CALENDAR_DAYS = DAYS.concat(["Sun"]);                 // days SHOWN in the weekly grid (Sunday = no classes)
 const PERIODS = 6;                                  // class periods per day (1.5 hours each, starting 7:00)
-const ONLINE_ROOM_ID = -2;                          // roomId used for online classes (they need no room)
+const DAY_START_MINUTES = 7 * 60;                   // period 1 starts at 7:00 (minutes after midnight)
+const PERIOD_MINUTES = 90;                          // each period lasts 1.5 hours
+const ROW_MINUTES = 30;                             // the weekly grid draws one row per 30 minutes
+const ONLINE_ROOM_ID = -2;                       // roomId used for online classes (they need no room)
 
 // School year label for today's date, e.g. "2026–2027". In the Philippines
 // the school year starts around June–August, so from June onward we count
@@ -90,6 +93,26 @@ function buildTimeSlots() {
     }
   }
   return slots;
+}
+// ---------------------------------------------------------------------
+// clockLabel(minutes) and halfHourRows()
+// The weekly grid shows the day in 30-minute rows (7:00 AM, 7:30 AM, ...),
+// so each 1.5-hour period covers three rows. This only changes how the
+// timetable is SHOWN: classes are still placed in whole periods.
+// clockLabel(13 * 60) -> "1:00 PM"
+// halfHourRows()[3]   -> { minutes: 510, label: "8:30 AM", period: 2, first: true }
+// ---------------------------------------------------------------------
+function clockLabel(minutes) {
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  return ((h + 11) % 12 + 1) + ":" + String(m).padStart(2, "0") + (h < 12 ? " AM" : " PM");
+}
+function halfHourRows() {
+  const rows = [];
+  for (let t = DAY_START_MINUTES; t < DAY_START_MINUTES + PERIODS * PERIOD_MINUTES; t += ROW_MINUTES) {
+    const intoDay = t - DAY_START_MINUTES;
+    rows.push({ minutes: t, label: clockLabel(t), period: Math.floor(intoDay / PERIOD_MINUTES) + 1, first: intoDay % PERIOD_MINUTES === 0 });
+  }
+  return rows;
 }
 // ---------------------------------------------------------------------
 // qualifiedFaculty(faculty, section)
@@ -829,7 +852,7 @@ function generateExpandedData(seed) {
 // PUBLIC API — everything app.jsx is allowed to use from this file.
 // ---------------------------------------------------------------------
 window.SchedEngine = {
-  buildTimeSlots, qualifiedFaculty, validRooms, canBePlaced, runGA, countViolations, generateSyntheticData, DAYS, PERIODS,
+  buildTimeSlots, clockLabel, halfHourRows, qualifiedFaculty, validRooms, canBePlaced, runGA, countViolations, generateSyntheticData, DAYS, PERIODS,
   SPECIALIZATIONS, EMPLOYMENT_STATUSES, ACADEMIC_RANKS,
   CALENDAR_DAYS, ONLINE_ROOM_ID, isOnline,
   repairSchedule, findConflictingIndices, currentSchoolYear, schoolYearOptions,

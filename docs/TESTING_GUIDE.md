@@ -124,8 +124,9 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 
 **B3. Grid and By Faculty views**
 1. Switch between **Weekly Grid** and **By Faculty**. In By Faculty, choose different teachers.
+2. In the Weekly Grid, read the **Time** column and look at one class.
 
-*Expected:* The grid shows every class once. By Faculty shows only the chosen teacher's classes. Nothing is placed on Sunday.
+*Expected:* The grid shows every class once. Its rows go every 30 minutes, from 7:00 AM to 3:30 PM, and the first row of each period also shows the period (7:00 AM P1, 8:30 AM P2 … 2:30 PM P6). Each class covers the three rows of its period (a P1 class fills 7:00 to 8:30 AM), and classes held at the same time share one block. By Faculty shows only the chosen teacher's classes. Nothing is placed on Sunday.
 ☐ Pass
 
 **B4. Curriculum-aware option**
@@ -615,7 +616,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs both.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `30 passed, 0 failed`, and the *Importer tests* end with `18 passed, 0 failed`. A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `32 passed, 0 failed`, and the *Importer tests* end with `18 passed, 0 failed`. A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**

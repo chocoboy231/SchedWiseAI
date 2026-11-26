@@ -4193,7 +4193,11 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
       { section: sections[i], faculty: facultyById[g.facultyId], roomId: g.roomId, index: i });
   });
 
-  const periods = Array.from({length: E.PERIODS}, (_,i) => i+1);
+  // The grid is drawn in 30-minute rows (7:00 AM, 7:30 AM, ...). A period's classes
+  // share one block that covers the period's three rows; a free period stays three
+  // separate half-hour cells.
+  const rows = E.halfHourRows();
+  const rowsPerPeriod = rows.length / E.PERIODS;
   const unscheduledCount = result.violations.unscheduled || 0;
   // Overload is not one of the hard rules the engine fixes, so it is flagged here
   // instead: "Conflict-free" no longer hides a teacher who is over their maximum.
@@ -4315,31 +4319,37 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead><tr>
-              <th className="p-2 border border-slate-100 bg-slate-50 w-20">Period</th>
+              <th className="p-2 border border-slate-100 bg-slate-50 w-24">Time</th>
               {E.CALENDAR_DAYS.map(d => <th key={d} className={"p-2 border border-slate-100 " + (d === "Sun" ? "bg-slate-100 text-slate-400" : "bg-slate-50")}>{d}</th>)}
             </tr></thead>
             <tbody>
-              {periods.map(p => (
-                <tr key={p}>
-                  <td className="p-2 border border-slate-100 text-slate-400 text-center font-medium">P{p}</td>
+              {rows.map((row, r) => (
+                <tr key={row.minutes}>
+                  <td className={"h-8 px-2 py-1 border border-slate-100 whitespace-nowrap align-top " + (row.first ? "text-slate-600 font-medium" : "text-slate-400")}>
+                    {row.label}{row.first && <span className="ml-1 text-[10px] font-normal text-slate-400">P{row.period}</span>}
+                  </td>
                   {E.CALENDAR_DAYS.map(d => {
-                    // Sunday: one tall greyed cell spanning all periods (no classes on Sunday).
+                    // Sunday: one tall greyed cell spanning the whole day (no classes on Sunday).
                     if (d === "Sun") {
-                      return p === 1 ? (
-                        <td key={d} rowSpan={E.PERIODS} className="border border-slate-100 bg-slate-50 text-center text-slate-400 min-w-[70px] align-middle">
+                      return r === 0 ? (
+                        <td key={d} rowSpan={rows.length} className="border border-slate-100 bg-slate-50 text-center text-slate-400 min-w-[70px] align-middle">
                           No classes
                         </td>
                       ) : null;
                     }
-                    const cells = grid[d][p] || [];
+                    const cells = grid[d][row.period] || [];
+                    if (cells.length === 0) return <td key={d} className="border border-slate-100 min-w-[140px]" />;   // a free half hour
+                    if (!row.first) return null;   // covered by the block that starts on the period's first row
                     return (
-                      <td key={d} className="p-1.5 border border-slate-100 align-top min-w-[140px]">
-                        <div className="space-y-1.5">
+                      // h-px lets the inner list use h-full, so the class cards stretch over the
+                      // whole block and a 1.5-hour class visibly covers its three rows.
+                      <td key={d} rowSpan={rowsPerPeriod} className="h-px p-1.5 border border-slate-100 align-top min-w-[140px]">
+                        <div className="h-full flex flex-col gap-1.5">
                           {cells.map(cell => (
                             <div key={cell.index}
                               onClick={() => canEdit && onEditAssignment(cell.index, result.genes[cell.index])}
                               className={(E.isOnline(cell.section) ? "bg-blue-50 border-blue-100" : "bg-amber-50 border-amber-200") +
-                                " border rounded-lg p-2 " + (movedSet.has(cell.index) ? "ring-2 ring-orange-400 " : "") +
+                                " flex-1 border rounded-lg p-2 " + (movedSet.has(cell.index) ? "ring-2 ring-orange-400 " : "") +
                                 (canEdit ? "cursor-pointer hover:brightness-95 transition" : "")}>
                               {movedSet.has(cell.index) && <div className="text-[10px] font-semibold text-orange-700 uppercase">Moved</div>}
                               <div className="font-semibold text-slate-900">{cell.section.subjectCode} · {cell.section.sectionName}

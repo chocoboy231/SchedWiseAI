@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-26T10:42:27.384Z with Babel 7.23.5. source-hash: d35dfa8043654 */
+   Built 2026-11-26T12:59:57.145Z with Babel 7.23.5. source-hash: 5d0ffa2e597a0 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -6189,9 +6189,12 @@ function SchedulesPage({
       index: i
     });
   });
-  const periods = Array.from({
-    length: E.PERIODS
-  }, (_, i) => i + 1);
+
+  // The grid is drawn in 30-minute rows (7:00 AM, 7:30 AM, ...). A period's classes
+  // share one block that covers the period's three rows; a free period stays three
+  // separate half-hour cells.
+  const rows = E.halfHourRows();
+  const rowsPerPeriod = rows.length / E.PERIODS;
   const unscheduledCount = result.violations.unscheduled || 0;
   // Overload is not one of the hard rules the engine fixes, so it is flagged here
   // instead: "Conflict-free" no longer hides a teacher who is over their maximum.
@@ -6336,45 +6339,58 @@ function SchedulesPage({
   }, /*#__PURE__*/React.createElement("table", {
     className: "w-full text-xs border-collapse"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
-    className: "p-2 border border-slate-100 bg-slate-50 w-20"
-  }, "Period"), E.CALENDAR_DAYS.map(d => /*#__PURE__*/React.createElement("th", {
+    className: "p-2 border border-slate-100 bg-slate-50 w-24"
+  }, "Time"), E.CALENDAR_DAYS.map(d => /*#__PURE__*/React.createElement("th", {
     key: d,
     className: "p-2 border border-slate-100 " + (d === "Sun" ? "bg-slate-100 text-slate-400" : "bg-slate-50")
-  }, d)))), /*#__PURE__*/React.createElement("tbody", null, periods.map(p => /*#__PURE__*/React.createElement("tr", {
-    key: p
+  }, d)))), /*#__PURE__*/React.createElement("tbody", null, rows.map((row, r) => /*#__PURE__*/React.createElement("tr", {
+    key: row.minutes
   }, /*#__PURE__*/React.createElement("td", {
-    className: "p-2 border border-slate-100 text-slate-400 text-center font-medium"
-  }, "P", p), E.CALENDAR_DAYS.map(d => {
-    // Sunday: one tall greyed cell spanning all periods (no classes on Sunday).
+    className: "h-8 px-2 py-1 border border-slate-100 whitespace-nowrap align-top " + (row.first ? "text-slate-600 font-medium" : "text-slate-400")
+  }, row.label, row.first && /*#__PURE__*/React.createElement("span", {
+    className: "ml-1 text-[10px] font-normal text-slate-400"
+  }, "P", row.period)), E.CALENDAR_DAYS.map(d => {
+    // Sunday: one tall greyed cell spanning the whole day (no classes on Sunday).
     if (d === "Sun") {
-      return p === 1 ? /*#__PURE__*/React.createElement("td", {
+      return r === 0 ? /*#__PURE__*/React.createElement("td", {
         key: d,
-        rowSpan: E.PERIODS,
+        rowSpan: rows.length,
         className: "border border-slate-100 bg-slate-50 text-center text-slate-400 min-w-[70px] align-middle"
       }, "No classes") : null;
     }
-    const cells = grid[d][p] || [];
-    return /*#__PURE__*/React.createElement("td", {
+    const cells = grid[d][row.period] || [];
+    if (cells.length === 0) return /*#__PURE__*/React.createElement("td", {
       key: d,
-      className: "p-1.5 border border-slate-100 align-top min-w-[140px]"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "space-y-1.5"
-    }, cells.map(cell => /*#__PURE__*/React.createElement("div", {
-      key: cell.index,
-      onClick: () => canEdit && onEditAssignment(cell.index, result.genes[cell.index]),
-      className: (E.isOnline(cell.section) ? "bg-blue-50 border-blue-100" : "bg-amber-50 border-amber-200") + " border rounded-lg p-2 " + (movedSet.has(cell.index) ? "ring-2 ring-orange-400 " : "") + (canEdit ? "cursor-pointer hover:brightness-95 transition" : "")
-    }, movedSet.has(cell.index) && /*#__PURE__*/React.createElement("div", {
-      className: "text-[10px] font-semibold text-orange-700 uppercase"
-    }, "Moved"), /*#__PURE__*/React.createElement("div", {
-      className: "font-semibold text-slate-900"
-    }, cell.section.subjectCode, " \xB7 ", cell.section.sectionName, cell.section.fixedSlotId != null && /*#__PURE__*/React.createElement("span", {
-      title: "Fixed day/period",
-      className: "ml-1 text-[10px] text-slate-500"
-    }, "\uD83D\uDCCC")), /*#__PURE__*/React.createElement("div", {
-      className: "text-slate-500"
-    }, cell.faculty ? cell.faculty.name : "—"), /*#__PURE__*/React.createElement("div", {
-      className: "text-slate-400"
-    }, roomLabel(cell.roomId, roomById))))));
+      className: "border border-slate-100 min-w-[140px]"
+    }); // a free half hour
+    if (!row.first) return null; // covered by the block that starts on the period's first row
+    return (
+      /*#__PURE__*/
+      // h-px lets the inner list use h-full, so the class cards stretch over the
+      // whole block and a 1.5-hour class visibly covers its three rows.
+      React.createElement("td", {
+        key: d,
+        rowSpan: rowsPerPeriod,
+        className: "h-px p-1.5 border border-slate-100 align-top min-w-[140px]"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "h-full flex flex-col gap-1.5"
+      }, cells.map(cell => /*#__PURE__*/React.createElement("div", {
+        key: cell.index,
+        onClick: () => canEdit && onEditAssignment(cell.index, result.genes[cell.index]),
+        className: (E.isOnline(cell.section) ? "bg-blue-50 border-blue-100" : "bg-amber-50 border-amber-200") + " flex-1 border rounded-lg p-2 " + (movedSet.has(cell.index) ? "ring-2 ring-orange-400 " : "") + (canEdit ? "cursor-pointer hover:brightness-95 transition" : "")
+      }, movedSet.has(cell.index) && /*#__PURE__*/React.createElement("div", {
+        className: "text-[10px] font-semibold text-orange-700 uppercase"
+      }, "Moved"), /*#__PURE__*/React.createElement("div", {
+        className: "font-semibold text-slate-900"
+      }, cell.section.subjectCode, " \xB7 ", cell.section.sectionName, cell.section.fixedSlotId != null && /*#__PURE__*/React.createElement("span", {
+        title: "Fixed day/period",
+        className: "ml-1 text-[10px] text-slate-500"
+      }, "\uD83D\uDCCC")), /*#__PURE__*/React.createElement("div", {
+        className: "text-slate-500"
+      }, cell.faculty ? cell.faculty.name : "—"), /*#__PURE__*/React.createElement("div", {
+        className: "text-slate-400"
+      }, roomLabel(cell.roomId, roomById))))))
+    );
   })))))), tab === "faculty" && role === "faculty" && /*#__PURE__*/React.createElement(MyAvailabilitySection, {
     me: me,
     leaveRequests: leaveRequests,

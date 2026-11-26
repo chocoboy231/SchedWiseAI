@@ -503,7 +503,7 @@ function downloadJSON(filename, obj) {
 }
 
 /* ---------------------------------------------------------------------
-   4c. EXCEL WORKBOOKS (Settings → Set up with your school's data)
+   4c. EXCEL WORKBOOKS (Class Schedules → Set up with your school's data)
    These only turn an .xlsx file into plain rows and back; importer.js
    (window.SchedImport) does all the checking. The spreadsheet library
    (vendor/xlsx.full.min.js, about 1 MB) is loaded the first time one of
@@ -2273,6 +2273,7 @@ function App() {
   const [sectionModal, setSectionModal] = useState(null);
   const [roomModal, setRoomModal] = useState(null);
   const [scheduleTab, setScheduleTab] = useState("grid");
+  const [schoolDataOpen, setSchoolDataOpen] = useState(false);   // the school-data steps on Class Schedules are showing
   const [selectedFacultyId, setSelectedFacultyId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // ---- Feature data (the `|| []` fallbacks keep older saved data working) ----
@@ -2669,7 +2670,7 @@ function App() {
     pushNotification("Loaded " + (k === "expanded" ? "the expanded multi-program sample." : "the standard sample."));
   }
 
-  // ---- Set up with your school's data (Settings card; see importer.js and section 4c) ----
+  // ---- Set up with your school's data (the card at the top of Class Schedules; see importer.js and section 4c) ----
   function handleDownloadTemplate() {
     return downloadWorkbook("SchedWiseAI-template.xlsx", SchedImport.templateRows())
       .then(() => logActivity("Export", "SchedWiseAI-template.xlsx (blank template)"));
@@ -2692,6 +2693,8 @@ function App() {
     const counts = countOf(d.faculty.length, "teacher") + ", " + countOf(d.sections.length, "subject") + ", " + countOf(d.rooms.length, "room");
     pushNotification("Uploaded school data from " + fileName + ": " + counts + ".");
     logActivity("Upload", fileName + " (" + counts + ")");
+    setSchoolDataOpen(false);                      // fold the card away: Generate Schedule is right below it
+    setToast("Your school's data is in: " + counts + ". Press Generate Schedule to build their timetable.");
     goToPage("schedules");
   }
 
@@ -2914,7 +2917,7 @@ function App() {
               chairDept={chairDept} setChairDept={setChairDept}
               onNavigate={goToPage}
               onOpenRequests={() => { setFacultyTab("requests"); goToPage("faculty"); }}
-              datasetKind={datasetKind} onOpenSetup={() => goToPage("settings")}
+              datasetKind={datasetKind} onOpenSetup={() => { setSchoolDataOpen(true); goToPage("schedules"); }}
               onUpdateSchedule={handleUpdateSchedule}
               onApprovalDecision={handleApprovalDecision}
               onUpdateRequestStatus={handleRequestDecision}
@@ -2962,6 +2965,13 @@ function App() {
 
           {page === "departments" && <DepartmentsPage faculty={faculty} sections={sections} result={result} />}
 
+          {/* Administrators and IT set up the school's data right where they generate the schedule. */}
+          {page === "schedules" && canManageData && (
+            <SchoolDataCard open={schoolDataOpen} onToggle={() => setSchoolDataOpen(o => !o)}
+              datasetKind={datasetKind} datasetInfo={datasetInfo}
+              onDownloadTemplate={handleDownloadTemplate} onDownloadCurrent={handleDownloadCurrentData}
+              onApply={handleApplySchoolData} onDownloadBackup={handleDownloadBackup} />
+          )}
           {page === "schedules" && (
             <SchedulesPage result={result} sections={sections} facultyById={facultyById} roomById={roomById}
               slotById={slotById} timeSlots={timeSlots} generating={generating} onGenerate={handleGenerate}
@@ -2996,9 +3006,8 @@ function App() {
               violationsTotal={result ? result.violations.total : 0}
               onLoadDataset={resetDemoData} onCreateTestConflict={handleCreateTestConflict}
               onDownloadBackup={handleDownloadBackup} onRestoreBackup={handleRestoreBackup}
-              datasetInfo={datasetInfo} onDownloadTemplate={handleDownloadTemplate} onDownloadCurrentData={handleDownloadCurrentData}
-              onApplySchoolData={handleApplySchoolData}
-              testLog={testLog} onGoTo={goToPage} />
+              testLog={testLog} onGoTo={goToPage}
+              onOpenSchoolData={() => { setSchoolDataOpen(true); goToPage("schedules"); }} />
           )}
 
         </main>
@@ -3120,7 +3129,8 @@ function computeDataHealth(faculty, rooms, sections) {
 // ---------- Small shared building blocks used by all four overviews ----------
 
 // SampleDataBanner: on the Administrator and IT overviews while sample data is loaded,
-// a reminder that the real data can be set up in Settings (see SchoolDataCard).
+// a reminder that the real data can be set up; the link opens the card on Class Schedules
+// (see SchoolDataCard).
 function SampleDataBanner({ onSetup }) {
   return (
     <div role="note" className="no-print bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm text-blue-900">
@@ -5191,12 +5201,14 @@ function UploadIssueList({ title, items, tone, open }) {
   );
 }
 
-// SchoolDataCard: Settings → "Set up with your school's data" (Admin and IT).
+// SchoolDataCard: "Set up with your school's data", at the top of Class Schedules (Admin and IT).
+// The header (what data is loaded, and an "Upload school data" button) is always shown;
+// the steps open below it when the button is pressed:
 //   1. Download a blank template, or the current data in the same layout.
 //   2. Choose a filled workbook; it is read (readWorkbookFile) and checked (SchedImport.parseWorkbook).
 //   3. Read the result; "Replace my data with this file" (only when there are no errors) asks
 //      for confirmation, with the chance to download a backup first, then replaces the data.
-function SchoolDataCard({ datasetKind, datasetInfo, onDownloadTemplate, onDownloadCurrent, onApply, onDownloadBackup }) {
+function SchoolDataCard({ open, onToggle, datasetKind, datasetInfo, onDownloadTemplate, onDownloadCurrent, onApply, onDownloadBackup }) {
   const [busy, setBusy] = useState("");             // what is happening now, e.g. "Reading the file…"
   const [fileName, setFileName] = useState("");
   const [readError, setReadError] = useState("");
@@ -5230,13 +5242,21 @@ function SchoolDataCard({ datasetKind, datasetInfo, onDownloadTemplate, onDownlo
 
   const c = check && check.counts;
   return (
-    <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-4">
-      <div>
-        <h2 className="font-semibold text-slate-900">Set up with your school's data</h2>
-        <p className="text-xs text-slate-500 mt-1">Replace the sample data with your school's teachers, subjects and rooms, then generate a real schedule.</p>
-        <p className="text-xs text-slate-600 mt-2">Currently loaded: <span className="font-medium text-slate-800">{loaded}</span></p>
+    <div className="no-print bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-slate-100 space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-semibold text-slate-900">Set up with your school's data</h2>
+          <p className="text-xs text-slate-500 mt-1">Upload your school's teachers, subjects and rooms from an Excel workbook, then generate their schedule below.</p>
+          <p className="text-xs text-slate-600 mt-2">Currently loaded: <span className="font-medium text-slate-800">{loaded}</span></p>
+        </div>
+        <button onClick={onToggle} aria-expanded={open}
+          className={"shrink-0 flex items-center justify-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg " +
+            (open ? "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-slate-900 hover:bg-slate-800 text-white")}>
+          {open ? "Hide" : <><IconUpload size={15} /> Upload school data</>}
+        </button>
       </div>
 
+      {open && <>
       <div>
         <h3 className="text-sm font-semibold text-slate-800 mb-1">1. Get the template</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -5297,17 +5317,18 @@ function SchoolDataCard({ datasetKind, datasetInfo, onDownloadTemplate, onDownlo
           </div>
         </Modal>
       )}
+      </>}
     </div>
   );
 }
 
-// SettingsPage: "About this prototype", plus, for Admin and IT, the school-data setup card,
-// Backup and restore, and Testing tools:
+// SettingsPage: "Your account" and "About this prototype", plus, for Admin and IT,
+// Backup and restore, and Testing tools (the school-data card is on Class Schedules):
 //   • Sample data: load the standard or the expanded multi-program sample.
 //   • Create test conflicts: break one rule on purpose (see makeTestConflict),
 //     then check Conflict Detection and try "Update affected classes".
 function SettingsPage({ role, me, onChangeOwnPassword, hasSchedule, datasetKind, violationsTotal, onLoadDataset, onCreateTestConflict, onDownloadBackup, onRestoreBackup,
-  datasetInfo, onDownloadTemplate, onDownloadCurrentData, onApplySchoolData, testLog, onGoTo }) {
+  testLog, onGoTo, onOpenSchoolData }) {
   const canTest = role === "admin" || role === "it";
   const [backupMsg, setBackupMsg] = useState(null);     // { ok, message } shown under the backup buttons
   // Reads the chosen file as text and hands it to the app, which checks and restores it.
@@ -5339,12 +5360,6 @@ function SettingsPage({ role, me, onChangeOwnPassword, hasSchedule, datasetKind,
           full access to this computer could still read or change what it stores.
         </p>
       </div>
-
-      {canTest && (
-        <SchoolDataCard datasetKind={datasetKind} datasetInfo={datasetInfo}
-          onDownloadTemplate={onDownloadTemplate} onDownloadCurrent={onDownloadCurrentData}
-          onApply={onApplySchoolData} onDownloadBackup={onDownloadBackup} />
-      )}
 
       {canTest && (
         <div className="bg-white rounded-2xl p-5 sm:p-8 shadow-sm border border-slate-100 space-y-4">
@@ -5382,6 +5397,8 @@ function SettingsPage({ role, me, onChangeOwnPassword, hasSchedule, datasetKind,
           <div>
             <h3 className="text-sm font-semibold text-slate-800 mb-1">Sample data</h3>
             <p className="text-xs text-slate-500 mb-2">Currently loaded: <span className="font-medium text-slate-700">{datasetKind === "school" ? "your school's data (not a sample)" : datasetKind === "expanded" ? "expanded multi-program sample" : "standard sample"}</span>. Loading replaces all data. {datasetKind === "school" ? "The sidebar's Reset Demo Data loads the standard sample." : "The sidebar's Reset Demo Data reloads whichever sample is current."}</p>
+            <p className="text-xs text-slate-500 mb-2">To use your school's own teachers, subjects and rooms instead, use{" "}
+              <button className="text-blue-800 hover:underline font-medium" onClick={onOpenSchoolData}>Set up with your school's data</button> on the Class Schedules page.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button className={btn} onClick={() => onLoadDataset("standard")}>
                 <div className="font-medium">Standard sample</div>

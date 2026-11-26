@@ -45,7 +45,7 @@ The first time it opens, SchedWiseAI asks you to create the first **Administrato
 | Module | What it does |
 |---|---|
 | **AI Schedule Generation** | Builds a full Monday–Saturday timetable (6 periods of 1.5 hours a day, 7:00 AM to 4:00 PM, no classes on Sunday) using constraint-based seeding and a Genetic Algorithm. The weekly grid shows the day in 30-minute rows (7:00 AM, 7:30 AM, 8:00 AM …), and each class covers the three rows of its period. Times are shown on a 12-hour clock everywhere, for example "Mon 11:30 AM-1:00 PM". Shows a convergence chart for every run: the best and average score per generation, each on its own labelled scale, with a plain-language caption. |
-| **Set up with your school's data** (Settings, Admin and IT) | Download a blank Excel template (an *Instructions* sheet and *Faculty*, *Subjects* and *Rooms* sheets with example rows), fill it in with Excel (or another spreadsheet program that saves `.xlsx`), and upload it. The file is checked before anything changes. **Errors** (a missing required cell, a number out of range, an unknown day or class type, a duplicate teacher) are listed by sheet, row and column and block the upload. **Warnings** (a subject area no teacher has, a lab class bigger than every lab, more units than the teachers can take, subjects from both semesters or from more than one school year) explain what will go wrong but do not block it. **Replace my data with this file** asks first and offers a backup, then replaces the faculty, subjects and rooms and clears the old schedule, its versions and the requests. **Download current data** gives everything in the same layout, to edit and upload again. Subject areas, programs, employment statuses and ranks in the forms then come from the school's data. While sample data is loaded, the Administrator and IT overviews say so and link to this card. The workbook uses the app's current time model (Monday–Saturday, six 1.5-hour periods, one meeting per subject section). |
+| **Set up with your school's data** (top of Class Schedules, Admin and IT) | Press **Upload school data** at the top of the Class Schedules page. Download a blank Excel template (an *Instructions* sheet and *Faculty*, *Subjects* and *Rooms* sheets with example rows), fill it in with Excel (or another spreadsheet program that saves `.xlsx`), and upload it. The file is checked before anything changes. **Errors** (a missing required cell, a number out of range, an unknown day or class type, a duplicate teacher) are listed by sheet, row and column and block the upload. **Warnings** (a subject area no teacher has, a lab class bigger than every lab, more units than the teachers can take, subjects from both semesters or from more than one school year) explain what will go wrong but do not block it. **Replace my data with this file** asks first and offers a backup, then replaces the faculty, subjects and rooms and clears the old schedule, its versions and the requests. **Download current data** gives everything in the same layout, to edit and upload again. Subject areas, programs, employment statuses and ranks in the forms then come from the school's data. While sample data is loaded, the Administrator and IT overviews say so and link to this card. The workbook uses the app's current time model (Monday–Saturday, six 1.5-hour periods, one meeting per subject section). |
 | **Incremental Update** | After an approved availability change or leave, a new or edited subject, or an import, **Update affected classes** moves only the classes that now break a rule. Everything else stays exactly where it was, and a "What changed" panel lists each move. *Full Regenerate* is still available. |
 | **Faculty Management** | Add, edit and delete faculty with subject areas (the school's own areas, taken from the data; a new one can be added in the form), preferred days, maximum units, employment status and academic rank (the built-in choices plus any the data already uses). Profile view, current load and workload status per person. Forms say what is wrong (missing name, a number out of range, a duplicate name, subject or room) instead of silently refusing to save. |
 | **Workload Management** | Load % (assigned ÷ maximum units) with a bar, comparison with the group average, summary cards (teachers per status, units vs. capacity, average load, highest-to-lowest gap), each teacher's classes on click with how many subjects they can teach, and a built-in explanation of how the status is calculated and why a load can be low. |
@@ -86,7 +86,8 @@ There are four roles, matching the study's respondent groups. Each person's acco
 | Schedule History | ✅ | ✅ | – | ✅ |
 | Departments | ✅ | – | – | ✅ |
 | Conflict Detection, Reports | ✅ | ✅ | – | ✅ |
-| Settings: set up with your school's data, backup and restore, testing tools; Reset Demo Data | ✅ | – | – | ✅ |
+| Class Schedules: set up with your school's data (upload a workbook) | ✅ | – | – | ✅ |
+| Settings: backup and restore, testing tools; Reset Demo Data | ✅ | – | – | ✅ |
 | Accounts: add, edit, reset passwords, turn off or on, delete | ✅ | – | – | ✅ |
 | Settings: change your own password | ✅ | ✅ | ✅ | ✅ |
 
@@ -124,7 +125,7 @@ Then open the address it prints. Without Node.js, use the **Live Server** extens
 2. Open **Accounts** and press **Add account** for each other person: their name, a username, their role and a temporary password (**Suggest** makes one). For a *Faculty Member*, also choose their teacher from the Faculty list. Give each person their username and temporary password; they choose their own password the first time they sign in. Add a second Administrator or IT account too, so a forgotten password can always be reset.
 3. Open **Class Schedules → Generate Schedule**.
 4. To start over with sample data, an Administrator or IT user can use **Reset Demo Data** in the sidebar (other roles do not see it). Accounts are not affected.
-5. To use a school's real data, an Administrator or IT user opens **Settings → Set up with your school's data**, downloads the blank template, fills it in, and uploads it. The *Instructions* sheet in the template explains every column.
+5. To use a school's real data, an Administrator or IT user opens **Class Schedules** and presses **Upload school data** in the *Set up with your school's data* card at the top. They download the blank template, fill it in, upload it, and then press **Generate Schedule** right below. The *Instructions* sheet in the template explains every column.
 
 > **Tip:** a teacher's account follows the teacher by name. After uploading a school's data or resetting to sample data, check **Accounts**: a teacher account whose teacher is no longer in the Faculty list says *Not linked*, and that person sees no schedule until you edit the account and choose their teacher.
 
@@ -191,7 +192,7 @@ schedwiseai/
 ├── loader.js               Starts the interface: app.js if it is up to date, otherwise compiles app.jsx
 ├── styles.css              Global styles, colours and print rules
 ├── vendor/                 Third-party libraries and the Inter font, stored locally so the app works offline
-│   └── xlsx.full.min.js    SheetJS, reads and writes Excel files; loaded only when the Settings setup card needs it
+│   └── xlsx.full.min.js    SheetJS, reads and writes Excel files; loaded only when the school-data card needs it
 ├── tools/
 │   └── build.html          Rebuilds app.js after app.jsx changes (runs in a browser, no Node.js needed)
 ├── tests/
@@ -289,9 +290,9 @@ Accounts are saved in the browser under their own key (`schedwiseai_accounts_v1`
 | `normalizeData()` | Upgrades data saved by older versions so nothing is lost. |
 | `makeBackup()`, `parseBackup()` | Build the backup file, and check a chosen file before it replaces any data. |
 | `downloadCSV()`, `parseCSV()` | CSV export and import helpers. |
-| `SchoolDataCard`, `UploadIssueList`, `handleApplySchoolData()` | Settings → *Set up with your school's data*: the three steps, the check result grouped by sheet, the "Replace your data?" dialog, and replacing the data. |
+| `SchoolDataCard`, `UploadIssueList`, `handleApplySchoolData()` | *Set up with your school's data* at the top of Class Schedules (Administrator and IT): what data is loaded, **Upload school data** to open the three steps, the check result grouped by sheet, the "Replace your data?" dialog, and replacing the data. |
 | `loadSheetLibrary()`, `readWorkbookFile()`, `downloadWorkbook()` | Load SheetJS on first use, read a chosen `.xlsx` file into rows (refusing files over 5 MB, files that are not Excel workbooks, and sheets with something past row 2,001 or column CV), and save rows as an `.xlsx` file. |
-| `SampleDataBanner` | "You are looking at sample data." on the Administrator and IT overviews, with a link to the setup card. |
+| `SampleDataBanner` | "You are looking at sample data." on the Administrator and IT overviews, with a link that opens the school-data card on Class Schedules. |
 | `subjectAreasOf()` | The school's subject areas, taken from the data (every teacher's and every subject's). The forms, Departments and Reports use it. |
 
 ---
@@ -300,13 +301,13 @@ Accounts are saved in the browser under their own key (`schedwiseai_accounts_v1`
 
 **Automated (engine):** 33 tests in `tests/engine.test.js` cover the time slots and their 12-hour labels, the 30-minute grid rows, every rule in the rule checker, the sample-data generators, full generation (checked by a second, independent rule checker on 10 sample datasets plus the multi-program sample, online rooms, fixed times, unavailable times and curriculum-aware mode) and the incremental update (only affected classes move). They take a few seconds. The Genetic Algorithm is random, so the tests check properties of the result, not one exact timetable.
 
-**Automated (school data workbook):** 18 tests in `tests/importer.test.js` cover reading each kind of cell, turning a correct workbook into the app's data, every kind of error (each pointing to its sheet, row and column), the warnings (including a file that mixes semesters or school years), the notes about defaults, columns in any order, skipped `EXAMPLE` and blank rows, numbers typed as text, text that looks like a formula, words such as `constructor` read as plain names, the template, and a round trip (current data → workbook → the same data).
+**Automated (school data workbook):** 19 tests in `tests/importer.test.js` cover reading each kind of cell, turning a correct workbook into the app's data, every kind of error (each pointing to its sheet, row and column), the warnings (including a file that mixes semesters or school years), the notes about defaults, columns in any order, skipped `EXAMPLE` and blank rows, numbers typed as text, text that looks like a formula, words such as `constructor` read as plain names, the template (including where it says to upload it), and a round trip (current data → workbook → the same data).
 
 **Automated (sign-in and accounts):** 13 tests in `tests/accounts.test.js` check the password hash against the standard SHA-256 and PBKDF2 test values, that the browser's `crypto.subtle` and the plain-JavaScript version give the same hash, that an account stores a salted hash and never the password, the username, password and name rules, the rules that stop lock-outs (always one active Administrator; nobody removes, turns off or demotes themselves), teacher links by name (and after a rename), and that damaged saved accounts are dropped.
 
 ```bash
 node tests/engine.test.js        # needs Node.js; ends with "33 passed, 0 failed"
-node tests/importer.test.js      # ends with "18 passed, 0 failed"
+node tests/importer.test.js      # ends with "19 passed, 0 failed"
 node tests/accounts.test.js      # needs Node.js 19 or newer; ends with "13 passed, 0 failed"
 ```
 
@@ -357,7 +358,7 @@ This is a research prototype. Please read this list before relying on it.
 
 - **React 18** (UMD build). The interface is written in JSX (`app.jsx`) and compiled to `app.js` with **Babel Standalone** in the browser by `tools/build.html`, so no Node.js build tools are needed
 - **Tailwind CSS** (in-browser build) and the **Inter** font. These, React, Babel and SheetJS are stored in `vendor/` (see `vendor/README.md` for versions and licenses), so the app works offline
-- **SheetJS Community Edition** (`vendor/xlsx.full.min.js`) reads and writes the Excel workbooks. It is loaded only when the Settings setup card needs it, so it does not slow down the start
+- **SheetJS Community Edition** (`vendor/xlsx.full.min.js`) reads and writes the Excel workbooks. It is loaded only when the school-data card on Class Schedules needs it, so it does not slow down the start
 - Plain JavaScript for the engine, the workbook checker (`importer.js`) and the accounts (`accounts.js`, including SHA-256 and PBKDF2 for pages without `crypto.subtle`); charts are hand-drawn SVG
 - The app itself needs only a web browser; Node.js is optional and only used for `npx serve` and the three `node tests/…` commands
 - The whole system is written in **HTML, CSS and JavaScript**, with no server code and no database

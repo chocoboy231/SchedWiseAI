@@ -8,7 +8,7 @@ Third-party files that SchedWiseAI needs, stored in the repository so the app **
 | `react-dom.production.min.js` | ReactDOM | 18.2.0 | https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js | MIT, © Meta Platforms, Inc. and affiliates |
 | `babel.min.js` | Babel Standalone. Used by `tools/build.html` to compile `app.jsx` into `app.js`, and by `loader.js` only if `app.js` is out of date. Normal page loads do not need it. | 7.23.5 | https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js | MIT, © Babel contributors |
 | `tailwind-3.4.17.js` | Tailwind CSS in-browser build (the "Play CDN" script) | 3.4.17 | https://cdn.tailwindcss.com/3.4.17 | MIT, © Tailwind Labs, Inc. |
-| `xlsx.full.min.js` | SheetJS Community Edition (reads and writes Excel files; loaded only by the Settings setup card) | 0.20.3 | https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js | Apache-2.0, © SheetJS LLC |
+| `xlsx.full.min.js` | SheetJS Community Edition (reads and writes Excel files; loaded only by the school-data card on Class Schedules) | 0.20.3 | https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js | Apache-2.0, © SheetJS LLC |
 | `inter.css`, `fonts/inter-*.woff2` | Inter font (variable, weights 100–900; Latin and Latin Extended) | Google Fonts v20 | https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800 | SIL Open Font License 1.1, © 2016 The Inter Project Authors (https://github.com/rsms/inter) |
 
 Downloaded on 2026-10-14 (SheetJS on 2026-11-25).

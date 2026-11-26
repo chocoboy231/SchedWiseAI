@@ -51,7 +51,7 @@ A step-by-step manual test plan for the whole system. It is written for responde
 | Faculty Member | Overview and Class Schedules only |
 | IT Professional / Staff | Same as Administrator |
 
-Every role also has **Settings** and **Sign Out** in the Account part of the sidebar; Settings starts with *Your account*, where anyone can change their own password. Only Administrator and IT also see **Reset Demo Data** there, and *Set up with your school's data*, *Backup and restore* and *Testing tools* in Settings.
+Every role also has **Settings** and **Sign Out** in the Account part of the sidebar; Settings starts with *Your account*, where anyone can change their own password. Only Administrator and IT also see **Reset Demo Data** there, *Backup and restore* and *Testing tools* in Settings, and the *Set up with your school's data* card at the top of **Class Schedules**.
 
 **Test accounts.** Everyone signs in with their own username and password, and the account decides the role; there is no way to switch role without signing out. The first time the app opens in a browser, it asks for the first Administrator account (test A1). Then make one account for each other role (test A2): a Department Chair (`chair1`), an IT Professional/Staff (`it1`) and a Faculty Member (`teacher1`) linked to any teacher in the Faculty list. Write the usernames and passwords on your results sheet. In this guide, "sign in as Administrator" (or another role) means "sign in with that role's test account".
 
@@ -589,7 +589,7 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 1. As Administrator or IT, press **Reset Demo Data** in the sidebar and confirm.
 2. Upload a school's data (N3 and N4), then press **Reset Demo Data** again and read the confirmation before confirming.
 
-*Expected:* New sample data of the same kind replaces everything: no schedule, no history and no requests. Cancelling the confirmation changes nothing. With the school's data loaded, the confirmation names the uploaded file and suggests downloading a backup first; after confirming, the standard sample is loaded, the Overview shows "You are looking at sample data." again, and Settings says "Currently loaded: sample data (standard sample)".
+*Expected:* New sample data of the same kind replaces everything: no schedule, no history and no requests. Cancelling the confirmation changes nothing. With the school's data loaded, the confirmation names the uploaded file and suggests downloading a backup first; after confirming, the standard sample is loaded, the Overview shows "You are looking at sample data." again, and the card at the top of Class Schedules says "Currently loaded: sample data (standard sample)".
 ☐ Pass ☐ Fail
 
 **K7. A damaged backup is refused**
@@ -638,7 +638,7 @@ These must be checked by hand in real browsers and on a real phone.
 ☐ Pass ☐ Fail
 
 **L5. Works without internet**
-1. Serve the app on the same computer (for example with Live Server or `npx serve`), then switch the internet off (airplane mode or unplug the cable) and reload the page. Sign in and generate a schedule. As Administrator, open **Settings** and press **Download blank template**, then upload a filled workbook (N3).
+1. Serve the app on the same computer (for example with Live Server or `npx serve`), then switch the internet off (airplane mode or unplug the cable) and reload the page. Sign in and generate a schedule. As Administrator, open **Class Schedules**, press **Upload school data** and **Download blank template**, then upload a filled workbook (N3).
 
 *Expected:* The app loads fully styled in the Inter font and everything works as normal, including the template download and the upload check. (A copy published on the web needs the internet to reach the page itself; the libraries are not the problem.)
 ☐ Pass ☐ Fail
@@ -659,7 +659,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs all three.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `33 passed, 0 failed`, the *Importer tests* with `18 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `33 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**
@@ -672,12 +672,13 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 
 ## N. Setting up with a school's data
 
-*Start from a fresh Standard sample, signed in as Administrator, and generate a schedule (B1) so there is something to replace. IT sees the same card; Department Chair and Faculty Member do not.* The tests use one small example school, built in N3.
+*Start from a fresh Standard sample, signed in as Administrator, and generate a schedule (B1) so there is something to replace. The card **Set up with your school's data** is at the top of **Class Schedules**. IT sees the same card; Department Chair and Faculty Member do not.* The tests use one small example school, built in N3.
 
 **N1. Download the blank template**
-1. Open **Settings**. In the card **Set up with your school's data**, press **Download blank template**. Open the file in Excel.
+1. Open **Class Schedules**. In the card **Set up with your school's data** at the top, press **Upload school data**, then **Download blank template**. Open the file in Excel.
+2. Press **Hide**, then **Upload school data** again. Open **Settings**.
 
-*Expected:* The card says "Currently loaded: sample data (standard sample)". A file `SchedWiseAI-template.xlsx` downloads and a green message says "Downloaded the blank template." It has four sheets: **Instructions**, **Faculty**, **Subjects** and **Rooms**. Row 1 of each data sheet holds the column names (required ones end in `*`), and the rows under it start with `EXAMPLE`. The Instructions sheet explains every column and lists the six periods.
+*Expected:* (1) The card starts folded: only its title, "Currently loaded: sample data (standard sample)" and **Upload school data** show, above the timetable. **Upload school data** opens the steps. A file `SchedWiseAI-template.xlsx` downloads and a green message says "Downloaded the blank template." It has four sheets: **Instructions**, **Faculty**, **Subjects** and **Rooms**. Row 1 of each data sheet holds the column names (required ones end in `*`), and the rows under it start with `EXAMPLE`. The Instructions sheet explains every column, lists the six periods, and says to upload the file on the Class Schedules page. (2) **Hide** folds the steps away and **Upload school data** opens them again. Settings has no upload card, only a line in *Testing tools* that links to it.
 ☐ Pass ☐ Fail
 
 **N2. A workbook with mistakes is refused**
@@ -703,7 +704,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 2. Press **Replace my data with this file** again, then **Download a backup first**.
 3. Press **Replace my data**. Then reload the page (F5).
 
-*Expected:* The dialog "Replace your data?" says the faculty, subjects and rooms will be replaced by the 2 teachers, 3 subjects and 1 room in Our-School.xlsx, and that the schedule, its saved versions and all requests will be cleared. Cancel changes nothing. *Download a backup first* downloads a backup, shows a green message, and keeps the dialog open. After **Replace my data**, Class Schedules opens with no schedule and a **Generate Schedule** button; Faculty lists only Ana Cruz and Ben Lim; Schedule History is empty; the bell has "Uploaded school data from Our-School.xlsx: 2 teachers, 3 subjects, 1 room."; Settings says "Currently loaded: your school's data, uploaded <date and time> from Our-School.xlsx". After the reload all of this is still there. (Restoring the backup from step 2 brings the sample back; see K3.)
+*Expected:* The dialog "Replace your data?" says the faculty, subjects and rooms will be replaced by the 2 teachers, 3 subjects and 1 room in Our-School.xlsx, and that the schedule, its saved versions and all requests will be cleared. Cancel changes nothing. *Download a backup first* downloads a backup, shows a green message, and keeps the dialog open. After **Replace my data**, the card folds away, a message says "Your school's data is in: 2 teachers, 3 subjects, 1 room. Press Generate Schedule to build their timetable.", and Class Schedules shows no schedule and a **Generate Schedule** button right below the card. Faculty lists only Ana Cruz and Ben Lim; Schedule History is empty; the bell has "Uploaded school data from Our-School.xlsx: 2 teachers, 3 subjects, 1 room."; the card says "Currently loaded: your school's data, uploaded <date and time> from Our-School.xlsx". After the reload all of this is still there. (Restoring the backup from step 2 brings the sample back; see K3.)
 ☐ Pass ☐ Fail
 
 **N5. Generate from the uploaded data**
@@ -714,7 +715,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 ☐ Pass ☐ Fail
 
 **N6. Edit the data in Excel and upload it again**
-1. In Settings press **Download current data** and open the file.
+1. On Class Schedules press **Upload school data**, then **Download current data**, and open the file.
 2. Change Ana Cruz's **Max units** from `18` to `15`. Save, choose the file in the card, and replace (N4).
 
 *Expected:* The file is named `SchedWiseAI-data-<date>.xlsx` and has the same three sheets with the current teachers, subjects and room, in the template's layout. The check shows "✓ 2 teachers · 3 subjects · 1 room" with no errors and no warnings. After replacing, Ana Cruz has 15 maximum units and still teaches Accounting and Nursing; the other teacher, the subjects and the room are unchanged (the schedule is cleared, as in N4).
@@ -734,7 +735,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 2. Open **Settings → Testing tools → Standard sample** and confirm. Open **Overview** again and press **Set up with your school's data →**.
 3. Sign in as `it1`, `chair1` and `teacher1` in turn and look at their overviews.
 
-*Expected:* With the school's data there is no reminder. With the sample loaded, the Administrator overview shows "You are looking at sample data." and the link opens Settings, where the card says "Currently loaded: sample data (standard sample)". IT sees the same reminder; Department Chair and Faculty Member never see it.
+*Expected:* With the school's data there is no reminder. With the sample loaded, the Administrator overview shows "You are looking at sample data." and the link opens Class Schedules with the card's steps showing; the card says "Currently loaded: sample data (standard sample)". IT sees the same reminder; Department Chair and Faculty Member never see it.
 ☐ Pass ☐ Fail
 
 **N9. Workbooks saved by Google Sheets and LibreOffice**

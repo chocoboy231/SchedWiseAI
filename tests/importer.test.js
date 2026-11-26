@@ -242,6 +242,12 @@
     eq(pick(r.data.rooms, ["name", "capacity"]), pick(d.rooms, ["name", "capacity"]));
   });
 
+  test("the template says where to upload it: the Class Schedules page", () => {
+    const text = I.templateRows().Instructions.map(r => r.join(" ")).join("\n");
+    assert(/upload it in SchedWiseAI on the Class Schedules page/.test(text), "the upload step names Class Schedules");
+    assert(!/Settings/.test(text), "the template no longer sends people to Settings");
+  });
+
   // ---------------- run everything ----------------
   show("\nImporter tests");
   const t0 = Date.now();

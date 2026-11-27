@@ -240,6 +240,20 @@ function requestTimesText(r, slotById) {
   return parts.length ? parts.join(" · ") : "No time slots selected";
 }
 
+// whyNotText(reasons, sections, teacher): the reasons from E.whyNotAt in plain words,
+// e.g. "Maria Garcia already teaches IT101 · BSIT-2B then". `teacher` is a name, or "you".
+function whyNotText(reasons, sections, teacher) {
+  const you = teacher === "you";
+  return reasons.map(b => {
+    const other = b.index != null ? sections[b.index] : null;
+    if (b.kind === "unavailable") return (you ? "you are" : teacher + " is") + " unavailable then";
+    if (b.kind === "fixed") return "the subject has a fixed time";
+    if (b.kind === "teacher") return (you ? "you already teach " : teacher + " already teaches ") + other.subjectCode + " · " + other.sectionName + " then";
+    if (b.kind === "section") return other.sectionName + " already has " + other.subjectCode + " then";
+    return "no suitable lab is free then";
+  }).join(", and ");
+}
+
 // describeSlots([30,31,...], slotById) -> "Fri P4–P6 · Sat (all day)"
 // Turns a list of time-slot ids into short readable text, grouped by day.
 // Runs of back-to-back periods are shown as a range (P4–P6).
@@ -317,6 +331,7 @@ function normalizeData(d) {
    Kinds:
      teacher      two classes taught by one teacher at the same time
      room         two laboratory classes in one lab at the same time
+     section      two classes of one section (the same students) at the same time
      unqualified  a class given a teacher without the needed specialization
      unavailable  a class moved into a time its teacher marked unavailable
      capacity     a laboratory class put in a lab that is too small
@@ -326,7 +341,7 @@ function normalizeData(d) {
                   (shown on Workload/Departments; NOT counted as a conflict)
    --------------------------------------------------------------------- */
 const TEST_CONFLICT_KINDS = [
-  ["teacher", "Teacher double-booking"], ["room", "Room double-booking"], ["unqualified", "Unqualified teacher"],
+  ["teacher", "Teacher double-booking"], ["room", "Room double-booking"], ["section", "Section double-booking"], ["unqualified", "Unqualified teacher"],
   ["unavailable", "Teacher unavailable"], ["capacity", "Room too small"], ["roomType", "Online class given a room"],
   ["fixed", "Fixed time not respected"], ["overload", "Teacher overload"],
 ];
@@ -341,20 +356,25 @@ function makeTestConflict(kind, data) {
   const scheduled = i => genes[i] && genes[i].facultyId >= 0 && genes[i].slotId >= 0;
   // Classes already part of a conflict are left alone, so a new test conflict never
   // undoes an earlier one. "Involved" = every class the rule checker flags PLUS both
-  // classes of any teacher or room double-booking (the checker flags only the second).
+  // classes of any teacher, room or section double-booking (the checker flags only the second).
   const involved = new Set(E.findConflictingIndices(faculty, rooms, sections, timeSlots, genes));
-  const seenF = {}, seenR = {};
+  const seenF = {}, seenR = {}, seenS = {};
+  const secKey = i => E.sectionKey(sections[i]);   // the students a class is for (null: no section name)
   genes.forEach((g, i) => {
     if (!sections[i] || !scheduled(i)) return;
-    const fk = g.facultyId + "-" + g.slotId, rk = g.roomId + "-" + g.slotId;
+    const fk = g.facultyId + "-" + g.slotId, rk = g.roomId + "-" + g.slotId, sk = secKey(i);
     if (seenF[fk] != null) { involved.add(i); involved.add(seenF[fk]); } else seenF[fk] = i;
     if (g.roomId !== E.ONLINE_ROOM_ID) { if (seenR[rk] != null) { involved.add(i); involved.add(seenR[rk]); } else seenR[rk] = i; }
+    if (sk !== null) { const k = sk + "@" + g.slotId; if (seenS[k] != null) { involved.add(i); involved.add(seenS[k]); } else seenS[k] = i; }
   });
   const idx = genes.map((_, i) => i).filter(i => sections[i] && scheduled(i) && !involved.has(i));
   const notFixed = i => sections[i].fixedSlotId == null;
   // Who/what is busy at a time, ignoring class `skip` (the one being moved).
   const facBusy = (fid, sid, skip) => genes.some((g, k) => k !== skip && scheduled(k) && g.facultyId === fid && g.slotId === sid);
   const roomBusy = (rid, sid, skip) => rid !== E.ONLINE_ROOM_ID && genes.some((g, k) => k !== skip && scheduled(k) && g.roomId === rid && g.slotId === sid);
+  // Does class j's section have another class at time sid? (Moves for the other kinds avoid that,
+  // so each button adds exactly one kind of conflict.)
+  const secBusy = (j, sid) => secKey(j) !== null && genes.some((g, k) => k !== j && sections[k] && scheduled(k) && g.slotId === sid && secKey(k) === secKey(j));
   const qualified = (f, i) => f.specializations.includes(sections[i].requiredSpecialization);
   const free = (f, sid) => !(f.unavailableSlotIds || []).includes(sid);
   const out = (msg, extra) => ({ genes, sections: (extra && extra.sections) || sections, faculty: (extra && extra.faculty) || faculty, message: msg });
@@ -364,7 +384,7 @@ function makeTestConflict(kind, data) {
     for (const i of idx) for (const j of idx) {
       if (i === j || !notFixed(j) || !E.isOnline(sections[j])) continue;
       const fi = fById[genes[i].facultyId];
-      if (!fi || !qualified(fi, j) || genes[j].slotId === genes[i].slotId) continue;
+      if (!fi || !qualified(fi, j) || genes[j].slotId === genes[i].slotId || secBusy(j, genes[i].slotId)) continue;
       genes[j] = { facultyId: fi.id, roomId: E.ONLINE_ROOM_ID, slotId: genes[i].slotId };
       return out(name(j) + " moved to " + slotLabel(genes[i].slotId) + " with " + fi.name + ", who already teaches " + name(i) + " then.");
     }
@@ -375,11 +395,26 @@ function makeTestConflict(kind, data) {
     for (const i of idx) for (const j of idx) {
       if (i === j || !notFixed(j) || E.isOnline(sections[i]) || E.isOnline(sections[j])) continue;
       const fj = fById[genes[j].facultyId], ri = rById[genes[i].roomId], si = genes[i].slotId;
-      if (!fj || !ri || ri.capacity < sections[j].enrolledStudents || !free(fj, si) || facBusy(fj.id, si, j)) continue;
+      if (!fj || !ri || ri.capacity < sections[j].enrolledStudents || !free(fj, si) || facBusy(fj.id, si, j) || secBusy(j, si)) continue;
       genes[j] = { facultyId: fj.id, roomId: ri.id, slotId: si };
       return out(name(j) + " moved into " + ri.name + " at " + slotLabel(si) + ", where " + name(i) + " already meets.");
     }
     return { error: "Needs two laboratory classes; none could share a lab without other problems." };
+  }
+  if (kind === "section") {
+    // Move class j to the time another class i of the SAME section meets, keeping j's own
+    // teacher (free and available then) and a free suitable room, so only the section clashes.
+    for (const i of idx) for (const j of idx) {
+      const si = genes[i].slotId;
+      if (i === j || !notFixed(j) || secKey(j) === null || secKey(j) !== secKey(i) || genes[j].slotId === si) continue;
+      const fj = fById[genes[j].facultyId];
+      if (!fj || !free(fj, si) || facBusy(fj.id, si, j)) continue;
+      const rid = [genes[j].roomId].concat(E.validRooms(rooms, sections[j])).find(r => !roomBusy(r, si, j));
+      if (rid === undefined) continue;
+      genes[j] = { ...genes[j], roomId: rid, slotId: si };
+      return out(name(j) + " moved to " + slotLabel(si) + ", when " + sections[j].sectionName + " already has " + sections[i].subjectCode + ".");
+    }
+    return { error: "No two classes of one section could be put at the same time without other problems." };
   }
   if (kind === "unqualified") {
     for (const j of idx) for (const f of faculty) {
@@ -395,7 +430,7 @@ function makeTestConflict(kind, data) {
       if (!notFixed(j)) continue;
       const f = fById[genes[j].facultyId];
       if (!f) continue;
-      const u = (f.unavailableSlotIds || []).find(sid => sid !== genes[j].slotId && !facBusy(f.id, sid, j) && !roomBusy(genes[j].roomId, sid, j));
+      const u = (f.unavailableSlotIds || []).find(sid => sid !== genes[j].slotId && !facBusy(f.id, sid, j) && !roomBusy(genes[j].roomId, sid, j) && !secBusy(j, sid));
       if (u == null) continue;
       genes[j] = { ...genes[j], slotId: u };
       return out(name(j) + " moved to " + slotLabel(u) + ", a time " + f.name + " marked unavailable.");
@@ -437,7 +472,7 @@ function makeTestConflict(kind, data) {
       if (!notFixed(j)) continue;
       const f = fById[genes[j].facultyId];
       // Pin it to a time its teacher could actually make, so an update can fix it.
-      const target = timeSlots.find(t => t.id !== genes[j].slotId && f && free(f, t.id) && !facBusy(f.id, t.id, j));
+      const target = timeSlots.find(t => t.id !== genes[j].slotId && f && free(f, t.id) && !facBusy(f.id, t.id, j) && !secBusy(j, t.id));
       if (!target) continue;
       const secs = sections.map((s2, k) => k === j ? { ...s2, fixedSlotId: target.id } : s2);
       return out(name(j) + " is now fixed to " + slotLabel(target.id) + " but is still scheduled at " + slotLabel(genes[j].slotId) + ".", { sections: secs });
@@ -483,7 +518,7 @@ function saveState(data) {
 const BACKUP_APP = "SchedWiseAI";
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
-const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "curriculumAware", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind", "datasetInfo"];
+const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind", "datasetInfo"];
 
 // makeBackup(state): the object that is written to the .json file.
 function makeBackup(state) {
@@ -630,7 +665,8 @@ function parseBackup(text) {
   // and every value the Schedules, History and Reports pages show must have the right type.
   const n = d.sections.length;
   const trigger = t => obj(t) && optStr(t.kind) && optStr(t.reason) && optNum(t.facultyId) && optNumArr(t.slotIds) && optNumArr(t.preferredSlotIds);
-  const honoured = h => obj(h) && optStr(h.name) && optStr(h.slots) && optStr(h.prefSlots) && optNum(h.clashes) && optNum(h.moved) && optNum(h.inPref);
+  const honoured = h => obj(h) && optStr(h.name) && optStr(h.slots) && optStr(h.prefSlots) && optNum(h.clashes) && optNum(h.moved) && optNum(h.inPref)
+    && opt(strArr)(h.notes);
   const change = c => obj(c) && Number.isInteger(c.index) && c.index >= 0 && c.index < n && gene(c.from) && gene(c.to);
   const summary = u => obj(u) && arrOf(change)(u.changes) && optNum(u.moved) && optNum(u.unchanged) && optNum(u.shifted)
     && opt(arrOf(honoured))(u.honoured) && opt(strArr)(u.reasons);
@@ -638,7 +674,7 @@ function parseBackup(text) {
     && arrOf(c => obj(c) && num(c.best) && num(c.avg))(s.convergence) && num(s.fitness)
     && opt(v => obj(v) && Object.values(v).every(num) && num(v.total))(s.violations)
     && optStr(s.approvalStatus) && optStr(s.approvalComment) && optStr(s.generatedAt) && optStr(s.kind) && opt(id)(s.id)
-    && optNum(s.elapsedMs) && optNum(s.curriculumConflicts) && opt(obj)(s.settings)
+    && optNum(s.elapsedMs) && opt(obj)(s.settings)
     && opt(r => obj(r) && optStr(r.reason) && opt(arrOf(trigger))(r.triggers))(s.needsRegeneration)
     && opt(summary)(s.updateSummary);
   if (d.result != null && !schedule(d.result)) return { error: "The saved schedule in the backup does not match its subject list, or is damaged." };
@@ -1241,7 +1277,7 @@ function SlotPicker({ timeSlots, selected, onToggle, onToggleDay, unavailable, c
 // only; otherwise a dropdown lets an admin file on someone's behalf.
 // Nothing changes until an Admin/Chair approves — see handleRequestDecision in App().
 // ---------------------------------------------------------------------
-function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, sections, result, onSave, onClose }) {
+function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, sections, rooms, result, onSave, onClose }) {
   const locked = lockedFacultyId != null;
   const [facultyId, setFacultyId] = useState(locked ? lockedFacultyId : (faculty[0] ? faculty[0].id : null));
   const [type, setType] = useState("Availability Change");
@@ -1263,6 +1299,19 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
     if (g.facultyId === facultyId && g.slotId >= 0) (classSlots[g.slotId] = classSlots[g.slotId] || []).push(sections[i].subjectCode);
   });
   const affected = slotIds.filter(id => classSlots[id]).length;
+  const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
+
+  // "Prefer instead" times that cannot take a class this request would move, and why (the update
+  // would then use another time, so say so now). One line per time when the teacher is busy then
+  // (that stops every class); otherwise one line per class that cannot go there.
+  const moving = result && isChange ? result.genes.map((g, i) => i).filter(i => result.genes[i].facultyId === facultyId && slotIds.includes(result.genes[i].slotId)) : [];
+  const preferProblems = [];
+  preferIds.slice().sort((a, b) => a - b).forEach(p => {
+    const whys = moving.map(i => ({ i, why: E.whyNotAt(faculty, rooms || [], sections, timeSlots, result.genes, i, facultyId, p) })).filter(x => x.why.length);
+    const busy = whys.find(x => x.why.some(b => b.kind === "teacher"));
+    if (busy) preferProblems.push(describeSlots([p], slotById) + ": " + whyNotText(busy.why.filter(b => b.kind === "teacher"), sections, "you") + ", so no class can move there.");
+    else whys.forEach(({ i, why }) => preferProblems.push(describeSlots([p], slotById) + " can't take " + sections[i].subjectCode + " · " + sections[i].sectionName + ": " + whyNotText(why, sections, "you") + "."));
+  });
 
   // A click marks the cell in the current mode, and clears it from the other mode
   // (a time can't be both "can't teach" and "prefer instead").
@@ -1280,7 +1329,6 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
     setMine(allPicked ? mine.filter(id => !daySlots.includes(id)) : Array.from(new Set(mine.concat(daySlots))));
     if (!allPicked) setOther(prev => prev.filter(id => !daySlots.includes(id)));
   }
-  const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
 
   return (
     <Modal title="Request Availability Change / Leave" onClose={onClose} wide>
@@ -1333,9 +1381,10 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
         {affected > 0 && (
           <div className="text-orange-700">
             {affected} of these time(s) currently have a class. If approved, those classes will be moved
-            {preferIds.length ? ", into your preferred times first when they are free." : ". Add \"Prefer instead\" times to choose where they go."}
+            {preferIds.length ? ": into your preferred times first when they are free, then other free times on those days." : ". Add \"Prefer instead\" times to choose where they go."}
           </div>
         )}
+        {preferProblems.map((t, k) => <div key={k} className="text-rose-700">⚠ {t}</div>)}
         {isChange && slotIds.length > 0 && affected === 0 && result && (
           <div className="text-orange-700">None of your classes are at the times you can't teach, so approving this will not move any class. If these are the times you WANT to teach, switch to <span className="font-semibold">Prefer instead</span>.</div>
         )}
@@ -2278,7 +2327,6 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // ---- Feature data (the `|| []` fallbacks keep older saved data working) ----
   const [leaveRequests, setLeaveRequests] = useState(init.leaveRequests || []);
-  const [curriculumAware, setCurriculumAware] = useState(init.curriculumAware || false);
   const [facultyProfileModal, setFacultyProfileModal] = useState(null);
   const [assignmentModal, setAssignmentModal] = useState(null);
   const [leaveRequestModal, setLeaveRequestModal] = useState(false);
@@ -2298,8 +2346,8 @@ function App() {
   // Save everything to the browser whenever any of these values change.
 
   useEffect(() => {
-    saveState({ faculty, rooms, sections, timeSlots, result, leaveRequests, curriculumAware, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo });
-  }, [faculty, rooms, sections, timeSlots, result, leaveRequests, curriculumAware, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo]);
+    saveState({ faculty, rooms, sections, timeSlots, result, leaveRequests, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo });
+  }, [faculty, rooms, sections, timeSlots, result, leaveRequests, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo]);
 
   // Saves a changed account list. Other open tabs pick it up through the "storage" event below.
   function updateAccounts(next) {
@@ -2366,7 +2414,7 @@ function App() {
   function handleGenerate() {
     setGenerating(true);
     setTimeout(() => {
-      const settings = { generations: 140, popSize: 50, curriculumAware };
+      const settings = { generations: 140, popSize: 50 };
       const t0 = performance.now();
       const r = E.runGA(faculty, rooms, sections, timeSlots, settings);
       const elapsedMs = Math.round(performance.now() - t0);
@@ -2398,7 +2446,7 @@ function App() {
     setGenerating(true);
     setTimeout(() => {
       const t0 = performance.now();
-      const r = E.repairSchedule(faculty, rooms, sections, timeSlots, result.genes, { curriculumAware, generations: 100, popSize: 40 });
+      const r = E.repairSchedule(faculty, rooms, sections, timeSlots, result.genes, { generations: 100, popSize: 40 });
       const elapsedMs = Math.round(performance.now() - t0);
       const triggers = (result.needsRegeneration && result.needsRegeneration.triggers) || [];
       const honoured = triggers.filter(t => t.kind === "blocked").map(t => {
@@ -2408,8 +2456,19 @@ function App() {
         const pref = t.preferredSlotIds || [];
         const movedHere = r.changes.filter(c => r.genes[c.index].facultyId === t.facultyId);
         const inPref = movedHere.filter(c => pref.includes(r.genes[c.index].slotId)).length;
+        // Each moved class that did not get an asked-for time: where it went, and what was in
+        // the way at those times (at most three are named), e.g. "Wed P2: Maria Garcia already
+        // teaches IT101 · BSIT-2B then."
+        const teacherName = fac ? fac.name : "the teacher";
+        const notes = movedHere.filter(c => pref.length && !pref.includes(r.genes[c.index].slotId)).map(c => {
+          const s = sections[c.index];
+          const why = pref.map(p => ({ p, why: E.whyNotAt(faculty, rooms, sections, timeSlots, r.genes, c.index, t.facultyId, p) })).filter(x => x.why.length);
+          const shown = why.slice(0, 3).map(x => describeSlots([x.p], slotById) + ": " + whyNotText(x.why, sections, teacherName) + ".");
+          return s.subjectCode + " · " + s.sectionName + " went to " + describeSlots([r.genes[c.index].slotId], slotById) + " instead. "
+            + shown.join(" ") + (why.length > 3 ? " (" + (why.length - 3) + " more asked-for times were taken too.)" : "");
+        });
         return { name: fac ? fac.name : "Faculty", slots: describeSlots(t.slotIds, slotById), clashes,
-          prefSlots: pref.length ? describeSlots(pref, slotById) : "", moved: movedHere.length, inPref };
+          prefSlots: pref.length ? describeSlots(pref, slotById) : "", moved: movedHere.length, inPref, notes };
       });
       setGenerating(false);
       if (r.changes.length === 0) {
@@ -2681,8 +2740,7 @@ function App() {
       .then(() => logActivity("Export", name + " (" + faculty.length + " faculty, " + sections.length + " subjects, " + rooms.length + " rooms)"));
   }
   // Replaces the data with a checked upload, all at once. Like Reset Demo Data it clears the
-  // schedule, its saved versions and the requests; notifications, the activity log and the
-  // curriculum-aware setting are kept.
+  // schedule, its saved versions and the requests; notifications and the activity log are kept.
   function handleApplySchoolData(data, fileName) {
     if (!canManageData) return;
     const d = normalizeData({ faculty: data.faculty, sections: data.sections, rooms: data.rooms });
@@ -2702,7 +2760,7 @@ function App() {
   function handleDownloadBackup() {
     const stamp = new Date().toISOString().slice(0, 10);
     downloadJSON("schedwiseai-backup-" + stamp + ".json",
-      makeBackup({ faculty, rooms, sections, result, leaveRequests, curriculumAware, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo }));
+      makeBackup({ faculty, rooms, sections, result, leaveRequests, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo }));
     logActivity("Backup", "schedwiseai-backup-" + stamp + ".json (" + faculty.length + " faculty, " + sections.length + " subjects)");
     return { ok: true, message: "Backup downloaded. Keep the file somewhere safe (for example a USB drive or cloud folder)." };
   }
@@ -2719,7 +2777,7 @@ function App() {
     }
     const n = p.data;
     setFaculty(n.faculty); setRooms(n.rooms); setSections(n.sections); setResult(n.result || null);
-    setLeaveRequests(n.leaveRequests); setCurriculumAware(!!n.curriculumAware); setNotifications(n.notifications);
+    setLeaveRequests(n.leaveRequests); setNotifications(n.notifications);
     setScheduleHistory(n.scheduleHistory); setActivityLog(n.activityLog); setChairDept(n.chairDept || "All");
     setDatasetKind(n.datasetKind === "expanded" || n.datasetKind === "school" ? n.datasetKind : "standard");
     setDatasetInfo(n.datasetKind === "school" ? (n.datasetInfo || null) : null);
@@ -2977,7 +3035,6 @@ function App() {
               slotById={slotById} timeSlots={timeSlots} generating={generating} onGenerate={handleGenerate}
               tab={scheduleTab} setTab={setScheduleTab} role={role} faculty={faculty} rooms={rooms}
               selectedFacultyId={selectedFacultyId} setSelectedFacultyId={setSelectedFacultyId}
-              curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware}
               onEditAssignment={(index, gene) => setAssignmentModal({ index, gene })}
               onApprovalDecision={handleApprovalDecision}
               onUpdateSchedule={handleUpdateSchedule}
@@ -3046,7 +3103,7 @@ function App() {
       )}
       {leaveRequestModal && (
         <AvailabilityRequestModal faculty={faculty} lockedFacultyId={leaveRequestLockedTo}
-          timeSlots={timeSlots} sections={sections} result={result}
+          timeSlots={timeSlots} sections={sections} rooms={rooms} result={result}
           onSave={handleSubmitRequest}
           onClose={() => setLeaveRequestModal(false)} />
       )}
@@ -3576,7 +3633,6 @@ function ITOverview(props) {
     ["Population size", result.settings ? result.settings.popSize : "—"],
     ["Final fitness", result.fitness.toFixed(1)],
     ["Hard-constraint violations", result.violations.total],
-    ["Curriculum-aware", result.curriculumAware ? "On" : "Off"],
   ] : [];
 
   return (
@@ -4431,16 +4487,6 @@ function WorkloadPage({ faculty, sections, result, slotById, roomById }) {
   );
 }
 
-// CurriculumToggle: the checkbox that turns curriculum-aware scheduling on/off.
-function CurriculumToggle({ curriculumAware, setCurriculumAware }) {
-  return (
-    <label className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer">
-      <input type="checkbox" checked={curriculumAware} onChange={e=>setCurriculumAware(e.target.checked)} className="accent-amber-500" />
-      <span>Use curriculum (avoid overlaps within the same program, year level &amp; semester)</span>
-    </label>
-  );
-}
-
 // RegenerationBanner: shown when something (an approved availability change,
 // an ended leave, a new subject, a new fixed time) means the schedule should
 // be updated.
@@ -4511,7 +4557,9 @@ function UpdateSummary({ result, sections, facultyById, slotById }) {
             <div className="mt-0.5">
               {h.inPref === h.moved
                 ? "All " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + ")."
-                : h.inPref + " of " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + "). The rest went elsewhere, because those times were taken by other classes or rooms."}
+                : h.inPref + " of " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + ")."
+                  + (h.notes ? "" : " The rest went elsewhere, because those times were taken by other classes or rooms.")}
+              {(h.notes || []).map((n, k) => <div key={k} className="mt-0.5">{n}</div>)}
             </div>
           )}
         </div>
@@ -4581,7 +4629,7 @@ function MyAvailabilitySection({ me, leaveRequests, slotById, onNewRequest }) {
 //   • "By Faculty" / "My Schedule": one person's classes in time order
 // Clicking a class opens AssignmentModal (not available to Faculty role).
 // For the Faculty role, the person shown is always myFacultyId.
-function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, rooms, selectedFacultyId, setSelectedFacultyId, curriculumAware, setCurriculumAware, onEditAssignment, onApprovalDecision, myFacultyId, leaveRequests, onNewRequest, onUpdateSchedule }) {
+function SchedulesPage({ result, sections, facultyById, roomById, slotById, timeSlots, generating, onGenerate, tab, setTab, role, faculty, rooms, selectedFacultyId, setSelectedFacultyId, onEditAssignment, onApprovalDecision, myFacultyId, leaveRequests, onNewRequest, onUpdateSchedule }) {
   // Permissions for this page: faculty can only view; only Admin/Chair approve.
   const canEdit = role !== "faculty";
   const canApprove = role === "admin" || role === "chair";
@@ -4598,11 +4646,6 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
         <IconCalendar size={40} className="mx-auto text-slate-300 mb-4" />
         <h3 className="font-semibold text-slate-900 mb-2">No schedule generated yet</h3>
         <p className="text-sm text-slate-500 mb-5">Run the AI Optimization Engine to generate a conflict-free schedule from your current faculty, subjects, and rooms.</p>
-        {canEdit && (
-          <div className="max-w-md mx-auto mb-5">
-            <CurriculumToggle curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware} />
-          </div>
-        )}
         {canEdit && (
           <button onClick={onGenerate} disabled={generating}
             className="bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm px-5 py-2.5 rounded-lg disabled:opacity-60">
@@ -4658,18 +4701,12 @@ function SchedulesPage({ result, sections, facultyById, roomById, slotById, time
               ⚠ {overloadedTeachers.length} teacher{overloadedTeachers.length > 1 ? "s" : ""} over maximum units
             </span>
           )}
-          {result.curriculumAware && (
-            <span className={"text-sm font-medium px-3 py-1.5 rounded-lg " + (result.curriculumConflicts === 0 ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700")}>
-              Curriculum: {result.curriculumConflicts === 0 ? "no overlaps" : result.curriculumConflicts + " overlaps"}
-            </span>
-          )}
           {unscheduledCount > 0 && (
             <span className="text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600">{unscheduledCount} unscheduled (manually removed)</span>
           )}
           <span className="text-sm text-slate-400">Fitness score: {result.fitness.toFixed(1)} · {result.convergence.length} generations</span>
         </div>
         <div className="flex items-center gap-2">
-          {canEdit && <CurriculumToggle curriculumAware={curriculumAware} setCurriculumAware={setCurriculumAware} />}
           {canEdit && (
             <button onClick={onGenerate} disabled={generating} title="Builds a brand-new schedule from scratch; every class may move."
               className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-3.5 py-2 rounded-lg disabled:opacity-60">
@@ -4871,14 +4908,14 @@ function HistoryPage({ history, currentId, onRestore }) {
       </div>
       <TableShell title={"Schedule History (" + history.length + ")"}
         onExport={() => downloadCSV("schedule_history.csv",
-          ["Version","Type","Generated","Feasible","Conflicts","Fitness","Generations","Curriculum-aware","Approval"],
-          history.slice().reverse().map((h, i) => ["v" + (i + 1), h.kind === "update" ? "Update" : "Full", new Date(h.generatedAt).toLocaleString(), h.feasible ? "Yes" : "No", h.violations.total, h.fitness.toFixed(1), h.convergence.length, h.curriculumAware ? "Yes" : "No", h.approvalStatus || "Pending Review"]))}>
+          ["Version","Type","Generated","Feasible","Conflicts","Fitness","Generations","Approval"],
+          history.slice().reverse().map((h, i) => ["v" + (i + 1), h.kind === "update" ? "Update" : "Full", new Date(h.generatedAt).toLocaleString(), h.feasible ? "Yes" : "No", h.violations.total, h.fitness.toFixed(1), h.convergence.length, h.approvalStatus || "Pending Review"]))}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
               <th className="px-6 py-3 font-medium">Version</th><th className="px-6 py-3 font-medium">Type</th><th className="px-6 py-3 font-medium">Generated</th>
               <th className="px-6 py-3 font-medium">Conflicts</th><th className="px-6 py-3 font-medium">Fitness</th>
-              <th className="px-6 py-3 font-medium">Generations</th><th className="px-6 py-3 font-medium">Curriculum</th>
+              <th className="px-6 py-3 font-medium">Generations</th>
               <th className="px-6 py-3 font-medium"></th>
             </tr></thead>
             <tbody>
@@ -4901,7 +4938,6 @@ function HistoryPage({ history, currentId, onRestore }) {
                     </td>
                     <td className="px-6 py-3 text-slate-500">{h.fitness.toFixed(1)}</td>
                     <td className="px-6 py-3 text-slate-500">{h.convergence.length}</td>
-                    <td className="px-6 py-3 text-slate-500">{h.curriculumAware ? "On" : "Off"}</td>
                     <td className="px-6 py-3 text-right">
                       {!isCurrent && (
                         <button onClick={() => onRestore(h)} className="text-xs font-medium text-blue-800 hover:underline">Restore</button>
@@ -4937,6 +4973,7 @@ function ConflictsPage({ result, sections, faculty, rooms, onGenerate, generatin
   const rows = [
     ["Faculty double-booking", v.facultyConflicts, "A faculty member assigned to two classes at the same time"],
     ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"],
+    ["Section double-booking", v.sectionConflicts || 0, "One section (the same students) given two classes at the same time"],
     ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"],
     ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot"],
     ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"],
@@ -5150,6 +5187,7 @@ function ReportsPage({ faculty, rooms, sections, result, slotById }) {
         onExport={() => downloadCSV("conflict_report.csv", ["Constraint","Count"], [
           ["Faculty double-booking", result.violations.facultyConflicts],
           ["Room double-booking", result.violations.roomConflicts],
+          ["Section double-booking", result.violations.sectionConflicts || 0],
           ["Unqualified assignment", result.violations.unqualified],
           ["Faculty unavailable", result.violations.unavailable],
           ["Room type mismatch", result.violations.roomTypeMismatch],

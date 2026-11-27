@@ -172,10 +172,11 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 *Expected:* The grid shows every class once. Its rows go every 30 minutes, from 7:00 AM to 3:30 PM, and the first row of each period also shows the period (7:00 AM P1, 8:30 AM P2 … 2:30 PM P6). Each class covers the three rows of its period (a P1 class fills 7:00 to 8:30 AM), and classes held at the same time share one block. By Faculty shows only the chosen teacher's classes, with 12-hour times such as "Mon 8:30-10:00 AM" or "Mon 11:30 AM-1:00 PM" (the same style is used in Edit Assignment, Workload Management, the period lists and the CSV export). Nothing is placed on Sunday.
 ☐ Pass
 
-**B4. Curriculum-aware option**
-1. Tick **Use curriculum (avoid overlaps…)**. Press **Full Regenerate**.
+**B4. One class at a time per section, spread over the week**
+1. In the **Weekly Grid**, pick one section (for example BSIT-2A) and look at the day and period of each of its classes.
+2. Open **Conflict Detection**.
 
-*Expected:* The header shows a "Curriculum" badge: "no overlaps", or a count. The schedule stays conflict-free.
+*Expected:* No two classes of that section share a day and period. The section's classes are on several days, not all on Monday. Conflict Detection shows **Section double-booking 0**.
 ☐ Pass
 
 **B5. Approve a schedule**
@@ -211,7 +212,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 **C1. A clean schedule**
 1. Open **Conflict Detection**.
 
-*Expected:* The page lists the rule categories (teacher double-booking, room double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, room capacity) and the total is 0.
+*Expected:* The page lists nine rule categories (teacher double-booking, room double-booking, section double-booking, unqualified teacher, teacher unavailable, room-type mismatch, fixed time not respected, room capacity, cannot be scheduled) and the total is 0.
 ☐ Pass
 
 **C2. Create a conflict by hand and watch the count update**
@@ -221,10 +222,10 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 *Expected:* The header changes to **⚠ 1 conflicts remaining** straight away, with no regenerate needed. The Conflict Detection page and the sidebar badge show the same number.
 ☐ Pass 
 
-**C3. Test conflicts (all seven kinds)**
+**C3. Test conflicts (all eight kinds)**
 1. Open **Settings → Testing tools**. Under "Create test conflicts" press each button one at a time, then **Create all of them**.
 
-*Expected:* Each button says exactly what it changed. After each one, Conflict Detection shows that kind counted. The "Teacher overload" button is labelled *(not a conflict)* and does not add to the conflict total. Earlier test conflicts are not undone by later ones.
+*Expected:* Each button says exactly what it changed (for example, **Section double-booking** moves a class to a time when its section already has another class). After each one, Conflict Detection shows that kind counted, and only that kind goes up. The "Teacher overload" button is labelled *(not a conflict)* and does not add to the conflict total. Earlier test conflicts are not undone by later ones.
 ☐ Pass
 
 **C4. Update affected classes**
@@ -453,7 +454,7 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 **I1. A faculty member asks for a change**
 1. Sign in as `teacher1` (the Faculty Member account from A2). Open **Class Schedules → My Schedule**. Press **Request Availability Change / Leave**, choose **Availability Change** as the request type, pick the day-and-period times you cannot teach, add a "prefer instead" time, and submit.
 
-*Expected:* A message at the bottom says the request was sent for approval and that the schedule changes only after a chair or administrator approves it. The request is listed as **Pending**. A notification is created. Nothing about the schedule changes yet, and there is no update button (nothing has been approved).
+*Expected:* Before you submit: if a "prefer instead" time is one when you already teach, a red ⚠ line under the summary says no class can move there. After you submit: a message at the bottom says the request was sent for approval and that the schedule changes only after a chair or administrator approves it. The request is listed as **Pending**. A notification is created. Nothing about the schedule changes yet, and there is no update button (nothing has been approved).
 ☐ Pass ☐ Fail
 
 **I2. Approve a request that clashes with a class**
@@ -465,7 +466,7 @@ Import works by **pasting** CSV text into a box. There is no file chooser.
 **I3. Update affected classes after an approval**
 1. Press **Update affected classes** in that banner (on the Leave & Availability tab or on Class Schedules).
 
-*Expected:* Class Schedules opens. The teacher's clashing classes move, preferably to the "prefer instead" times, and the others stay. The "What changed" panel confirms the approved request is now respected.
+*Expected:* Class Schedules opens. The teacher's clashing classes move to the "prefer instead" times when those are free, otherwise to another free time on the same day, and the others stay. The "What changed" panel confirms the approved request is now respected, and for any class that missed the time asked for it says why (for example "Wed P2: … already teaches … then").
 ☐ Pass ☐ Fail
 
 **I4. Approve a request that does not clash**
@@ -660,7 +661,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs all three.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `35 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `43 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**

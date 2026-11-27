@@ -17,9 +17,10 @@
 
    THE ALGORITHM (hybrid: constraint-based seed + Genetic Algorithm)
      1. greedySeed()    — builds one schedule that tries hard to obey every
-                          hard rule (no double-booking, right room, qualified
-                          teacher) and keeps teachers within their maximum
-                          units. This gives the GA a good starting point.
+                          hard rule (no teacher, room or section double-booked,
+                          right room, qualified teacher), keeps teachers within
+                          their maximum units and spreads classes over the week.
+                          This gives the GA a good starting point.
      2. runGA()         — keeps a "population" of many candidate schedules and
                           improves them over many "generations" using
                           selection, crossover, and mutation.
@@ -37,7 +38,7 @@
 
    NOTE ON THE SEED STEP: the starting schedule is built with a *greedy*
    constraint-respecting heuristic (the qualified teacher with the most room
-   under their maximum units, at their first free slot with a free room).
+   under their maximum units, at the free time that spreads the week best).
    The Genetic Algorithm then improves a whole group of candidate schedules,
    starting from that one.
    ===================================================================== */
@@ -73,6 +74,11 @@ const OVERLOAD_PENALTY = 300;                       // fitness penalty per unit 
                                                     // maximum. Bigger than all the soft goals together, so no
                                                     // preference is ever bought with a teacher's maximum, but
                                                     // smaller than one broken rule.
+const PLACEMENT_STEP = 120;                         // UPDATE mode only: score per step of placementRank() for a
+                                                    // re-placed class that keeps its teacher. Bigger than all
+                                                    // else one class can change in the score (requested times 60,
+                                                    // preferred days 50, a room change 3, a time change 1), so the
+                                                    // update's order is kept, but far below one broken rule.
 const SPECIALIZATIONS = ["Programming", "Networking", "Databases", "Web Development", "Mathematics", "General Education", "Systems Analysis", "AI/ML"];
 const EMPLOYMENT_STATUSES = ["Full-time", "Part-time", "Contractual"];
 const ACADEMIC_RANKS = ["Instructor I", "Instructor II", "Instructor III", "Assistant Professor", "Associate Professor", "Professor"];
@@ -163,6 +169,47 @@ function byRoomForUnits(load, facultyById, units) {
   const over = id => (load[id] || 0) + units > facultyById[id].maxUnits;
   return (a, b) => (over(a) - over(b)) || (share(a) - share(b));
 }
+// sectionKey(section): the group of students a class is for. Two classes with the same key
+// cannot be at the same time, because the same students would have to attend both. It is
+// the program, section name, semester and school year, ignoring capitals and extra spaces
+// ("bsit|bsit-1a|1st semester|2026–2027"). A class with no section name has no key (null).
+function sectionKey(section) {
+  const name = String(section.sectionName == null ? "" : section.sectionName).trim();
+  if (!name) return null;
+  return [section.program, name, section.semester, section.schoolYear]
+    .map(x => String(x == null ? "" : x).trim().replace(/\s+/g, " ").toLowerCase()).join("|");
+}
+// The rule checker runs thousands of times while the GA works, so each subject's key is
+// worked out once and remembered (the app always replaces a changed subject with a new object).
+const sectionKeyCache = new WeakMap();
+function keyOf(section) {
+  if (!section || typeof section !== "object") return null;
+  let k = sectionKeyCache.get(section);
+  if (k === undefined) { k = sectionKey(section); sectionKeyCache.set(section, k); }
+  return k;
+}
+// placementRank(fac, slot, oldSlotId, timeSlots): how well a time suits a class that an
+// update has to re-place, taught by `fac` (higher is better):
+//   4 = the class's own old time, so a class that only needs a new room keeps its time
+//   3 = a time the teacher asked for in an approved "Prefer instead" request
+//   2 = another time on a day the teacher asked for ("move me to Wednesday": any Wednesday)
+//   1 = one of the teacher's preferred days
+//   0 = any other time
+// The update's own search (repairSchedule) and its Genetic Algorithm polish (fitness) both
+// use it, so the polish cannot undo the order.
+function placementRank(fac, slot, oldSlotId, timeSlots) {
+  if (!fac || !slot) return 0;
+  if (slot.id === oldSlotId) return 4;
+  const asked = fac.preferredSlotIds || [];
+  if (asked.includes(slot.id)) return 3;
+  if (asked.some(sid => timeSlots[sid] && timeSlots[sid].day === slot.day)) return 2;
+  return (fac.preferredDays || []).includes(slot.day) ? 1 : 0;
+}
+// lexLess([0, 2, 1], [0, 3, 0]) -> true: compares two lists of numbers, first number first.
+function lexLess(a, b) {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
 // Small random helpers: randInt(5) -> 0..4, choice([a,b,c]) -> one of them at random.
 function randInt(n) { return Math.floor(Math.random() * n); }
 function choice(arr) { return arr[randInt(arr.length)]; }
@@ -188,45 +235,60 @@ function randomGene(faculty, rooms, timeSlots, section) {
 // Builds ONE schedule by walking through the sections in order. Each section
 // goes to the qualified teacher with the most room left (byRoomForUnits:
 // teachers who can take it without going over their maximum units first,
-// least loaded first), at the first time slot where that teacher is free and
-// has NOT marked themselves unavailable and a suitable room is free. This
-// respects the hard constraints wherever possible and spreads the teaching
-// load, giving the GA a strong starting individual. (Trying the slots first
-// and the teachers in list order, as before, gave the first teachers on the
-// list a class in nearly every period whenever the labs were the bottleneck.)
+// least loaded first). Of the times when that teacher is free and available,
+// the section (its students) has no other class and a suitable room is free,
+// it takes the one that spreads the week best: a day the teacher prefers,
+// then the day this section has the fewest classes on, then the day this
+// teacher has the fewest classes on, then the period with the fewest classes
+// school-wide, then the earliest. This respects the hard constraints wherever
+// possible and spreads both the teaching load and the classes over the week,
+// giving the GA a strong starting individual. (Taking the first free time
+// instead put most classes on Monday, often a teacher's six in a row.)
 // Online classes never compete for rooms, so only the teacher is checked.
 // If a section cannot be placed without a clash, it falls back to a
 // random gene and lets the GA repair it later.
 // ---------------------------------------------------------------------
 function greedySeed(faculty, rooms, timeSlots, sections) {
-  // "facultyId-slotId" and "roomId-slotId" strings already taken, used to avoid double-booking.
+  // "facultyId-slotId", "roomId-slotId" and "sectionKey@slotId" strings already taken, used to avoid double-booking.
   const facultySlotUsed = new Set();
   const roomSlotUsed = new Set();
+  const sectionSlotUsed = new Set();
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   const load = {};                                   // units given to each teacher so far
+  const placedCount = {};                            // classes so far per section-day ("s…"), teacher-day ("f…") and period ("t…")
+  const count = k => placedCount[k] || 0;
   const genes = [];
   for (const sec of sections) {
     const teachers = qualifiedFaculty(faculty, sec).sort(byRoomForUnits(load, facultyById, sec.units));
     const qr = validRooms(rooms, sec);
+    const skey = keyOf(sec);
     // A section with a fixed day/period only tries its fixed slot.
     const candidateSlots = sec.fixedSlotId != null ? timeSlots.filter(t => t.id === sec.fixedSlotId) : timeSlots;
     let placed = null;
     for (const fid of teachers) {
-      const unavailable = facultyById[fid].unavailableSlotIds || [];
+      const fac = facultyById[fid], unavailable = fac.unavailableSlotIds || [], preferred = fac.preferredDays || [];
+      let bestRank = null;
       for (const slot of candidateSlots) {
-        // Skip times the teacher already teaches, or has marked unavailable (approved changes / leave).
+        // Skip times the teacher already teaches, or has marked unavailable (approved changes / leave),
+        // and times when this section's students already have a class.
         if (facultySlotUsed.has(fid + "-" + slot.id) || unavailable.includes(slot.id)) continue;
+        if (skey !== null && sectionSlotUsed.has(skey + "@" + slot.id)) continue;
         const rid = qr.find(r => r === ONLINE_ROOM_ID || !roomSlotUsed.has(r + "-" + slot.id));
         if (rid === undefined) continue;             // every suitable room is taken at this time
-        placed = { facultyId: fid, roomId: rid, slotId: slot.id };
-        break;
+        const rank = [preferred.includes(slot.day) ? 0 : 1, skey !== null ? count("s" + skey + "|" + slot.day) : 0,
+          count("f" + fid + "|" + slot.day), count("t" + slot.id)];
+        if (!bestRank || lexLess(rank, bestRank)) { bestRank = rank; placed = { facultyId: fid, roomId: rid, slotId: slot.id }; }
       }
       if (placed) break;
     }
     if (placed) {
+      const day = timeSlots.find(t => t.id === placed.slotId).day;
       genes.push(placed);
       facultySlotUsed.add(placed.facultyId + "-" + placed.slotId);
       roomSlotUsed.add(placed.roomId + "-" + placed.slotId);
+      if (skey !== null) { sectionSlotUsed.add(skey + "@" + placed.slotId); placedCount["s" + skey + "|" + day] = count("s" + skey + "|" + day) + 1; }
+      placedCount["f" + placed.facultyId + "|" + day] = count("f" + placed.facultyId + "|" + day) + 1;
+      placedCount["t" + placed.slotId] = count("t" + placed.slotId) + 1;
       load[placed.facultyId] = (load[placed.facultyId] || 0) + sec.units;
     } else genes.push(randomGene(faculty, rooms, timeSlots, sec));
   }
@@ -238,6 +300,7 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
 // for each kind of problem:
 //   facultyConflicts  — one teacher booked in two places at the same time
 //   roomConflicts     — one room booked for two classes at the same time
+//   sectionConflicts  — one section (the same students, see sectionKey) with two classes at the same time
 //   unqualified       — teacher lacks the required specialization
 //   unavailable       — teacher scheduled during a time they marked unavailable
 //   roomTypeMismatch  — lab class without a lab room, or online class given a room
@@ -260,9 +323,9 @@ function countViolations(faculty, rooms, sections, timeSlots, genes) {
   // Lookup tables so we can find a faculty member / room by id quickly.
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   const roomById = Object.fromEntries(rooms.map(r => [r.id, r]));
-  let facultyConflicts = 0, roomConflicts = 0, unqualified = 0, unavailable = 0, roomTypeMismatch = 0, capacityViol = 0, unscheduled = 0, fixedSlot = 0, unplaceable = 0;
-  // facSlot["3-12"] = how many classes faculty 3 has in slot 12 (same idea for rooms).
-  const facSlot = {}, roomSlot = {};
+  let facultyConflicts = 0, roomConflicts = 0, sectionConflicts = 0, unqualified = 0, unavailable = 0, roomTypeMismatch = 0, capacityViol = 0, unscheduled = 0, fixedSlot = 0, unplaceable = 0;
+  // facSlot["3-12"] = how many classes faculty 3 has in slot 12 (same idea for rooms and sections).
+  const facSlot = {}, roomSlot = {}, secSlot = {};
   const unitsPerFaculty = {};
   faculty.forEach(f => unitsPerFaculty[f.id] = 0);
   genes.forEach((g, i) => {
@@ -278,6 +341,9 @@ function countViolations(faculty, rooms, sections, timeSlots, genes) {
     facSlot[fkey] = (facSlot[fkey] || 0) + 1;
     // Online classes don't occupy a room, so many can run in the same slot.
     if (g.roomId !== ONLINE_ROOM_ID) roomSlot[rkey] = (roomSlot[rkey] || 0) + 1;
+    // ...but a section's students can only be in one class at a time, online or not.
+    const skey = keyOf(sec);
+    if (skey !== null) { const k = skey + "@" + g.slotId; secSlot[k] = (secSlot[k] || 0) + 1; }
     const fac = facultyById[g.facultyId], room = roomById[g.roomId];
     if (!fac || !fac.specializations.includes(sec.requiredSpecialization)) unqualified++;
     else unitsPerFaculty[fac.id] += sec.units;
@@ -293,28 +359,10 @@ function countViolations(faculty, rooms, sections, timeSlots, genes) {
   // Any count above 1 is a double-booking. 3 classes in one slot = 2 conflicts.
   Object.values(facSlot).forEach(c => { if (c > 1) facultyConflicts += c - 1; });
   Object.values(roomSlot).forEach(c => { if (c > 1) roomConflicts += c - 1; });
+  Object.values(secSlot).forEach(c => { if (c > 1) sectionConflicts += c - 1; });
   const overload = faculty.reduce((s, f) => s + Math.max(0, unitsPerFaculty[f.id] - f.maxUnits), 0);
-  const total = facultyConflicts + roomConflicts + unqualified + unavailable + roomTypeMismatch + capacityViol + fixedSlot + unplaceable;
-  return { facultyConflicts, roomConflicts, unqualified, unavailable, roomTypeMismatch, capacityViol, fixedSlot, unplaceable, overload, unscheduled, total };
-}
-// ---------------------------------------------------------------------
-// curriculumOverlapCount(sections, timeSlots, genes)
-// Used only when "curriculum-aware" scheduling is switched on.
-// ---------------------------------------------------------------------
-function curriculumOverlapCount(sections, timeSlots, genes) {
-  // Counts time-slot collisions between sections of the same PROGRAM + year level + semester
-  // (e.g. two BSIT 2nd-year 1st-semester subjects at the same time), since those students
-  // would need to attend both at once. Different programs (BSIT vs BSCS) never clash here.
-  const bucket = {};
-  let overlaps = 0;
-  genes.forEach((g, i) => {
-    const sec = sections[i];
-    if (!sec || sec.yearLevel == null || !sec.semester || g.slotId < 0) return;
-    const key = (sec.program || "") + "-" + sec.yearLevel + "-" + sec.semester + "-" + g.slotId;
-    bucket[key] = (bucket[key] || 0) + 1;
-  });
-  Object.values(bucket).forEach(c => { if (c > 1) overlaps += c - 1; });
-  return overlaps;
+  const total = facultyConflicts + roomConflicts + sectionConflicts + unqualified + unavailable + roomTypeMismatch + capacityViol + fixedSlot + unplaceable;
+  return { facultyConflicts, roomConflicts, sectionConflicts, unqualified, unavailable, roomTypeMismatch, capacityViol, fixedSlot, unplaceable, overload, unscheduled, total };
 }
 // ---------------------------------------------------------------------
 // fitness(faculty, rooms, sections, timeSlots, genes, opts)   — the scoring function
@@ -328,7 +376,10 @@ function curriculumOverlapCount(sections, timeSlots, genes) {
 //           + (requested-time share × 60)    honour approved "Prefer instead" times
 //                                            (0 when no teacher has requested times)
 //           - (average empty seats × 0.5)    don't waste big rooms on small classes
-//           - (curriculum overlaps × 150)    only if curriculum-aware is on
+//   UPDATE mode only (repairSchedule), for each re-placed class:
+//           - stability: teacher changed 20, room changed 3, time changed 1
+//           + placementRank × 120 when it keeps its teacher (its old time, then the
+//             times the teacher asked for, then those days, then preferred days)
 //
 // Because 1000 is so much bigger than the other terms, any schedule with
 // even one hard violation scores worse than every conflict-free schedule.
@@ -378,26 +429,26 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
     if (room) waste += Math.max(0, room.capacity - sections[i].enrolledStudents);
   });
   const avgWaste = waste / (genes.length || 1);
-  // 5) Curriculum overlaps (optional).
-  let curriculumPenalty = 0;
-  if (opts.curriculumAware) {
-    curriculumPenalty = curriculumOverlapCount(sections, timeSlots, genes) * 150;
-  }
 
-  // 6) Stability (UPDATE mode only): for each class being re-placed, prefer
+  // 5) Stability (UPDATE mode only): for each class being re-placed, prefer
   //    keeping the same teacher (−20 if changed) and room (−3), and move it as
   //    little as possible (−1). Much smaller than a hard violation, so rules
   //    still come first — this only breaks ties toward "least disruption".
-  let changePenalty = 0;
+  //    A re-placed class that keeps its teacher also scores by placementRank, the same
+  //    order the update's own search uses, so the polish never trades a requested day for
+  //    a preferred one (it once moved a class asked onto Wednesday back onto Monday).
+  let changePenalty = 0, placementScore = 0;
   if (opts.anchorGenes && opts.mutableIndices) {
     opts.mutableIndices.forEach(i => {
       const a = opts.anchorGenes[i], g = genes[i];
       if (g.facultyId !== a.facultyId) changePenalty += 20;
       if (g.roomId !== a.roomId) changePenalty += 3;
       if (g.slotId !== a.slotId) changePenalty += 1;
+      if (a.facultyId !== -1 && g.facultyId === a.facultyId)
+        placementScore += PLACEMENT_STEP * placementRank(facultyById[g.facultyId], timeSlots[g.slotId], a.slotId, timeSlots);
     });
   }
-  return -hardPenalty - v.overload * OVERLOAD_PENALTY - variance * 2.0 + prefScore * 50.0 + requestScore * 60.0 - avgWaste * 0.5 - curriculumPenalty - changePenalty;
+  return -hardPenalty - v.overload * OVERLOAD_PENALTY - variance * 2.0 + prefScore * 50.0 + requestScore * 60.0 - avgWaste * 0.5 - changePenalty + placementScore;
 }
 // ---------------------------------------------------------------------
 // runGA(faculty, rooms, sections, timeSlots, opts)   — THE GENETIC ALGORITHM
@@ -406,7 +457,6 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
 //   generations    how many improvement rounds to run at most   (default 120)
 //   popSize        how many candidate schedules exist at once   (default 40)
 //   baseMutation   starting chance each gene is randomly changed (default 0.08 = 8%)
-//   curriculumAware  also avoid same-year/semester overlaps
 //   seedGenes / mutableIndices / anchorGenes   (UPDATE mode, set by repairSchedule)
 //                  start from seedGenes and only ever change the genes listed
 //                  in mutableIndices; every other class stays exactly as it is.
@@ -435,14 +485,13 @@ function runGA(faculty, rooms, sections, timeSlots, opts) {
   const generations = opts.generations || 120;
   const popSize = opts.popSize || 40;
   const baseMutation = opts.baseMutation || 0.08;
-  const curriculumAware = !!opts.curriculumAware;
   // UPDATE mode: only these gene positions may change (null = all may change).
   const mutable = opts.mutableIndices || null;
   const mutableSet = mutable ? new Set(mutable) : null;
   const allIdx = sections.map((_, i) => i);
-  const fitOpts = { curriculumAware, anchorGenes: opts.anchorGenes, mutableIndices: mutable };
+  const fitOpts = { anchorGenes: opts.anchorGenes, mutableIndices: mutable };
   const n = sections.length;
-  if (n === 0) return { genes: [], fitness: 0, convergence: [], violations: countViolations(faculty,rooms,sections,timeSlots,[]), feasible: true, curriculumConflicts: 0 };
+  if (n === 0) return { genes: [], fitness: 0, convergence: [], violations: countViolations(faculty,rooms,sections,timeSlots,[]), feasible: true };
 
   // --- Step 1: initial population ---
   // Each "individual" is { genes: [...], fit: score }.
@@ -520,8 +569,7 @@ function runGA(faculty, rooms, sections, timeSlots, opts) {
   }
   // Final report on the best schedule found.
   const violations = countViolations(faculty, rooms, sections, timeSlots, bestOverall.genes);
-  const curriculumConflicts = curriculumAware ? curriculumOverlapCount(sections, timeSlots, bestOverall.genes) : 0;
-  return { genes: bestOverall.genes, fitness: bestOverall.fit, convergence, violations, feasible: violations.total === 0, curriculumAware, curriculumConflicts };
+  return { genes: bestOverall.genes, fitness: bestOverall.fit, convergence, violations, feasible: violations.total === 0 };
 }
 
 // ---------------------------------------------------------------------
@@ -530,7 +578,8 @@ function runGA(faculty, rooms, sections, timeSlots, opts) {
 // these are the ONLY classes an update is allowed to move.
 //   Pass 1: rules about a single class (teacher unqualified or unavailable,
 //           wrong room/too small, fixed time not respected).
-//   Pass 2: double-bookings. When two classes clash, the first one keeps its
+//   Pass 2: double-bookings (a teacher, a room or a section's students in two
+//           classes at once). When two classes clash, the first one keeps its
 //           place and only the later one is marked, so we move as few as possible.
 // Manually removed classes (-1) are left alone.
 // ---------------------------------------------------------------------
@@ -548,16 +597,44 @@ function findConflictingIndices(faculty, rooms, sections, timeSlots, genes) {
     if (isOnline(sec)) { if (g.roomId !== ONLINE_ROOM_ID) bad.add(i); }
     else if (!room || room.type !== sec.roomTypeRequired || room.capacity < sec.enrolledStudents) bad.add(i);
   });
-  const facSeen = {}, roomSeen = {};
+  const facSeen = {}, roomSeen = {}, secSeen = {};
   genes.forEach((g, i) => {
     if (bad.has(i) || g.facultyId === -1 || g.roomId === -1 || g.slotId === -1) return;
     const fk = g.facultyId + "-" + g.slotId, rk = g.roomId + "-" + g.slotId;
-    const clash = facSeen[fk] || (g.roomId !== ONLINE_ROOM_ID && roomSeen[rk]);
+    const skey = keyOf(sections[i]), sk = skey !== null ? skey + "@" + g.slotId : null;
+    const clash = facSeen[fk] || (g.roomId !== ONLINE_ROOM_ID && roomSeen[rk]) || (sk !== null && secSeen[sk]);
     if (clash) { bad.add(i); return; }
     facSeen[fk] = true;
     if (g.roomId !== ONLINE_ROOM_ID) roomSeen[rk] = true;
+    if (sk !== null) secSeen[sk] = true;
   });
   return bad;
+}
+
+// ---------------------------------------------------------------------
+// whyNotAt(faculty, rooms, sections, timeSlots, genes, i, facultyId, slotId)
+// What stops class i, taught by `facultyId`, from being at `slotId`, given where
+// every OTHER class is in `genes`? Returns a list, empty when nothing does:
+//   { kind: "unavailable" }      the teacher marked that time unavailable
+//   { kind: "fixed" }            the subject has a fixed day/period, and this is not it
+//   { kind: "teacher", index }   the teacher already teaches class `index` then
+//   { kind: "section", index }   the class's section already has class `index` then
+//   { kind: "room" }             a laboratory class, and every suitable lab is taken then
+// The app uses it to explain why a moved class did not get a time its teacher asked for.
+// ---------------------------------------------------------------------
+function whyNotAt(faculty, rooms, sections, timeSlots, genes, i, facultyId, slotId) {
+  const sec = sections[i], fac = faculty.find(f => f.id === facultyId), out = [];
+  const others = [];                         // the other classes held at that time
+  genes.forEach((g, k) => { if (k !== i && g.slotId === slotId && g.facultyId !== -1 && g.roomId !== -1) others.push(k); });
+  if (fac && (fac.unavailableSlotIds || []).includes(slotId)) out.push({ kind: "unavailable" });
+  if (sec && sec.fixedSlotId != null && sec.fixedSlotId !== slotId) out.push({ kind: "fixed" });
+  const t = others.find(k => genes[k].facultyId === facultyId);
+  if (t !== undefined) out.push({ kind: "teacher", index: t });
+  const key = keyOf(sec);
+  const s = key === null ? undefined : others.find(k => keyOf(sections[k]) === key);
+  if (s !== undefined) out.push({ kind: "section", index: s });
+  if (sec && !isOnline(sec) && !validRooms(rooms, sec).some(r => !others.some(k => genes[k].roomId === r))) out.push({ kind: "room" });
+  return out;
 }
 
 // ---------------------------------------------------------------------
@@ -567,15 +644,16 @@ function findConflictingIndices(faculty, rooms, sections, timeSlots, genes) {
 //      If none, the schedule is returned unchanged.
 //   2. Everything else is FROZEN: its teacher/room/time is treated as taken.
 //   3. Greedy repair: for each affected class, try the SAME teacher first (at
-//      one of their free, available times — preferred days first), then other
-//      qualified teachers who still have room under their maximum units (least
-//      loaded first), and only then teachers it would take over their maximum;
-//      same room first if possible.
-//      If no free option exists, "make room": shift the one class that blocks
-//      the best option to another free spot (undone if that fails too).
+//      one of their free, available times, in placementRank order: its old time
+//      if still allowed, the times they asked for, other times on those days,
+//      their preferred days, then the rest), then other qualified teachers who
+//      still have room under their maximum units (least loaded first), and only
+//      then teachers it would take over their maximum; same room first if possible.
+//      If no free option exists, "make room": shift the classes that block
+//      the best option to free spots of their own (undone if that fails too).
 //   4. Run the Genetic Algorithm on ONLY those affected classes (every other
 //      gene is locked) to polish the result, with the stability penalty
-//      favouring the smallest possible change.
+//      favouring the smallest possible change and the same placementRank order.
 // Returns the usual GA result plus `changes`: [{ index, from, to }] for every
 // class that moved, so the UI can show exactly what changed.
 // ---------------------------------------------------------------------
@@ -584,35 +662,38 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
   // Subjects added AFTER the schedule was generated have no gene yet. Give each
   // a placeholder marked isNew, so it is treated as "affected" and gets placed.
   genes = genes.concat(sections.slice(genes.length).map(() => ({ facultyId: -1, roomId: -1, slotId: -1, isNew: true })));
-  const curriculumAware = !!opts.curriculumAware;
   const affected = Array.from(findConflictingIndices(faculty, rooms, sections, timeSlots, genes)).sort((a, b) => a - b);
   if (affected.length === 0) {
     const violations = countViolations(faculty, rooms, sections, timeSlots, genes);
-    return { genes: genes.slice(), fitness: fitness(faculty, rooms, sections, timeSlots, genes, { curriculumAware }),
-      convergence: [], violations, feasible: violations.total === 0, curriculumAware,
-      curriculumConflicts: curriculumAware ? curriculumOverlapCount(sections, timeSlots, genes) : 0,
-      changes: [], affectedCount: 0 };
+    return { genes: genes.slice(), fitness: fitness(faculty, rooms, sections, timeSlots, genes),
+      convergence: [], violations, feasible: violations.total === 0, changes: [], affectedCount: 0 };
   }
   const affectedSet = new Set(affected);
   const facultyById = Object.fromEntries(faculty.map(f => [f.id, f]));
   const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
 
-  // Step 2: occupancy maps — which class holds a teacher / room at a slot.
-  // facOcc["3-12"] = index of the class teacher 3 teaches in slot 12.
+  // Step 2: occupancy maps — which class holds a teacher / room / section at a slot.
+  // facOcc["3-12"] = index of the class teacher 3 teaches in slot 12;
+  // secOcc["bsit|bsit-1a|…@12"] = index of the class that section has in slot 12.
   const cur = genes.slice();        // working copy of the schedule
-  const facOcc = {}, roomOcc = {};
+  const facOcc = {}, roomOcc = {}, secOcc = {};
+  const secAt = (k, slotId) => { const s = keyOf(sections[k]); return s !== null ? s + "@" + slotId : null; };
   const load = {};
   faculty.forEach(f => { load[f.id] = 0; });
   function occupy(k, g) {
     cur[k] = g;
     facOcc[g.facultyId + "-" + g.slotId] = k;
     if (g.roomId !== ONLINE_ROOM_ID) roomOcc[g.roomId + "-" + g.slotId] = k;
+    const sk = secAt(k, g.slotId);
+    if (sk !== null) secOcc[sk] = k;
     load[g.facultyId] = (load[g.facultyId] || 0) + sections[k].units;
   }
   function vacate(k) {
     const g = cur[k];
     if (facOcc[g.facultyId + "-" + g.slotId] === k) delete facOcc[g.facultyId + "-" + g.slotId];
     if (roomOcc[g.roomId + "-" + g.slotId] === k) delete roomOcc[g.roomId + "-" + g.slotId];
+    const sk = secAt(k, g.slotId);
+    if (sk !== null && secOcc[sk] === k) delete secOcc[sk];
     load[g.facultyId] = (load[g.facultyId] || 0) - sections[k].units;
   }
   genes.forEach((g, i) => {       // frozen classes keep their places
@@ -623,10 +704,11 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
   // Every rule-abiding (teacher, time, room) option for class i, best first:
   // the class's current teacher first, then the teachers who still have room
   // for it (least loaded, as a share of their maximum, first), and last those
-  // it would take over their maximum; the times the teacher asked for in an
-  // approved "Prefer instead" request first, then their preferred days, then
-  // the rest; the current room first. Times the teacher is unavailable are
-  // never offered.
+  // it would take over their maximum; for each teacher the times in
+  // placementRank order (the class's old time if still allowed, the times the
+  // teacher asked for in an approved "Prefer instead" request, other times on
+  // those days, their preferred days, then the rest; ties in week order);
+  // the current room first. Times the teacher is unavailable are never offered.
   function options(i) {
     const sec = sections[i], old = genes[i];
     const byRoom = byRoomForUnits(load, facultyById, sec.units);
@@ -637,8 +719,7 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
     const out = [];
     teachers.forEach(fid => {
       const fac = facultyById[fid];
-      // rank: 2 = a requested "prefer instead" time, 1 = a preferred day, 0 = other
-      const rank = sid => ((fac.preferredSlotIds || []).includes(sid) ? 2 : fac.preferredDays.includes(slotById[sid].day) ? 1 : 0);
+      const rank = sid => placementRank(fac, slotById[sid], old.slotId, timeSlots);
       slotsToTry.slice()
         .sort((a, b) => rank(b) - rank(a))
         .forEach(sid => {
@@ -648,19 +729,27 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
     });
     return out;
   }
-  const isFree = (o) => facOcc[o.facultyId + "-" + o.slotId] == null && (o.roomId === ONLINE_ROOM_ID || roomOcc[o.roomId + "-" + o.slotId] == null);
+  // Option o is free for class i when the teacher, the room (unless online) and
+  // the class's section are all unused at that time.
+  const isFree = (i, o) => {
+    if (facOcc[o.facultyId + "-" + o.slotId] != null) return false;
+    if (o.roomId !== ONLINE_ROOM_ID && roomOcc[o.roomId + "-" + o.slotId] != null) return false;
+    const sk = secAt(i, o.slotId);
+    return sk === null || secOcc[sk] == null;
+  };
 
   // Place class i in the first free option. Returns true if it fit.
   function placeFree(i) {
-    const o = options(i).find(isFree);
+    const o = options(i).find(opt => isFree(i, opt));
     if (!o) return false;
     occupy(i, o);
     return true;
   }
 
   // "Make room": when class i has no free option, try an option that is
-  // blocked by one or two OTHER classes (holding the teacher and/or room),
-  // move those blockers to a free place of their own, then put i in.
+  // blocked by up to three OTHER classes (holding the teacher, the room and/or
+  // the section's students at that time), move those blockers to a free place
+  // of their own, then put i in.
   // If a blocker can't be moved, everything is put back exactly as it was.
   const bumped = new Set();
   function placeWithBump(i) {
@@ -669,6 +758,8 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
       const fk = facOcc[o.facultyId + "-" + o.slotId];
       if (fk != null) blockers.add(fk);
       if (o.roomId !== ONLINE_ROOM_ID) { const rk = roomOcc[o.roomId + "-" + o.slotId]; if (rk != null) blockers.add(rk); }
+      const sk = secAt(i, o.slotId);
+      if (sk !== null && secOcc[sk] != null) blockers.add(secOcc[sk]);
       if (blockers.size === 0) { occupy(i, o); return true; }
       const saved = Array.from(blockers).map(k => ({ k, g: cur[k] }));
       saved.forEach(({ k }) => vacate(k));
@@ -695,10 +786,10 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
   // blocker that had to shift). Every other gene is locked.
   const r = runGA(faculty, rooms, sections, timeSlots, {
     generations: opts.generations || 100, popSize: opts.popSize || 40, baseMutation: 0.3,
-    curriculumAware, seedGenes: seed, mutableIndices: mutableIdx, anchorGenes: genes,
+    seedGenes: seed, mutableIndices: mutableIdx, anchorGenes: genes,
   });
   // Report fitness WITHOUT the stability penalty, so it compares fairly with full runs.
-  const finalFitness = fitness(faculty, rooms, sections, timeSlots, r.genes, { curriculumAware });
+  const finalFitness = fitness(faculty, rooms, sections, timeSlots, r.genes);
   const changes = [];
   r.genes.forEach((g, i) => {
     const o = genes[i];
@@ -891,5 +982,5 @@ window.SchedEngine = {
   SPECIALIZATIONS, EMPLOYMENT_STATUSES, ACADEMIC_RANKS,
   CALENDAR_DAYS, ONLINE_ROOM_ID, isOnline,
   repairSchedule, findConflictingIndices, currentSchoolYear, schoolYearOptions,
-  generateExpandedData,
+  generateExpandedData, sectionKey, whyNotAt,
 };

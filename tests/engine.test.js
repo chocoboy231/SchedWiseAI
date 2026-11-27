@@ -54,7 +54,7 @@
 
   // Independent rule checker: returns a list of strings, one per broken rule.
   function brokenRules(d, genes) {
-    const out = [], fb = {}, rb = {};
+    const out = [], fb = {}, rb = {}, sb = {};
     const fById = Object.fromEntries(d.faculty.map(f => [f.id, f])), rById = Object.fromEntries(d.rooms.map(r => [r.id, r]));
     genes.forEach((g, i) => {
       const s = d.sections[i], f = fById[g.facultyId];
@@ -70,18 +70,13 @@
         const rk = g.roomId + "@" + g.slotId; if (rb[rk]) out.push("room-clash " + i); rb[rk] = true;
       }
       const fk = g.facultyId + "@" + g.slotId; if (fb[fk]) out.push("teacher-clash " + i); fb[fk] = true;
+      // One section's students cannot attend two classes at once (same program, section, semester and school year).
+      if (String(s.sectionName || "").trim()) {
+        const sk = [s.program, s.sectionName, s.semester, s.schoolYear].map(x => String(x || "").trim().toLowerCase()).join("|") + "@" + g.slotId;
+        if (sb[sk]) out.push("section-clash " + i); sb[sk] = true;
+      }
     });
     return out;
-  }
-  // Same-program, same-year, same-semester classes sharing a time slot (curriculum overlap).
-  function overlaps(sections, genes) {
-    const seen = {}; let n = 0;
-    genes.forEach((g, i) => {
-      if (g.slotId === -1) return;
-      const k = [sections[i].program, sections[i].yearLevel, sections[i].semester, g.slotId].join("|");
-      if (seen[k]) n++; seen[k] = true;
-    });
-    return n;
   }
   const GA = { generations: 60, popSize: 30 };
 
@@ -230,6 +225,29 @@
     eq(count(d, CLEAN).capacityViol, 2, "both 30-student lab classes no longer fit a 10-seat lab");
   });
 
+  // Two online subjects of one section (BSIT-1A), taught by different teachers.
+  const sameSection = () => [sec({ roomTypeRequired: "online", sectionName: "BSIT-1A" }), sec({ roomTypeRequired: "online", sectionName: "BSIT-1A", requiredSpecialization: "Networking" })];
+  const atSameTime = [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: 4 }, { facultyId: 1, roomId: E.ONLINE_ROOM_ID, slotId: 4 }];
+
+  test("countViolations: one section with two classes at the same time (its students can't attend both)", () => {
+    const d = mini(); d.sections = sameSection();
+    const v = count(d, atSameTime);
+    eq(v.sectionConflicts, 1); eq(v.facultyConflicts, 0); eq(v.total, 1, "it is a conflict");
+    eq(count(d, [atSameTime[0], Object.assign({}, atSameTime[1], { slotId: 5 })]).sectionConflicts, 0, "different times are fine");
+    d.sections[1] = Object.assign({}, d.sections[1], { sectionName: "BSIT-1B" });
+    eq(count(d, atSameTime).sectionConflicts, 0, "different sections may share a time");
+    d.sections[1] = Object.assign({}, d.sections[1], { sectionName: " bsit-1a", semester: "2nd Semester" });
+    eq(count(d, atSameTime).sectionConflicts, 0, "the same section in another semester is another group of classes");
+    d.sections[1] = Object.assign({}, d.sections[1], { semester: "1st Semester" });
+    eq(count(d, atSameTime).sectionConflicts, 1, "section names match ignoring capitals and spaces around");
+  });
+
+  test("findConflictingIndices: a section's second class at the same time is marked", () => {
+    const d = mini(); d.sections = sameSection();
+    const bad = E.findConflictingIndices(d.faculty, d.rooms, d.sections, SLOTS, atSameTime);
+    assert(bad.size === 1 && bad.has(1), "only the later class should be marked");
+  });
+
   test("findConflictingIndices: a double-booking marks only the later class", () => {
     const d = mini();
     const g = clone(CLEAN); g[1] = { facultyId: 1, roomId: 0, slotId: 0 };                  // clashes with class 0 in the same lab
@@ -296,12 +314,37 @@
     r.genes.forEach((g, i) => assert(!d.faculty.find(f => f.id === g.facultyId).unavailableSlotIds.includes(g.slotId), "class " + i + " is in an unavailable time"));
   });
 
-  test("runGA: curriculum-aware mode reports the true number of overlaps, within one program only", () => {
-    const d = E.generateExpandedData(2);
-    const r = E.runGA(d.faculty, d.rooms, d.sections, d.timeSlots, Object.assign({ curriculumAware: true }, GA));
-    eq(brokenRules(d, r.genes).length, 0, "hard rules");
-    eq(r.curriculumConflicts, overlaps(d.sections, r.genes), "reported overlaps should match an independent count");
-    assert(r.curriculumConflicts <= 3, "curriculum-aware mode left " + r.curriculumConflicts + " overlaps");
+  // One section (BSIT-1A) with six online subjects, each taught by its own teacher: nothing about
+  // the teachers or rooms stops all six from landing in the same period.
+  function oneSectionData() {
+    const areas = ["Programming", "Networking", "Databases", "Web Development", "Mathematics", "Systems Analysis"];
+    return {
+      faculty: areas.map((a, i) => ({ id: i, name: "T" + i, specializations: [a], maxUnits: 21, unavailableSlotIds: [], preferredDays: [] })),
+      rooms: [],
+      sections: areas.map((a, i) => sec({ id: i, requiredSpecialization: a, roomTypeRequired: "online", sectionName: "BSIT-1A", schoolYear: "2026–2027" })),
+    };
+  }
+
+  test("runGA: no section is given two classes at the same time", () => {
+    const d = oneSectionData();
+    for (let run = 0; run < 3; run++) {
+      const r = E.runGA(d.faculty, d.rooms, d.sections, SLOTS, GA);
+      eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
+      eq(r.violations.sectionConflicts, 0); assert(r.feasible, "should be conflict-free");
+    }
+  });
+
+  test("runGA: classes are spread over the week instead of piling onto Monday", () => {
+    // Three sections with the same six subjects: 18 classes, 3 per teacher.
+    const base = oneSectionData(), sections = [];
+    ["BSIT-1A", "BSIT-1B", "BSIT-1C"].forEach(name => base.sections.forEach(s => sections.push(Object.assign({}, s, { id: sections.length, sectionName: name }))));
+    const d = { faculty: base.faculty, rooms: [], sections };
+    const r = E.runGA(d.faculty, d.rooms, d.sections, SLOTS, GA);
+    eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
+    const perDay = {}, perTeacherDay = {};
+    r.genes.forEach(g => { const day = SLOTS[g.slotId].day; perDay[day] = (perDay[day] || 0) + 1; perTeacherDay[g.facultyId + day] = (perTeacherDay[g.facultyId + day] || 0) + 1; });
+    assert(Math.max(...Object.values(perDay)) <= 6, "one day holds too many of the 18 classes: " + JSON.stringify(perDay));
+    assert(Math.max(...Object.values(perTeacherDay)) <= 2, "a teacher has all 3 classes on one day");
   });
 
   test("runGA: a subject nobody can teach is reported (not 'conflict-free'), the rest still scheduled", () => {
@@ -418,6 +461,86 @@
     eq(r.genes[5].facultyId, 1, "the new class should go to B");
     eq(r.violations.overload, 0, "nobody should be over their maximum");
     eq(brokenRules(Object.assign({}, d, { sections }), r.genes).length, 0, "result breaks a rule");
+  });
+
+  test("repairSchedule: a moved class never lands where its section already has a class", () => {
+    // BSIT-1A has class 0 (teacher A, Mon P2) and class 1 (teacher B, Mon P1). B can no longer teach on
+    // Mon P1, so class 1 must move, and B's first free time is Mon P2, where BSIT-1A already has class 0.
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: [], preferredDays: [] },
+                { id: 1, name: "B", specializations: ["Networking"], maxUnits: 21, unavailableSlotIds: [0], preferredDays: [] }],
+      rooms: [], sections: sameSection(),
+    };
+    const genes = [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: 1 }, { facultyId: 1, roomId: E.ONLINE_ROOM_ID, slotId: 0 }];
+    const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
+    eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
+    eq(JSON.stringify(r.genes[0]), JSON.stringify(genes[0]), "class 0 stays where it is");
+  });
+
+  // Teacher A asked to move class 0 from Monday P2 to Wednesday P2, but A already teaches
+  // class 1 (another section) at Wednesday P2. Both classes are online.
+  function askedOntoWednesday(preferredDays) {
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: [1], preferredSlotIds: [13], preferredDays }],
+      rooms: [],
+      sections: [sec({ id: 0, roomTypeRequired: "online", sectionName: "BSIT-1A" }), sec({ id: 1, roomTypeRequired: "online", sectionName: "BSIT-1B" })],
+    };
+    const genes = [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: 1 }, { facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: 13 }];
+    return { d, genes };
+  }
+
+  test("repairSchedule: a class asked onto Wednesday stays on Wednesday when the exact time is taken", () => {
+    // Monday and Wednesday are both preferred days; Monday comes first in the week, which used to win.
+    const { d, genes } = askedOntoWednesday(["Mon", "Wed"]);
+    const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
+    eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
+    eq(SLOTS[r.genes[0].slotId].day, "Wed", "class 0 should stay on the day asked for, went to " + SLOTS[r.genes[0].slotId].label);
+    eq(JSON.stringify(r.genes[1]), JSON.stringify(genes[1]), "class 1 stays where it is");
+  });
+
+  test("repairSchedule: the update's polish does not pull a moved class back to a preferred day", () => {
+    // Only Monday is a preferred day: the Genetic Algorithm's polish used to undo the move to Wednesday.
+    const { d, genes } = askedOntoWednesday(["Mon"]);
+    for (let run = 0; run < 3; run++) {
+      const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
+      eq(SLOTS[r.genes[0].slotId].day, "Wed", "run " + run + ": class 0 went to " + SLOTS[r.genes[0].slotId].label);
+    }
+  });
+
+  test("repairSchedule: a class whose time is still allowed keeps its time when only its room must change", () => {
+    // Class 0 is on Tuesday P3 in Lab 1. Lab 1 is removed; Lab 2 is free then. Monday is the teacher's
+    // preferred day, which used to pull the class to Monday morning instead.
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: [], preferredDays: ["Mon"] }],
+      rooms: [{ id: 1, name: "Lab 2", type: "laboratory", capacity: 40 }],
+      sections: [sec({ id: 0, sectionName: "BSIT-1A" })],
+    };
+    const genes = [{ facultyId: 0, roomId: 0, slotId: 8 }];
+    const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
+    eq(JSON.stringify(r.genes[0]), JSON.stringify({ facultyId: 0, roomId: 1, slotId: 8 }), "same teacher and time, new room");
+  });
+
+  test("whyNotAt: names what stops a class from being at a time", () => {
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: [9], preferredDays: [] },
+                { id: 1, name: "B", specializations: ["Networking"], maxUnits: 21, unavailableSlotIds: [], preferredDays: [] }],
+      rooms: [{ id: 0, name: "Lab 1", type: "laboratory", capacity: 40 }],
+      sections: [sec({ sectionName: "BSIT-1A" }),                                                          // 0: A's lab class
+                 sec({ sectionName: "BSIT-1A", roomTypeRequired: "online", requiredSpecialization: "Networking" }),   // 1: same section
+                 sec({ sectionName: "BSIT-1B", roomTypeRequired: "online" }),                                  // 2: A's online class
+                 sec({ sectionName: "BSIT-2A", requiredSpecialization: "Networking" })],                      // 3: B's lab class
+    };
+    const genes = [{ facultyId: 0, roomId: 0, slotId: 0 }, { facultyId: 1, roomId: E.ONLINE_ROOM_ID, slotId: 6 },
+                   { facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: 5 }, { facultyId: 1, roomId: 0, slotId: 7 }];
+    const why = (sections, i, slot) => JSON.stringify(E.whyNotAt(d.faculty, d.rooms, sections, SLOTS, genes, i, 0, slot));
+    eq(why(d.sections, 0, 5), '[{"kind":"teacher","index":2}]', "A already teaches class 2 then");
+    eq(why(d.sections, 0, 6), '[{"kind":"section","index":1}]', "BSIT-1A already has class 1 then");
+    eq(why(d.sections, 0, 7), '[{"kind":"room"}]', "the only lab is taken then");
+    eq(why(d.sections, 0, 9), '[{"kind":"unavailable"}]', "A is unavailable then");
+    eq(why(d.sections, 0, 10), "[]", "nothing stops it");
+    eq(why(d.sections, 2, 7), "[]", "an online class needs no room");
+    const fixed = d.sections.map((s, i) => i === 0 ? Object.assign({}, s, { fixedSlotId: 3 }) : s);
+    eq(why(fixed, 0, 10), '[{"kind":"fixed"}]', "a subject with a fixed time can only be then");
   });
 
   test("repairSchedule: removing a room that classes used re-places only those classes", () => {

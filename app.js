@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-26T16:38:48.291Z with Babel 7.23.5. source-hash: 15a209aaf3ea8f */
+   Built 2026-11-27T00:42:13.509Z with Babel 7.23.5. source-hash: 1e5a452d9c004f */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -550,6 +550,20 @@ function requestTimesText(r, slotById) {
   return parts.length ? parts.join(" · ") : "No time slots selected";
 }
 
+// whyNotText(reasons, sections, teacher): the reasons from E.whyNotAt in plain words,
+// e.g. "Maria Garcia already teaches IT101 · BSIT-2B then". `teacher` is a name, or "you".
+function whyNotText(reasons, sections, teacher) {
+  const you = teacher === "you";
+  return reasons.map(b => {
+    const other = b.index != null ? sections[b.index] : null;
+    if (b.kind === "unavailable") return (you ? "you are" : teacher + " is") + " unavailable then";
+    if (b.kind === "fixed") return "the subject has a fixed time";
+    if (b.kind === "teacher") return (you ? "you already teach " : teacher + " already teaches ") + other.subjectCode + " · " + other.sectionName + " then";
+    if (b.kind === "section") return other.sectionName + " already has " + other.subjectCode + " then";
+    return "no suitable lab is free then";
+  }).join(", and ");
+}
+
 // describeSlots([30,31,...], slotById) -> "Fri P4–P6 · Sat (all day)"
 // Turns a list of time-slot ids into short readable text, grouped by day.
 // Runs of back-to-back periods are shown as a range (P4–P6).
@@ -653,6 +667,7 @@ function normalizeData(d) {
    Kinds:
      teacher      two classes taught by one teacher at the same time
      room         two laboratory classes in one lab at the same time
+     section      two classes of one section (the same students) at the same time
      unqualified  a class given a teacher without the needed specialization
      unavailable  a class moved into a time its teacher marked unavailable
      capacity     a laboratory class put in a lab that is too small
@@ -661,7 +676,7 @@ function normalizeData(d) {
      overload     a teacher's maximum units set below their current load
                   (shown on Workload/Departments; NOT counted as a conflict)
    --------------------------------------------------------------------- */
-const TEST_CONFLICT_KINDS = [["teacher", "Teacher double-booking"], ["room", "Room double-booking"], ["unqualified", "Unqualified teacher"], ["unavailable", "Teacher unavailable"], ["capacity", "Room too small"], ["roomType", "Online class given a room"], ["fixed", "Fixed time not respected"], ["overload", "Teacher overload"]];
+const TEST_CONFLICT_KINDS = [["teacher", "Teacher double-booking"], ["room", "Room double-booking"], ["section", "Section double-booking"], ["unqualified", "Unqualified teacher"], ["unavailable", "Teacher unavailable"], ["capacity", "Room too small"], ["roomType", "Online class given a room"], ["fixed", "Fixed time not respected"], ["overload", "Teacher overload"]];
 function makeTestConflict(kind, data) {
   const {
     faculty,
@@ -679,14 +694,17 @@ function makeTestConflict(kind, data) {
   const scheduled = i => genes[i] && genes[i].facultyId >= 0 && genes[i].slotId >= 0;
   // Classes already part of a conflict are left alone, so a new test conflict never
   // undoes an earlier one. "Involved" = every class the rule checker flags PLUS both
-  // classes of any teacher or room double-booking (the checker flags only the second).
+  // classes of any teacher, room or section double-booking (the checker flags only the second).
   const involved = new Set(E.findConflictingIndices(faculty, rooms, sections, timeSlots, genes));
   const seenF = {},
-    seenR = {};
+    seenR = {},
+    seenS = {};
+  const secKey = i => E.sectionKey(sections[i]); // the students a class is for (null: no section name)
   genes.forEach((g, i) => {
     if (!sections[i] || !scheduled(i)) return;
     const fk = g.facultyId + "-" + g.slotId,
-      rk = g.roomId + "-" + g.slotId;
+      rk = g.roomId + "-" + g.slotId,
+      sk = secKey(i);
     if (seenF[fk] != null) {
       involved.add(i);
       involved.add(seenF[fk]);
@@ -697,12 +715,22 @@ function makeTestConflict(kind, data) {
         involved.add(seenR[rk]);
       } else seenR[rk] = i;
     }
+    if (sk !== null) {
+      const k = sk + "@" + g.slotId;
+      if (seenS[k] != null) {
+        involved.add(i);
+        involved.add(seenS[k]);
+      } else seenS[k] = i;
+    }
   });
   const idx = genes.map((_, i) => i).filter(i => sections[i] && scheduled(i) && !involved.has(i));
   const notFixed = i => sections[i].fixedSlotId == null;
   // Who/what is busy at a time, ignoring class `skip` (the one being moved).
   const facBusy = (fid, sid, skip) => genes.some((g, k) => k !== skip && scheduled(k) && g.facultyId === fid && g.slotId === sid);
   const roomBusy = (rid, sid, skip) => rid !== E.ONLINE_ROOM_ID && genes.some((g, k) => k !== skip && scheduled(k) && g.roomId === rid && g.slotId === sid);
+  // Does class j's section have another class at time sid? (Moves for the other kinds avoid that,
+  // so each button adds exactly one kind of conflict.)
+  const secBusy = (j, sid) => secKey(j) !== null && genes.some((g, k) => k !== j && sections[k] && scheduled(k) && g.slotId === sid && secKey(k) === secKey(j));
   const qualified = (f, i) => f.specializations.includes(sections[i].requiredSpecialization);
   const free = (f, sid) => !(f.unavailableSlotIds || []).includes(sid);
   const out = (msg, extra) => ({
@@ -716,7 +744,7 @@ function makeTestConflict(kind, data) {
     for (const i of idx) for (const j of idx) {
       if (i === j || !notFixed(j) || !E.isOnline(sections[j])) continue;
       const fi = fById[genes[i].facultyId];
-      if (!fi || !qualified(fi, j) || genes[j].slotId === genes[i].slotId) continue;
+      if (!fi || !qualified(fi, j) || genes[j].slotId === genes[i].slotId || secBusy(j, genes[i].slotId)) continue;
       genes[j] = {
         facultyId: fi.id,
         roomId: E.ONLINE_ROOM_ID,
@@ -735,7 +763,7 @@ function makeTestConflict(kind, data) {
       const fj = fById[genes[j].facultyId],
         ri = rById[genes[i].roomId],
         si = genes[i].slotId;
-      if (!fj || !ri || ri.capacity < sections[j].enrolledStudents || !free(fj, si) || facBusy(fj.id, si, j)) continue;
+      if (!fj || !ri || ri.capacity < sections[j].enrolledStudents || !free(fj, si) || facBusy(fj.id, si, j) || secBusy(j, si)) continue;
       genes[j] = {
         facultyId: fj.id,
         roomId: ri.id,
@@ -745,6 +773,27 @@ function makeTestConflict(kind, data) {
     }
     return {
       error: "Needs two laboratory classes; none could share a lab without other problems."
+    };
+  }
+  if (kind === "section") {
+    // Move class j to the time another class i of the SAME section meets, keeping j's own
+    // teacher (free and available then) and a free suitable room, so only the section clashes.
+    for (const i of idx) for (const j of idx) {
+      const si = genes[i].slotId;
+      if (i === j || !notFixed(j) || secKey(j) === null || secKey(j) !== secKey(i) || genes[j].slotId === si) continue;
+      const fj = fById[genes[j].facultyId];
+      if (!fj || !free(fj, si) || facBusy(fj.id, si, j)) continue;
+      const rid = [genes[j].roomId].concat(E.validRooms(rooms, sections[j])).find(r => !roomBusy(r, si, j));
+      if (rid === undefined) continue;
+      genes[j] = {
+        ...genes[j],
+        roomId: rid,
+        slotId: si
+      };
+      return out(name(j) + " moved to " + slotLabel(si) + ", when " + sections[j].sectionName + " already has " + sections[i].subjectCode + ".");
+    }
+    return {
+      error: "No two classes of one section could be put at the same time without other problems."
     };
   }
   if (kind === "unqualified") {
@@ -766,7 +815,7 @@ function makeTestConflict(kind, data) {
       if (!notFixed(j)) continue;
       const f = fById[genes[j].facultyId];
       if (!f) continue;
-      const u = (f.unavailableSlotIds || []).find(sid => sid !== genes[j].slotId && !facBusy(f.id, sid, j) && !roomBusy(genes[j].roomId, sid, j));
+      const u = (f.unavailableSlotIds || []).find(sid => sid !== genes[j].slotId && !facBusy(f.id, sid, j) && !roomBusy(genes[j].roomId, sid, j) && !secBusy(j, sid));
       if (u == null) continue;
       genes[j] = {
         ...genes[j],
@@ -831,7 +880,7 @@ function makeTestConflict(kind, data) {
       if (!notFixed(j)) continue;
       const f = fById[genes[j].facultyId];
       // Pin it to a time its teacher could actually make, so an update can fix it.
-      const target = timeSlots.find(t => t.id !== genes[j].slotId && f && free(f, t.id) && !facBusy(f.id, t.id, j));
+      const target = timeSlots.find(t => t.id !== genes[j].slotId && f && free(f, t.id) && !facBusy(f.id, t.id, j) && !secBusy(j, t.id));
       if (!target) continue;
       const secs = sections.map((s2, k) => k === j ? {
         ...s2,
@@ -901,7 +950,7 @@ function saveState(data) {
 const BACKUP_APP = "SchedWiseAI";
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
-const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "curriculumAware", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind", "datasetInfo"];
+const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind", "datasetInfo"];
 
 // makeBackup(state): the object that is written to the .json file.
 function makeBackup(state) {
@@ -1116,10 +1165,10 @@ function parseBackup(text) {
   // and every value the Schedules, History and Reports pages show must have the right type.
   const n = d.sections.length;
   const trigger = t => obj(t) && optStr(t.kind) && optStr(t.reason) && optNum(t.facultyId) && optNumArr(t.slotIds) && optNumArr(t.preferredSlotIds);
-  const honoured = h => obj(h) && optStr(h.name) && optStr(h.slots) && optStr(h.prefSlots) && optNum(h.clashes) && optNum(h.moved) && optNum(h.inPref);
+  const honoured = h => obj(h) && optStr(h.name) && optStr(h.slots) && optStr(h.prefSlots) && optNum(h.clashes) && optNum(h.moved) && optNum(h.inPref) && opt(strArr)(h.notes);
   const change = c => obj(c) && Number.isInteger(c.index) && c.index >= 0 && c.index < n && gene(c.from) && gene(c.to);
   const summary = u => obj(u) && arrOf(change)(u.changes) && optNum(u.moved) && optNum(u.unchanged) && optNum(u.shifted) && opt(arrOf(honoured))(u.honoured) && opt(strArr)(u.reasons);
-  const schedule = s => obj(s) && Array.isArray(s.genes) && s.genes.length === n && s.genes.every(gene) && arrOf(c => obj(c) && num(c.best) && num(c.avg))(s.convergence) && num(s.fitness) && opt(v => obj(v) && Object.values(v).every(num) && num(v.total))(s.violations) && optStr(s.approvalStatus) && optStr(s.approvalComment) && optStr(s.generatedAt) && optStr(s.kind) && opt(id)(s.id) && optNum(s.elapsedMs) && optNum(s.curriculumConflicts) && opt(obj)(s.settings) && opt(r => obj(r) && optStr(r.reason) && opt(arrOf(trigger))(r.triggers))(s.needsRegeneration) && opt(summary)(s.updateSummary);
+  const schedule = s => obj(s) && Array.isArray(s.genes) && s.genes.length === n && s.genes.every(gene) && arrOf(c => obj(c) && num(c.best) && num(c.avg))(s.convergence) && num(s.fitness) && opt(v => obj(v) && Object.values(v).every(num) && num(v.total))(s.violations) && optStr(s.approvalStatus) && optStr(s.approvalComment) && optStr(s.generatedAt) && optStr(s.kind) && opt(id)(s.id) && optNum(s.elapsedMs) && opt(obj)(s.settings) && opt(r => obj(r) && optStr(r.reason) && opt(arrOf(trigger))(r.triggers))(s.needsRegeneration) && opt(summary)(s.updateSummary);
   if (d.result != null && !schedule(d.result)) return {
     error: "The saved schedule in the backup does not match its subject list, or is damaged."
   };
@@ -2026,6 +2075,7 @@ function AvailabilityRequestModal({
   lockedFacultyId,
   timeSlots,
   sections,
+  rooms,
   result,
   onSave,
   onClose
@@ -2050,6 +2100,24 @@ function AvailabilityRequestModal({
     if (g.facultyId === facultyId && g.slotId >= 0) (classSlots[g.slotId] = classSlots[g.slotId] || []).push(sections[i].subjectCode);
   });
   const affected = slotIds.filter(id => classSlots[id]).length;
+  const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
+
+  // "Prefer instead" times that cannot take a class this request would move, and why (the update
+  // would then use another time, so say so now). One line per time when the teacher is busy then
+  // (that stops every class); otherwise one line per class that cannot go there.
+  const moving = result && isChange ? result.genes.map((g, i) => i).filter(i => result.genes[i].facultyId === facultyId && slotIds.includes(result.genes[i].slotId)) : [];
+  const preferProblems = [];
+  preferIds.slice().sort((a, b) => a - b).forEach(p => {
+    const whys = moving.map(i => ({
+      i,
+      why: E.whyNotAt(faculty, rooms || [], sections, timeSlots, result.genes, i, facultyId, p)
+    })).filter(x => x.why.length);
+    const busy = whys.find(x => x.why.some(b => b.kind === "teacher"));
+    if (busy) preferProblems.push(describeSlots([p], slotById) + ": " + whyNotText(busy.why.filter(b => b.kind === "teacher"), sections, "you") + ", so no class can move there.");else whys.forEach(({
+      i,
+      why
+    }) => preferProblems.push(describeSlots([p], slotById) + " can't take " + sections[i].subjectCode + " · " + sections[i].sectionName + ": " + whyNotText(why, sections, "you") + "."));
+  });
 
   // A click marks the cell in the current mode, and clears it from the other mode
   // (a time can't be both "can't teach" and "prefer instead").
@@ -2067,7 +2135,6 @@ function AvailabilityRequestModal({
     setMine(allPicked ? mine.filter(id => !daySlots.includes(id)) : Array.from(new Set(mine.concat(daySlots))));
     if (!allPicked) setOther(prev => prev.filter(id => !daySlots.includes(id)));
   }
-  const slotById = Object.fromEntries(timeSlots.map(t => [t.id, t]));
   return /*#__PURE__*/React.createElement(Modal, {
     title: "Request Availability Change / Leave",
     onClose: onClose,
@@ -2158,7 +2225,10 @@ function AvailabilityRequestModal({
     className: "font-semibold"
   }, "Prefer instead:"), " ", preferIds.length ? describeSlots(preferIds, slotById) : "none"), affected > 0 && /*#__PURE__*/React.createElement("div", {
     className: "text-orange-700"
-  }, affected, " of these time(s) currently have a class. If approved, those classes will be moved", preferIds.length ? ", into your preferred times first when they are free." : ". Add \"Prefer instead\" times to choose where they go."), isChange && slotIds.length > 0 && affected === 0 && result && /*#__PURE__*/React.createElement("div", {
+  }, affected, " of these time(s) currently have a class. If approved, those classes will be moved", preferIds.length ? ": into your preferred times first when they are free, then other free times on those days." : ". Add \"Prefer instead\" times to choose where they go."), preferProblems.map((t, k) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    className: "text-rose-700"
+  }, "\u26A0 ", t)), isChange && slotIds.length > 0 && affected === 0 && result && /*#__PURE__*/React.createElement("div", {
     className: "text-orange-700"
   }, "None of your classes are at the times you can't teach, so approving this will not move any class. If these are the times you WANT to teach, switch to ", /*#__PURE__*/React.createElement("span", {
     className: "font-semibold"
@@ -3702,7 +3772,6 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // ---- Feature data (the `|| []` fallbacks keep older saved data working) ----
   const [leaveRequests, setLeaveRequests] = useState(init.leaveRequests || []);
-  const [curriculumAware, setCurriculumAware] = useState(init.curriculumAware || false);
   const [facultyProfileModal, setFacultyProfileModal] = useState(null);
   const [assignmentModal, setAssignmentModal] = useState(null);
   const [leaveRequestModal, setLeaveRequestModal] = useState(false);
@@ -3729,7 +3798,6 @@ function App() {
       timeSlots,
       result,
       leaveRequests,
-      curriculumAware,
       notifications,
       scheduleHistory,
       activityLog,
@@ -3737,7 +3805,7 @@ function App() {
       datasetKind,
       datasetInfo
     });
-  }, [faculty, rooms, sections, timeSlots, result, leaveRequests, curriculumAware, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo]);
+  }, [faculty, rooms, sections, timeSlots, result, leaveRequests, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo]);
 
   // Saves a changed account list. Other open tabs pick it up through the "storage" event below.
   function updateAccounts(next) {
@@ -3828,8 +3896,7 @@ function App() {
     setTimeout(() => {
       const settings = {
         generations: 140,
-        popSize: 50,
-        curriculumAware
+        popSize: 50
       };
       const t0 = performance.now();
       const r = E.runGA(faculty, rooms, sections, timeSlots, settings);
@@ -3869,7 +3936,6 @@ function App() {
     setTimeout(() => {
       const t0 = performance.now();
       const r = E.repairSchedule(faculty, rooms, sections, timeSlots, result.genes, {
-        curriculumAware,
         generations: 100,
         popSize: 40
       });
@@ -3882,13 +3948,27 @@ function App() {
         const pref = t.preferredSlotIds || [];
         const movedHere = r.changes.filter(c => r.genes[c.index].facultyId === t.facultyId);
         const inPref = movedHere.filter(c => pref.includes(r.genes[c.index].slotId)).length;
+        // Each moved class that did not get an asked-for time: where it went, and what was in
+        // the way at those times (at most three are named), e.g. "Wed P2: Maria Garcia already
+        // teaches IT101 · BSIT-2B then."
+        const teacherName = fac ? fac.name : "the teacher";
+        const notes = movedHere.filter(c => pref.length && !pref.includes(r.genes[c.index].slotId)).map(c => {
+          const s = sections[c.index];
+          const why = pref.map(p => ({
+            p,
+            why: E.whyNotAt(faculty, rooms, sections, timeSlots, r.genes, c.index, t.facultyId, p)
+          })).filter(x => x.why.length);
+          const shown = why.slice(0, 3).map(x => describeSlots([x.p], slotById) + ": " + whyNotText(x.why, sections, teacherName) + ".");
+          return s.subjectCode + " · " + s.sectionName + " went to " + describeSlots([r.genes[c.index].slotId], slotById) + " instead. " + shown.join(" ") + (why.length > 3 ? " (" + (why.length - 3) + " more asked-for times were taken too.)" : "");
+        });
         return {
           name: fac ? fac.name : "Faculty",
           slots: describeSlots(t.slotIds, slotById),
           clashes,
           prefSlots: pref.length ? describeSlots(pref, slotById) : "",
           moved: movedHere.length,
-          inPref
+          inPref,
+          notes
         };
       });
       setGenerating(false);
@@ -4260,8 +4340,7 @@ function App() {
     })).then(() => logActivity("Export", name + " (" + faculty.length + " faculty, " + sections.length + " subjects, " + rooms.length + " rooms)"));
   }
   // Replaces the data with a checked upload, all at once. Like Reset Demo Data it clears the
-  // schedule, its saved versions and the requests; notifications, the activity log and the
-  // curriculum-aware setting are kept.
+  // schedule, its saved versions and the requests; notifications and the activity log are kept.
   function handleApplySchoolData(data, fileName) {
     if (!canManageData) return;
     const d = normalizeData({
@@ -4300,7 +4379,6 @@ function App() {
       sections,
       result,
       leaveRequests,
-      curriculumAware,
       notifications,
       scheduleHistory,
       activityLog,
@@ -4336,7 +4414,6 @@ function App() {
     setSections(n.sections);
     setResult(n.result || null);
     setLeaveRequests(n.leaveRequests);
-    setCurriculumAware(!!n.curriculumAware);
     setNotifications(n.notifications);
     setScheduleHistory(n.scheduleHistory);
     setActivityLog(n.activityLog);
@@ -4703,8 +4780,6 @@ function App() {
     rooms: rooms,
     selectedFacultyId: selectedFacultyId,
     setSelectedFacultyId: setSelectedFacultyId,
-    curriculumAware: curriculumAware,
-    setCurriculumAware: setCurriculumAware,
     onEditAssignment: (index, gene) => setAssignmentModal({
       index,
       gene
@@ -4802,6 +4877,7 @@ function App() {
     lockedFacultyId: leaveRequestLockedTo,
     timeSlots: timeSlots,
     sections: sections,
+    rooms: rooms,
     result: result,
     onSave: handleSubmitRequest,
     onClose: () => setLeaveRequestModal(false)
@@ -5490,7 +5566,7 @@ function ITOverview(props) {
   const avgMs = timed.length ? Math.round(timed.reduce((s, h) => s + h.elapsedMs, 0) / timed.length) : null;
 
   // Rows for the "Last Engine Run" table: [label, value].
-  const engineRows = result ? [["Run time", typeof result.elapsedMs === "number" ? result.elapsedMs + " ms" : "not recorded"], ["Generations run", result.convergence.length + (result.settings ? " of " + result.settings.generations + " max" : "")], ["Population size", result.settings ? result.settings.popSize : "—"], ["Final fitness", result.fitness.toFixed(1)], ["Hard-constraint violations", result.violations.total], ["Curriculum-aware", result.curriculumAware ? "On" : "Off"]] : [];
+  const engineRows = result ? [["Run time", typeof result.elapsedMs === "number" ? result.elapsedMs + " ms" : "not recorded"], ["Generations run", result.convergence.length + (result.settings ? " of " + result.settings.generations + " max" : "")], ["Population size", result.settings ? result.settings.popSize : "—"], ["Final fitness", result.fitness.toFixed(1)], ["Hard-constraint violations", result.violations.total]] : [];
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-6"
   }, /*#__PURE__*/React.createElement(OverviewHero, {
@@ -6721,21 +6797,6 @@ function WorkloadPage({
   }, "Click a teacher to see their classes. Hover a status to see why.")));
 }
 
-// CurriculumToggle: the checkbox that turns curriculum-aware scheduling on/off.
-function CurriculumToggle({
-  curriculumAware,
-  setCurriculumAware
-}) {
-  return /*#__PURE__*/React.createElement("label", {
-    className: "flex items-center gap-2 text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer"
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
-    checked: curriculumAware,
-    onChange: e => setCurriculumAware(e.target.checked),
-    className: "accent-amber-500"
-  }), /*#__PURE__*/React.createElement("span", null, "Use curriculum (avoid overlaps within the same program, year level & semester)"));
-}
-
 // RegenerationBanner: shown when something (an approved availability change,
 // an ended leave, a new subject, a new fixed time) means the schedule should
 // be updated.
@@ -6818,7 +6879,10 @@ function UpdateSummary({
     className: "text-xs rounded-lg px-3 py-1.5 mb-2 " + (h.clashes ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700")
   }, h.clashes ? "⚠ " + h.name + " still has " + h.clashes + " class(es) in " + h.slots + " — try Full regenerate." : "✓ " + h.name + "'s request is respected — no classes in " + h.slots + ".", !h.clashes && h.prefSlots && h.moved > 0 && /*#__PURE__*/React.createElement("div", {
     className: "mt-0.5"
-  }, h.inPref === h.moved ? "All " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + ")." : h.inPref + " of " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + "). The rest went elsewhere, because those times were taken by other classes or rooms."))), /*#__PURE__*/React.createElement("ul", {
+  }, h.inPref === h.moved ? "All " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + ")." : h.inPref + " of " + h.moved + " moved class(es) went to the preferred times (" + h.prefSlots + ")." + (h.notes ? "" : " The rest went elsewhere, because those times were taken by other classes or rooms."), (h.notes || []).map((n, k) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    className: "mt-0.5"
+  }, n))))), /*#__PURE__*/React.createElement("ul", {
     className: "divide-y divide-slate-50"
   }, u.changes.map(c => {
     const sec = sections[c.index];
@@ -6908,8 +6972,6 @@ function SchedulesPage({
   rooms,
   selectedFacultyId,
   setSelectedFacultyId,
-  curriculumAware,
-  setCurriculumAware,
   onEditAssignment,
   onApprovalDecision,
   myFacultyId,
@@ -6941,12 +7003,7 @@ function SchedulesPage({
       className: "font-semibold text-slate-900 mb-2"
     }, "No schedule generated yet"), /*#__PURE__*/React.createElement("p", {
       className: "text-sm text-slate-500 mb-5"
-    }, "Run the AI Optimization Engine to generate a conflict-free schedule from your current faculty, subjects, and rooms."), canEdit && /*#__PURE__*/React.createElement("div", {
-      className: "max-w-md mx-auto mb-5"
-    }, /*#__PURE__*/React.createElement(CurriculumToggle, {
-      curriculumAware: curriculumAware,
-      setCurriculumAware: setCurriculumAware
-    })), canEdit && /*#__PURE__*/React.createElement("button", {
+    }, "Run the AI Optimization Engine to generate a conflict-free schedule from your current faculty, subjects, and rooms."), canEdit && /*#__PURE__*/React.createElement("button", {
       onClick: onGenerate,
       disabled: generating,
       className: "bg-amber-400 hover:bg-amber-300 text-[#0b1d4a] font-medium text-sm px-5 py-2.5 rounded-lg disabled:opacity-60"
@@ -7004,18 +7061,13 @@ function SchedulesPage({
   }, result.feasible ? "✓ Conflict-free" : "⚠ " + result.violations.total + " conflicts remaining"), overloadedTeachers.length > 0 && /*#__PURE__*/React.createElement("span", {
     className: "text-sm font-medium px-3 py-1.5 rounded-lg bg-orange-50 text-orange-700",
     title: overloadedTeachers.map(f => f.name).join(", ")
-  }, "\u26A0 ", overloadedTeachers.length, " teacher", overloadedTeachers.length > 1 ? "s" : "", " over maximum units"), result.curriculumAware && /*#__PURE__*/React.createElement("span", {
-    className: "text-sm font-medium px-3 py-1.5 rounded-lg " + (result.curriculumConflicts === 0 ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700")
-  }, "Curriculum: ", result.curriculumConflicts === 0 ? "no overlaps" : result.curriculumConflicts + " overlaps"), unscheduledCount > 0 && /*#__PURE__*/React.createElement("span", {
+  }, "\u26A0 ", overloadedTeachers.length, " teacher", overloadedTeachers.length > 1 ? "s" : "", " over maximum units"), unscheduledCount > 0 && /*#__PURE__*/React.createElement("span", {
     className: "text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600"
   }, unscheduledCount, " unscheduled (manually removed)"), /*#__PURE__*/React.createElement("span", {
     className: "text-sm text-slate-400"
   }, "Fitness score: ", result.fitness.toFixed(1), " \xB7 ", result.convergence.length, " generations")), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2"
-  }, canEdit && /*#__PURE__*/React.createElement(CurriculumToggle, {
-    curriculumAware: curriculumAware,
-    setCurriculumAware: setCurriculumAware
-  }), canEdit && /*#__PURE__*/React.createElement("button", {
+  }, canEdit && /*#__PURE__*/React.createElement("button", {
     onClick: onGenerate,
     disabled: generating,
     title: "Builds a brand-new schedule from scratch; every class may move.",
@@ -7251,7 +7303,7 @@ function HistoryPage({
     colorFn: () => "#b7791f"
   })), /*#__PURE__*/React.createElement(TableShell, {
     title: "Schedule History (" + history.length + ")",
-    onExport: () => downloadCSV("schedule_history.csv", ["Version", "Type", "Generated", "Feasible", "Conflicts", "Fitness", "Generations", "Curriculum-aware", "Approval"], history.slice().reverse().map((h, i) => ["v" + (i + 1), h.kind === "update" ? "Update" : "Full", new Date(h.generatedAt).toLocaleString(), h.feasible ? "Yes" : "No", h.violations.total, h.fitness.toFixed(1), h.convergence.length, h.curriculumAware ? "Yes" : "No", h.approvalStatus || "Pending Review"]))
+    onExport: () => downloadCSV("schedule_history.csv", ["Version", "Type", "Generated", "Feasible", "Conflicts", "Fitness", "Generations", "Approval"], history.slice().reverse().map((h, i) => ["v" + (i + 1), h.kind === "update" ? "Update" : "Full", new Date(h.generatedAt).toLocaleString(), h.feasible ? "Yes" : "No", h.violations.total, h.fitness.toFixed(1), h.convergence.length, h.approvalStatus || "Pending Review"]))
   }, /*#__PURE__*/React.createElement("div", {
     className: "overflow-x-auto"
   }, /*#__PURE__*/React.createElement("table", {
@@ -7271,8 +7323,6 @@ function HistoryPage({
   }, "Fitness"), /*#__PURE__*/React.createElement("th", {
     className: "px-6 py-3 font-medium"
   }, "Generations"), /*#__PURE__*/React.createElement("th", {
-    className: "px-6 py-3 font-medium"
-  }, "Curriculum"), /*#__PURE__*/React.createElement("th", {
     className: "px-6 py-3 font-medium"
   }))), /*#__PURE__*/React.createElement("tbody", null, history.map((h, idx) => {
     const versionNum = history.length - idx;
@@ -7299,8 +7349,6 @@ function HistoryPage({
     }, h.fitness.toFixed(1)), /*#__PURE__*/React.createElement("td", {
       className: "px-6 py-3 text-slate-500"
     }, h.convergence.length), /*#__PURE__*/React.createElement("td", {
-      className: "px-6 py-3 text-slate-500"
-    }, h.curriculumAware ? "On" : "Off"), /*#__PURE__*/React.createElement("td", {
       className: "px-6 py-3 text-right"
     }, !isCurrent && /*#__PURE__*/React.createElement("button", {
       onClick: () => onRestore(h),
@@ -7336,7 +7384,7 @@ function ConflictsPage({
     }, generating ? "Generating..." : "Generate Schedule"));
   }
   const v = result.violations;
-  const rows = [["Faculty double-booking", v.facultyConflicts, "A faculty member assigned to two classes at the same time"], ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"], ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"], ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot"], ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"], ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"], ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"], ["Cannot be scheduled", v.unplaceable || 0, "No qualified teacher for the subject, or no laboratory big enough for the class, so no schedule can place it"]];
+  const rows = [["Faculty double-booking", v.facultyConflicts, "A faculty member assigned to two classes at the same time"], ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"], ["Section double-booking", v.sectionConflicts || 0, "One section (the same students) given two classes at the same time"], ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"], ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot"], ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"], ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"], ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"], ["Cannot be scheduled", v.unplaceable || 0, "No qualified teacher for the subject, or no laboratory big enough for the class, so no schedule can place it"]];
   // Which subjects cannot be placed, and why, so the user knows what to change.
   const impossible = (sections || []).map((s, i) => ({
     s,
@@ -7596,7 +7644,7 @@ function ReportsPage({
   }, c)))))))), /*#__PURE__*/React.createElement(ReportCard, {
     title: "Conflict Report",
     subtitle: "Hard-constraint check across the current schedule",
-    onExport: () => downloadCSV("conflict_report.csv", ["Constraint", "Count"], [["Faculty double-booking", result.violations.facultyConflicts], ["Room double-booking", result.violations.roomConflicts], ["Unqualified assignment", result.violations.unqualified], ["Faculty unavailable", result.violations.unavailable], ["Room type mismatch", result.violations.roomTypeMismatch], ["Fixed time not respected", result.violations.fixedSlot || 0], ["Room capacity exceeded", result.violations.capacityViol], ["Cannot be scheduled (no qualified teacher or big-enough lab)", result.violations.unplaceable || 0], ["Faculty overload (units; a warning, not a conflict)", result.violations.overload], ["Unscheduled (manually removed)", result.violations.unscheduled || 0]])
+    onExport: () => downloadCSV("conflict_report.csv", ["Constraint", "Count"], [["Faculty double-booking", result.violations.facultyConflicts], ["Room double-booking", result.violations.roomConflicts], ["Section double-booking", result.violations.sectionConflicts || 0], ["Unqualified assignment", result.violations.unqualified], ["Faculty unavailable", result.violations.unavailable], ["Room type mismatch", result.violations.roomTypeMismatch], ["Fixed time not respected", result.violations.fixedSlot || 0], ["Room capacity exceeded", result.violations.capacityViol], ["Cannot be scheduled (no qualified teacher or big-enough lab)", result.violations.unplaceable || 0], ["Faculty overload (units; a warning, not a conflict)", result.violations.overload], ["Unscheduled (manually removed)", result.violations.unscheduled || 0]])
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-slate-600"
   }, "Total hard-constraint violations: ", /*#__PURE__*/React.createElement("span", {

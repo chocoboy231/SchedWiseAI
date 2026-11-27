@@ -134,6 +134,34 @@ function halfHourRows() {
   return rows;
 }
 // ---------------------------------------------------------------------
+// Teaching time: the part of the day a teacher teaches in (the Faculty sheet's
+// "Teaching time" column, or the Faculty form). It is a hard rule: a class is
+// never placed outside its teacher's teaching time, just as if those periods
+// were marked unavailable. A teacher with none listed teaches at any time.
+//   Morning   P1-P3   7:00 - 11:30 AM
+//   Afternoon P4-P6   11:30 AM - 4:00 PM
+//   Evening   P7-P9   4:00 - 8:30 PM
+// canTeachAt({ teachingTimes: ["Evening"] }, Mon 4:00-5:30 PM slot) -> true
+// availableAt(fac, slot): not marked unavailable then, and inside their teaching time.
+// ---------------------------------------------------------------------
+const TEACHING_TIMES = [
+  { name: "Morning", periods: [1, 2, 3] },
+  { name: "Afternoon", periods: [4, 5, 6] },
+  { name: "Evening", periods: [7, 8, 9] },
+];
+function teachingTimeOf(period) {
+  const t = TEACHING_TIMES.find(x => x.periods.includes(period));
+  return t ? t.name : null;
+}
+function canTeachAt(fac, slot) {
+  const times = fac && fac.teachingTimes;
+  if (!times || !times.length || !slot) return true;
+  return times.includes(teachingTimeOf(slot.period));
+}
+function availableAt(fac, slot) {
+  return !!fac && !!slot && !(fac.unavailableSlotIds || []).includes(slot.id) && canTeachAt(fac, slot);
+}
+// ---------------------------------------------------------------------
 // upgradeSlotId(id, oldPeriods) and upgradeSlotList(ids, oldPeriods)
 // Saved schedules, requests and teachers' times store slot ids. Data saved when
 // days had `oldPeriods` periods (6 before the evening was added) is converted
@@ -293,12 +321,12 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
     const candidateSlots = sec.fixedSlotId != null ? timeSlots.filter(t => t.id === sec.fixedSlotId) : timeSlots;
     let placed = null;
     for (const fid of teachers) {
-      const fac = facultyById[fid], unavailable = fac.unavailableSlotIds || [], preferred = fac.preferredDays || [];
+      const fac = facultyById[fid], preferred = fac.preferredDays || [];
       let bestRank = null;
       for (const slot of candidateSlots) {
-        // Skip times the teacher already teaches, or has marked unavailable (approved changes / leave),
-        // and times when this section's students already have a class.
-        if (facultySlotUsed.has(fid + "-" + slot.id) || unavailable.includes(slot.id)) continue;
+        // Skip times the teacher already teaches, has marked unavailable (approved changes / leave)
+        // or that are outside their teaching time, and times when this section already has a class.
+        if (facultySlotUsed.has(fid + "-" + slot.id) || !availableAt(fac, slot)) continue;
         if (skey !== null && sectionSlotUsed.has(skey + "@" + slot.id)) continue;
         const rid = qr.find(r => r === ONLINE_ROOM_ID || !roomSlotUsed.has(r + "-" + slot.id));
         if (rid === undefined) continue;             // every suitable room is taken at this time
@@ -330,7 +358,8 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
 //   roomConflicts     — one room booked for two classes at the same time
 //   sectionConflicts  — one section (the same students, see sectionKey) with two classes at the same time
 //   unqualified       — teacher lacks the required specialization
-//   unavailable       — teacher scheduled during a time they marked unavailable
+//   unavailable       — teacher scheduled during a time they marked unavailable,
+//                       or outside their teaching time (Morning / Afternoon / Evening)
 //   roomTypeMismatch  — lab class without a lab room, or online class given a room
 //   capacityViol      — more students than the room can seat
 //   fixedSlot         — a class with a fixed day/period placed at a different time
@@ -375,7 +404,8 @@ function countViolations(faculty, rooms, sections, timeSlots, genes) {
     const fac = facultyById[g.facultyId], room = roomById[g.roomId];
     if (!fac || !fac.specializations.includes(sec.requiredSpecialization)) unqualified++;
     else unitsPerFaculty[fac.id] += sec.units;
-    if (fac && (fac.unavailableSlotIds || []).includes(g.slotId)) unavailable++;
+    // Marked unavailable then, or outside their teaching time.
+    if (fac && ((fac.unavailableSlotIds || []).includes(g.slotId) || !canTeachAt(fac, timeSlots[g.slotId]))) unavailable++;
     if (sec.fixedSlotId != null && g.slotId !== sec.fixedSlotId) fixedSlot++;
     if (isOnline(sec)) {
       if (g.roomId !== ONLINE_ROOM_ID) roomTypeMismatch++;          // online class wrongly given a room
@@ -621,7 +651,7 @@ function findConflictingIndices(faculty, rooms, sections, timeSlots, genes) {
     if (g.facultyId === -1 || g.roomId === -1 || g.slotId === -1) return;
     const sec = sections[i], fac = facultyById[g.facultyId], room = roomById[g.roomId];
     if (!fac || !fac.specializations.includes(sec.requiredSpecialization)) bad.add(i);
-    if (fac && (fac.unavailableSlotIds || []).includes(g.slotId)) bad.add(i);
+    if (fac && ((fac.unavailableSlotIds || []).includes(g.slotId) || !canTeachAt(fac, timeSlots[g.slotId]))) bad.add(i);
     if (sec.fixedSlotId != null && g.slotId !== sec.fixedSlotId) bad.add(i);
     if (isOnline(sec)) { if (g.roomId !== ONLINE_ROOM_ID) bad.add(i); }
     else if (!room || room.type !== sec.roomTypeRequired || room.capacity < sec.enrolledStudents) bad.add(i);
@@ -645,6 +675,8 @@ function findConflictingIndices(faculty, rooms, sections, timeSlots, genes) {
 // What stops class i, taught by `facultyId`, from being at `slotId`, given where
 // every OTHER class is in `genes`? Returns a list, empty when nothing does:
 //   { kind: "unavailable" }      the teacher marked that time unavailable
+//   { kind: "teachingTime", times }  the time is outside the teacher's teaching time
+//                                (times: the ones they teach in, e.g. ["Evening"])
 //   { kind: "fixed" }            the subject has a fixed day/period, and this is not it
 //   { kind: "teacher", index }   the teacher already teaches class `index` then
 //   { kind: "section", index }   the class's section already has class `index` then
@@ -656,6 +688,7 @@ function whyNotAt(faculty, rooms, sections, timeSlots, genes, i, facultyId, slot
   const others = [];                         // the other classes held at that time
   genes.forEach((g, k) => { if (k !== i && g.slotId === slotId && g.facultyId !== -1 && g.roomId !== -1) others.push(k); });
   if (fac && (fac.unavailableSlotIds || []).includes(slotId)) out.push({ kind: "unavailable" });
+  if (fac && !canTeachAt(fac, timeSlots[slotId])) out.push({ kind: "teachingTime", times: fac.teachingTimes.slice() });
   if (sec && sec.fixedSlotId != null && sec.fixedSlotId !== slotId) out.push({ kind: "fixed" });
   const t = others.find(k => genes[k].facultyId === facultyId);
   if (t !== undefined) out.push({ kind: "teacher", index: t });
@@ -752,7 +785,7 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
       slotsToTry.slice()
         .sort((a, b) => rank(b) - rank(a))
         .forEach(sid => {
-          if ((fac.unavailableSlotIds || []).includes(sid)) return;
+          if (!availableAt(fac, slotById[sid])) return;                 // unavailable, or outside their teaching time
           roomsToTry.forEach(rid => out.push({ facultyId: fid, roomId: rid, slotId: sid }));
         });
     });
@@ -1012,5 +1045,5 @@ window.SchedEngine = {
   CALENDAR_DAYS, ONLINE_ROOM_ID, isOnline,
   repairSchedule, findConflictingIndices, currentSchoolYear, schoolYearOptions,
   generateExpandedData, sectionKey, whyNotAt,
-  upgradeSlotId, upgradeSlotList,
+  upgradeSlotId, upgradeSlotList, TEACHING_TIMES, teachingTimeOf, canTeachAt,
 };

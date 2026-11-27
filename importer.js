@@ -29,7 +29,7 @@
     Faculty: [
       column("Name *", "name"), column("Subject areas *", "subjectAreas"), column("Max units *", "maxUnits"),
       column("Employment status", "employmentStatus"), column("Academic rank", "academicRank"),
-      column("Preferred days", "preferredDays"), column("Not available", "notAvailable"),
+      column("Preferred days", "preferredDays"), column("Not available", "notAvailable"), column("Teaching time", "teachingTime"),
     ],
     Subjects: [
       column("Subject code *", "code"), column("Program", "program"), column("Subject name", "name"), column("Section *", "section"),
@@ -88,6 +88,26 @@
     }
     return { days: E.DAYS.filter(d => found.has(d)) };
   }
+
+  // Teaching time: "Evening" / "morning; afternoon" / "Daytime" -> the parts of the day the teacher
+  // teaches in, in day order (see E.TEACHING_TIMES). Blank, "Any time" or all three -> [] (any time).
+  const TIME_WORDS = dict({
+    morning: ["Morning"], afternoon: ["Afternoon"], noon: ["Afternoon"], evening: ["Evening"], night: ["Evening"],
+    daytime: ["Morning", "Afternoon"], day: ["Morning", "Afternoon"],
+    any: [], "any time": [], anytime: [], "all day": [], "whole day": [],
+  });
+  const TIME_NAMES = E.TEACHING_TIMES.map(t => t.name);
+  function parseTeachingTime(text) {
+    const found = new Set();
+    for (const word of splitList(text)) {
+      if (!TIME_WORDS[word]) return { error: "'" + word + "' is not a teaching time. Use Morning, Afternoon (or Noon), Evening or Daytime, separated by ; (or leave it empty for any time)." };
+      TIME_WORDS[word].forEach(t => found.add(t));
+    }
+    const times = TIME_NAMES.filter(t => found.has(t));
+    return { times: times.length === TIME_NAMES.length ? [] : times };
+  }
+  // The inverse: ["Morning", "Evening"] -> "Morning; Evening"; [] -> "" (any time).
+  const formatTeachingTime = times => TIME_NAMES.filter(t => (times || []).includes(t)).join("; ");
 
   // Time-slot ids by day and period, from the engine's slot list.
   const SLOTS = E.buildTimeSlots();
@@ -250,7 +270,7 @@
       return areaSpelling[key];
     }
     const counts = { faculty: 0, sections: 0, rooms: 0 };
-    const defaults = { preferredDays: 0, employment: 0, schoolYear: 0, category: 0, program: 0 };
+    const defaults = { preferredDays: 0, teachingTime: 0, employment: 0, schoolYear: 0, category: 0, program: 0 };
 
     // 3. Faculty
     const faculty = [], teacherRow = dict(), facultyRows = [];
@@ -283,10 +303,13 @@
       const days = x.parsed("preferredDays", parseDayList, false);
       if (days === null || (days && !days.days.length)) defaults.preferredDays++;
       const away = x.parsed("notAvailable", parseSlotList, false);
+      const teaching = x.parsed("teachingTime", parseTeachingTime, false);
+      if (teaching === null || (teaching && !teaching.times.length)) defaults.teachingTime++;
       faculty.push({
         id: faculty.length, name, specializations: areas, maxUnits,
         preferredDays: days && days.days.length ? days.days : E.DAYS.slice(),
         unavailableSlotIds: away ? away.ids : [], preferredSlotIds: [], employmentStatus, academicRank,
+        teachingTimes: teaching ? teaching.times : [],
       });
     });
 
@@ -363,6 +386,7 @@
 
     // 6. One note per kind of default used, so nothing changes silently.
     if (defaults.preferredDays) add(notes, "Faculty", null, null, plural(defaults.preferredDays, "teacher has", "teachers have") + " no preferred days: all days used.");
+    if (defaults.teachingTime) add(notes, "Faculty", null, null, plural(defaults.teachingTime, "teacher has", "teachers have") + " no teaching time: they can be scheduled at any time of day.");
     if (defaults.employment) add(notes, "Faculty", null, null, plural(defaults.employment, "teacher has", "teachers have") + " no employment status: Full-time used.");
     if (defaults.program) add(notes, "Subjects", null, null, plural(defaults.program, "subject has", "subjects have") + " no program: it was taken from the section name (BSIT-2A → BSIT).");
     if (defaults.schoolYear) add(notes, "Subjects", null, null, plural(defaults.schoolYear, "subject has", "subjects have") + " no school year: " + defaultSchoolYear + " used.");
@@ -389,8 +413,9 @@
         warn("Subjects", row, "Students", name(s) + " has " + s.enrolledStudents + " students, but the largest lab seats " + largestLab + ", so it will show as Cannot be scheduled.");
       if (s.prerequisiteCode && !codes.has(canonical(s.prerequisiteCode)))
         warn("Subjects", row, "Prerequisite", "The prerequisite '" + s.prerequisiteCode + "' is not a subject code in the Subjects sheet.");
-      if (s.fixedSlotId != null && teachers.length && teachers.every(f => f.unavailableSlotIds.includes(s.fixedSlotId)))
-        warn("Subjects", row, "Fixed day", "Every teacher with the subject area '" + s.requiredSpecialization + "' is not available at the fixed time of " + name(s) + ".");
+      if (s.fixedSlotId != null && teachers.length && teachers.every(f => f.unavailableSlotIds.includes(s.fixedSlotId) || !E.canTeachAt(f, SLOTS[s.fixedSlotId])))
+        warn("Subjects", row, "Fixed day", "Every teacher with the subject area '" + s.requiredSpecialization + "' is not available at the fixed time of " + name(s)
+          + " (it is marked Not available, or outside their Teaching time).");
     });
     const labs = sections.filter(s => s.roomTypeRequired === "laboratory").length;
     if (labs && !rooms.length)
@@ -440,6 +465,11 @@
       "Academic rank: any text, for example Instructor I. May be empty.",
       "Preferred days: days separated by ; (for example: Mon; Wed; Fri). If empty: no preference (all days).",
       "Not available: times the teacher cannot teach, separated by ; — a whole day (Sat), one period (Mon P1) or a range (Fri P4-P6). If empty: available all week.",
+      "Teaching time: the part of the day the teacher teaches in: " + E.TEACHING_TIMES.map(t => {
+        const first = SLOTS.find(s => s.period === t.periods[0]), last = SLOTS.find(s => s.period === t.periods[t.periods.length - 1]);
+        return t.name + " (P" + t.periods[0] + "-P" + t.periods[t.periods.length - 1] + ", " + E.timeRangeLabel(first.start, last.end) + ")";
+      }).join(", ") + ". Several may be listed, separated by ; (for example: Morning; Afternoon). Noon also means Afternoon, and Daytime means Morning and Afternoon."
+        + " The schedule never puts the teacher outside these times. If empty: any time.",
       "",
       "SUBJECTS SHEET (one row per subject per section)",
       "Subject code *: for example IT101. The same code may appear once per section.",
@@ -472,8 +502,8 @@
     return {
       Instructions: instructionRows(),
       Faculty: [headerRow("Faculty"),
-        toRow("Faculty", { name: "EXAMPLE Maria Santos", subjectAreas: "Programming; Databases", maxUnits: 21, employmentStatus: "Full-time", academicRank: "Instructor I", preferredDays: "Mon; Wed; Fri", notAvailable: "Sat" }),
-        toRow("Faculty", { name: "EXAMPLE Jose Reyes", subjectAreas: "Accounting", maxUnits: 12, employmentStatus: "Part-time", academicRank: "", preferredDays: "Tue; Thu", notAvailable: "Mon P1-P3" })],
+        toRow("Faculty", { name: "EXAMPLE Maria Santos", subjectAreas: "Programming; Databases", maxUnits: 21, employmentStatus: "Full-time", academicRank: "Instructor I", preferredDays: "Mon; Wed; Fri", notAvailable: "Sat", teachingTime: "Morning; Afternoon" }),
+        toRow("Faculty", { name: "EXAMPLE Jose Reyes", subjectAreas: "Accounting", maxUnits: 12, employmentStatus: "Part-time", academicRank: "", preferredDays: "Tue; Thu", notAvailable: "Mon P7-P9", teachingTime: "Evening" })],
       Subjects: [headerRow("Subjects"),
         toRow("Subjects", { code: "EXAMPLE IT101", program: "BSIT", name: "Introduction to Computing", section: "BSIT-1A", units: 3, subjectArea: "Programming", classType: "Laboratory", students: 35, yearLevel: 1, semester: "1st", schoolYear: year, category: "Major" }),
         toRow("Subjects", { code: "EXAMPLE ACC101", program: "BSA", name: "Financial Accounting", section: "BSA-1A", units: 3, subjectArea: "Accounting", classType: "Online", students: 40, yearLevel: 1, semester: "1st", schoolYear: year, category: "Major", fixedDay: "Sat", fixedPeriod: 1 })],
@@ -489,7 +519,7 @@
       Faculty: [headerRow("Faculty")].concat((data.faculty || []).map(f => toRow("Faculty", {
         name: f.name, subjectAreas: (f.specializations || []).join("; "), maxUnits: f.maxUnits, employmentStatus: f.employmentStatus,
         academicRank: f.academicRank, preferredDays: allDays(f.preferredDays) ? "" : E.DAYS.filter(d => (f.preferredDays || []).includes(d)).join("; "),
-        notAvailable: formatSlotList(f.unavailableSlotIds),
+        notAvailable: formatSlotList(f.unavailableSlotIds), teachingTime: formatTeachingTime(f.teachingTimes),
       }))),
       Subjects: [headerRow("Subjects")].concat((data.sections || []).map(s => {
         const slot = s.fixedSlotId == null ? null : fixed(s.fixedSlotId);
@@ -510,7 +540,7 @@
   window.SchedImport = {
     SHEETS, LIMITS, COLUMNS,
     canonical, parseWholeNumber, parseDayList, parseSlotList, formatSlotList,
-    parseYearLevel, parseSemester, parseSchoolYear,
+    parseTeachingTime, formatTeachingTime, parseYearLevel, parseSemester, parseSchoolYear,
     parseWorkbook, templateRows, currentDataRows,
   };
 })();

@@ -240,6 +240,27 @@ function requestTimesText(r, slotById) {
   return parts.length ? parts.join(" · ") : "No time slots selected";
 }
 
+// Teaching time (see E.TEACHING_TIMES): Morning, Afternoon and Evening with their hours.
+//   teachingTimeHint()              -> "Morning 7:00-11:30 AM · Afternoon 11:30 AM-4:00 PM · Evening 4:00-8:30 PM."
+//   teachingTimesOrAny(["Evening"]) -> ["Evening"]; none or all three -> [] (any time)
+//   describeTeachingTime(["Evening"]) -> "Evening (4:00-8:30 PM)"; [] -> "Any time"
+function teachingTimeHours(t) {
+  const monday = E.buildTimeSlots().filter(s => s.day === E.DAYS[0]);
+  const first = monday.find(s => s.period === t.periods[0]), last = monday.find(s => s.period === t.periods[t.periods.length - 1]);
+  return E.timeRangeLabel(first.start, last.end);
+}
+function teachingTimeHint() {
+  return E.TEACHING_TIMES.map(t => t.name + " " + teachingTimeHours(t)).join(" · ") + ".";
+}
+function teachingTimesOrAny(times) {
+  const list = E.TEACHING_TIMES.map(t => t.name).filter(n => (times || []).includes(n));
+  return list.length === E.TEACHING_TIMES.length ? [] : list;
+}
+function describeTeachingTime(times) {
+  const list = teachingTimesOrAny(times);
+  return list.length ? list.map(n => n + " (" + teachingTimeHours(E.TEACHING_TIMES.find(t => t.name === n)) + ")").join(", ") : "Any time";
+}
+
 // whyNotText(reasons, sections, teacher): the reasons from E.whyNotAt in plain words,
 // e.g. "Maria Garcia already teaches IT101 · BSIT-2B then". `teacher` is a name, or "you".
 function whyNotText(reasons, sections, teacher) {
@@ -247,6 +268,7 @@ function whyNotText(reasons, sections, teacher) {
   return reasons.map(b => {
     const other = b.index != null ? sections[b.index] : null;
     if (b.kind === "unavailable") return (you ? "you are" : teacher + " is") + " unavailable then";
+    if (b.kind === "teachingTime") return (you ? "you teach" : teacher + " teaches") + " only in the " + b.times.join(" and ");
     if (b.kind === "fixed") return "the subject has a fixed time";
     if (b.kind === "teacher") return (you ? "you already teach " : teacher + " already teaches ") + other.subjectCode + " · " + other.sectionName + " then";
     if (b.kind === "section") return other.sectionName + " already has " + other.subjectCode + " then";
@@ -333,7 +355,8 @@ function normalizeData(d) {
     program: s.program || ((s.sectionName || "").split("-")[0] || "BSIT"),
   }));
   const rooms = (d.rooms || []).map(r => r.type === "lecture" ? { ...r, type: "laboratory" } : r);
-  const faculty = (d.faculty || []).map(f => ({ ...f, unavailableSlotIds: f.unavailableSlotIds || [], preferredSlotIds: f.preferredSlotIds || [] }));
+  const faculty = (d.faculty || []).map(f => ({ ...f, unavailableSlotIds: f.unavailableSlotIds || [], preferredSlotIds: f.preferredSlotIds || [],
+    teachingTimes: teachingTimesOrAny(f.teachingTimes) }));   // older data has no teaching time: any time
   const timeSlots = E.buildTimeSlots();
   function fixSchedule(res) {
     if (!res || !res.genes || res.genes.length !== sections.length) return res;
@@ -671,6 +694,7 @@ function parseBackup(text) {
   const slotId = x => x == null || (Number.isInteger(x) && x >= 0 && x < E.DAYS.length * periodsInFile);
   const checks = {
     faculty: f => num(f.id) && str(f.name) && strArr(f.specializations) && num(f.maxUnits) && opt(strArr)(f.preferredDays)
+      && opt(arrOf(x => E.TEACHING_TIMES.some(t => t.name === x)))(f.teachingTimes)
       && optNumArr(f.unavailableSlotIds) && optNumArr(f.preferredSlotIds) && optStr(f.employmentStatus) && optStr(f.academicRank),
     rooms: r => num(r.id) && str(r.name) && str(r.type) && num(r.capacity),
     sections: s => num(s.id) && str(s.subjectCode) && optStr(s.subjectName) && str(s.sectionName) && str(s.requiredSpecialization)
@@ -849,6 +873,7 @@ function FacultyModal({ initial, allFaculty, subjectAreas, onSave, onClose }) {
   const [newArea, setNewArea] = useState("");
   const [maxUnits, setMaxUnits] = useState(initial ? initial.maxUnits : 21);
   const [preferredDays, setPreferredDays] = useState(initial ? initial.preferredDays : ["Mon", "Wed", "Fri"]);
+  const [teachingTimes, setTeachingTimes] = useState(initial && initial.teachingTimes ? initial.teachingTimes : []);   // none ticked: any time
   const [employmentStatus, setEmploymentStatus] = useState(initial ? initial.employmentStatus : E.EMPLOYMENT_STATUSES[0]);
   const [academicRank, setAcademicRank] = useState(initial ? initial.academicRank : E.ACADEMIC_RANKS[0]);
   const areaOptions = choicesOf(subjectAreas || [], initial ? initial.specializations : [], addedAreas);
@@ -861,6 +886,9 @@ function FacultyModal({ initial, allFaculty, subjectAreas, onSave, onClose }) {
   }
   function toggleDay(d) {
     setPreferredDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  }
+  function toggleTime(t) {
+    setTeachingTimes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   }
   // "Add subject area": a name that matches an existing one (ignoring capitals) ticks that one instead.
   function addArea() {
@@ -893,6 +921,10 @@ function FacultyModal({ initial, allFaculty, subjectAreas, onSave, onClose }) {
       </Field>
       <Field label="Preferred Days">
         <CheckboxGroup options={E.DAYS} selected={preferredDays} onToggle={toggleDay} columns={3} />
+      </Field>
+      <Field label="Teaching time">
+        <CheckboxGroup options={E.TEACHING_TIMES.map(t => t.name)} selected={teachingTimes} onToggle={toggleTime} columns={3} />
+        <p className="text-xs text-slate-500 mt-1">{teachingTimeHint()} None ticked: any time. Classes are never scheduled outside the ticked times.</p>
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Maximum Teaching Units">
@@ -929,6 +961,7 @@ function FacultyModal({ initial, allFaculty, subjectAreas, onSave, onClose }) {
             specializations: specs,
             maxUnits: Number(maxUnits),
             preferredDays,
+            teachingTimes: teachingTimesOrAny(teachingTimes),
             employmentStatus,
             academicRank,
           });
@@ -1215,6 +1248,10 @@ function FacultyProfileModal({ faculty, sections, result, slotById, onClose }) {
         </div>
       </div>
       <div className="mt-3">
+        <div className="text-xs text-slate-400 mb-1">Teaching Time</div>
+        <div className="text-sm text-slate-700">{describeTeachingTime(faculty.teachingTimes)}</div>
+      </div>
+      <div className="mt-3">
         <div className="text-xs text-slate-400 mb-1">Unavailable Times</div>
         <div className="text-sm text-slate-700">{(faculty.unavailableSlotIds || []).length ? describeSlots(faculty.unavailableSlotIds, slotById) : "None"}</div>
       </div>
@@ -1326,7 +1363,8 @@ function AvailabilityRequestModal({ faculty, lockedFacultyId, timeSlots, section
   const isChange = type === "Availability Change";
 
   const fac = faculty.find(f => f.id === facultyId);
-  const unavailable = fac ? (fac.unavailableSlotIds || []) : [];
+  // Times this teacher cannot be given: marked unavailable, or outside their teaching time.
+  const unavailable = fac ? timeSlots.filter(t => (fac.unavailableSlotIds || []).includes(t.id) || !E.canTeachAt(fac, t)).map(t => t.id) : [];
 
   // Which slots this teacher currently teaches in, so they can see what a request would affect.
   const classSlots = {};
@@ -3875,14 +3913,14 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
       {tab === "list" && (
         <TableShell title={"Faculty (" + faculty.length + ")"} onAdd={onAdd} addLabel="Add Faculty" onImport={onImport}
           onExport={() => downloadCSV("faculty.csv",
-            ["Name","Specializations","Max Units","Current Load","Status","Preferred Days","Employment Status","Academic Rank"],
-            faculty.map(f => { const st = loadStatusFor(f, sections, result, faculty); return [f.name, f.specializations.join("; "), f.maxUnits, st.assigned, st.label, f.preferredDays.join("; "), f.employmentStatus || "", f.academicRank || ""]; }))}>
+            ["Name","Specializations","Max Units","Current Load","Status","Preferred Days","Teaching Time","Employment Status","Academic Rank"],
+            faculty.map(f => { const st = loadStatusFor(f, sections, result, faculty); return [f.name, f.specializations.join("; "), f.maxUnits, st.assigned, st.label, f.preferredDays.join("; "), teachingTimesOrAny(f.teachingTimes).join("; ") || "Any time", f.employmentStatus || "", f.academicRank || ""]; }))}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-slate-400 text-xs border-b border-slate-100">
                 <th className="px-6 py-3 font-medium">Name</th><th className="px-6 py-3 font-medium">Specializations</th>
                 <th className="px-6 py-3 font-medium">Current Load</th><th className="px-6 py-3 font-medium">Status</th>
-                <th className="px-6 py-3 font-medium">Preferred Days</th><th className="px-6 py-3 font-medium"></th>
+                <th className="px-6 py-3 font-medium">Preferred Days</th><th className="px-6 py-3 font-medium">Teaching Time</th><th className="px-6 py-3 font-medium"></th>
               </tr></thead>
               <tbody>
                 {faculty.map(f => {
@@ -3894,6 +3932,7 @@ function FacultyPage({ faculty, sections, result, role, leaveRequests, tab, setT
                       <td className="px-6 py-3 text-slate-500">{status.assigned}/{f.maxUnits} units</td>
                       <td className="px-6 py-3"><span title={status.reason} className={"text-xs font-medium px-2 py-1 rounded-full " + status.color}>{status.label}</span></td>
                       <td className="px-6 py-3 text-slate-500">{f.preferredDays.join(", ")}</td>
+                      <td className="px-6 py-3 text-slate-500">{teachingTimesOrAny(f.teachingTimes).join(", ") || "Any time"}</td>
                       <td className="px-6 py-3 text-right whitespace-nowrap">
                         <button onClick={()=>onViewProfile(f)} title="View Profile" className="text-slate-400 hover:text-blue-800 p-1"><IconEye size={15}/></button>
                         <button onClick={()=>onViewSchedule(f)} title="View Schedule" className="text-slate-400 hover:text-blue-600 p-1"><IconCalendar size={15}/></button>
@@ -5010,7 +5049,7 @@ function ConflictsPage({ result, sections, faculty, rooms, onGenerate, generatin
     ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"],
     ["Section double-booking", v.sectionConflicts || 0, "One section (the same students) given two classes at the same time"],
     ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"],
-    ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot"],
+    ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot, or outside their teaching time"],
     ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"],
     ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"],
     ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"],

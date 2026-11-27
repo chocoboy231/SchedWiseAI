@@ -60,6 +60,16 @@
     ["Sat", "Mon P1", "Mon P1-P2; Fri P4-P6", "Tue; Thu P3", "Wed P7-P9"].forEach(t => eq(I.formatSlotList(I.parseSlotList(t).ids), t));
   });
 
+  test("parseTeachingTime: Morning, Afternoon (or Noon), Evening, several, Daytime; blank or Any time means any", () => {
+    const t = text => JSON.stringify(I.parseTeachingTime(text).times);
+    eq(t("Evening"), '["Evening"]'); eq(t("evening; MORNING"), '["Morning","Evening"]', "in day order, any case");
+    eq(t("Noon"), '["Afternoon"]'); eq(t("Night"), '["Evening"]'); eq(t("Daytime"), '["Morning","Afternoon"]');
+    eq(t("Morning, Afternoon"), '["Morning","Afternoon"]', "a comma works too");
+    eq(t(""), "[]"); eq(t("Any time"), "[]"); eq(t("anytime"), "[]"); eq(t("Morning; Afternoon; Evening"), "[]", "all three is any time");
+    ["Lunch", "Morning; Lunch", "constructor", "P1"].forEach(x => assert(I.parseTeachingTime(x).error, x));
+    assert(/Morning, Afternoon \(or Noon\), Evening/.test(I.parseTeachingTime("Lunch").error), "the message lists the choices");
+  });
+
   test("parseYearLevel, parseSemester, parseSchoolYear", () => {
     eq(I.parseYearLevel(2).value, 2); eq(I.parseYearLevel("3rd Year").value, 3); eq(I.parseYearLevel("Year 4").value, 4); assert(I.parseYearLevel(5).error);
     eq(I.parseSemester("1").value, "1st Semester"); eq(I.parseSemester("Second Semester").value, "2nd Semester"); assert(I.parseSemester("Summer").error);
@@ -80,8 +90,8 @@
     return out;
   }
   const cp = rows => rows.map(r => r.slice());
-  const F = [["Maria Santos", "Programming; Databases", 21, "Full-time", "Instructor I", "Mon; Wed", "Sat"],
-             ["Jose Reyes", "Accounting", 12, "Part-time", "", "", ""]];
+  const F = [["Maria Santos", "Programming; Databases", 21, "Full-time", "Instructor I", "Mon; Wed", "Sat", "Morning; Afternoon"],
+             ["Jose Reyes", "Accounting", 12, "Part-time", "", "", "", ""]];
   const SUB = [["IT101", "BSIT", "Intro to Computing", "BSIT-1A", 3, "Programming", "Laboratory", 35, 1, "1st", "2026-2027", "Major", "", "", ""],
                ["ACC101", "", "Financial Accounting", "BSA-1A", 3, "accounting", "Online", 40, 1, "1st", "", "", "Sat", 1, ""]];
   const R = [["Lab 101", 40]];
@@ -92,8 +102,14 @@
     assert(r.ok, r.errors.map(e => e.message).join("; ")); eq(JSON.stringify(r.counts), '{"faculty":2,"sections":2,"rooms":1}');
     const [m, j] = r.data.faculty, [it, acc] = r.data.sections;
     eq(JSON.stringify(m), JSON.stringify({ id: 0, name: "Maria Santos", specializations: ["Programming", "Databases"], maxUnits: 21, preferredDays: ["Mon", "Wed"],
-      unavailableSlotIds: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(p => id("Sat", p)), preferredSlotIds: [], employmentStatus: "Full-time", academicRank: "Instructor I" }));
-    eq(j.preferredDays.join(","), E.DAYS.join(",")); eq(j.academicRank, "");
+      unavailableSlotIds: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(p => id("Sat", p)), preferredSlotIds: [], employmentStatus: "Full-time", academicRank: "Instructor I",
+      teachingTimes: ["Morning", "Afternoon"] }));
+    eq(j.preferredDays.join(","), E.DAYS.join(",")); eq(j.academicRank, ""); eq(JSON.stringify(j.teachingTimes), "[]", "blank: any time");
+    // An older workbook without the Teaching time column still uploads, and its teachers can teach at any time.
+    const old = book({ Faculty: F.map(row => row.slice(0, 7)), Subjects: SUB, Rooms: R });
+    old.Faculty[0] = old.Faculty[0].slice(0, 7);
+    const ro = I.parseWorkbook(old, OPT); assert(ro.ok, ro.errors.map(e => e.message).join("; "));
+    eq(JSON.stringify(ro.data.faculty.map(f => f.teachingTimes)), "[[],[]]");
     eq(acc.requiredSpecialization, "Accounting"); eq(acc.program, "BSA"); eq(acc.roomTypeRequired, "online"); eq(acc.schoolYear, "2030–2031");
     eq(acc.category, "Major"); eq(acc.fixedSlotId, id("Sat", 1)); eq(acc.prerequisiteCode, null);
     eq(it.semester, "1st Semester"); eq(it.schoolYear, "2026–2027"); eq(it.roomTypeRequired, "laboratory");
@@ -102,7 +118,7 @@
 
   test("notes list every default and spelling change", () => {
     const n = I.parseWorkbook(book({ Faculty: F, Subjects: SUB, Rooms: R }), OPT).notes.map(x => x.message).join(" | ");
-    ["'accounting'", "no preferred days", "school year", "category", "program"].forEach(w => assert(n.toLowerCase().includes(w.toLowerCase()), w + " — notes: " + n));
+    ["'accounting'", "no preferred days", "no teaching time", "school year", "category", "program"].forEach(w => assert(n.toLowerCase().includes(w.toLowerCase()), w + " — notes: " + n));
   });
 
   test("columns matched by name in any order; extra columns and sheets ignored with a note", () => {
@@ -143,6 +159,7 @@
       ["value not allowed", () => withS(s => { s[0][6] = "Lecture"; }), ["Subjects", 2, "Class type"]],
       ["bad preferred days", () => withF(f => { f[0][5] = "Mon; Sun"; }), ["Faculty", 2, "Preferred days"]],
       ["bad not available", () => withF(f => { f[0][6] = "Mon P10"; }), ["Faculty", 2, "Not available"]],
+      ["bad teaching time", () => withF(f => { f[1][7] = "Lunch"; }), ["Faculty", 3, "Teaching time"]],
       ["bad employment status", () => withF(f => { f[0][3] = "Volunteer"; }), ["Faculty", 2, "Employment status"]],
       ["duplicate teacher", () => withF(f => { f[1][0] = "MARIA  santos"; }), ["Faculty", 3, "Name"], /row 2\b.*sign-in account is linked by name/],
       ["duplicate subject+section", () => withS(s => { s[1] = s[0].slice(); }), ["Subjects", 3, "Section"]],
@@ -171,6 +188,7 @@
       ["prerequisite not in the sheet", (() => { const s = cp(SUB); s[0][14] = "IT999"; return book({ Faculty: F, Subjects: s, Rooms: R }); })(), ["Subjects", 2], /IT999/],
       ["teacher whose areas no subject needs", book({ Faculty: F.concat([["Ana Lim", "Nursing", 18]]), Subjects: SUB, Rooms: R }), ["Faculty", 4], /Ana Lim/],
       ["fixed time when every qualified teacher is away", (() => { const f = cp(F); f[1][6] = "Sat"; return book({ Faculty: f, Subjects: SUB, Rooms: R }); })(), ["Subjects", 3], /fixed time/],
+      ["fixed time outside every qualified teacher's teaching time", (() => { const f = cp(F); f[1][7] = "Evening"; return book({ Faculty: f, Subjects: SUB, Rooms: R }); })(), ["Subjects", 3], /fixed time/],
     ];
     cases.forEach(([name, sheets, [sheet, row], word]) => {
       const r = I.parseWorkbook(sheets, OPT);
@@ -211,6 +229,7 @@
     const withS = change => { const x = cp(SUB); change(x); return book({ Faculty: F, Subjects: x, Rooms: R }); };
     [["Not available", withF(x => { x[0][6] = "constructor P1"; }), ["Faculty", 2, "Not available"]],
      ["Preferred days", withF(x => { x[0][5] = "constructor"; }), ["Faculty", 2, "Preferred days"]],
+     ["Teaching time", withF(x => { x[0][7] = "__proto__"; }), ["Faculty", 2, "Teaching time"]],
      ["Employment status", withF(x => { x[0][3] = "constructor"; }), ["Faculty", 2, "Employment status"]],
      ["Fixed day", withS(x => { x[1][12] = "constructor"; }), ["Subjects", 3, "Fixed day"]]].forEach(([name, sheets, where]) => {
       let res;
@@ -228,17 +247,21 @@
     I.SHEETS.forEach(s => { eq(t[s][0].join("|"), I.COLUMNS[s].map(c => c.header).join("|")); eq(t[s].length, 3); });
     const text = t.Instructions.map(r => r.join(" ")).join("\n"); assert(/P1 +7:00-8:30 AM/.test(text) && /P4 +11:30 AM-1:00 PM/.test(text) && /EXAMPLE/.test(text), "the periods are listed with 12-hour times");
     assert(/different name, because a teacher's sign-in account is linked by name/.test(text) && !/sign in (with it|by name)/.test(text), "the Name line explains the sign-in account link");
+    assert(/Teaching time: .*Morning \(P1-P3, 7:00-11:30 AM\).*Afternoon \(P4-P6, 11:30 AM-4:00 PM\).*Evening \(P7-P9, 4:00-8:30 PM\)/.test(text), "the Teaching time line lists the three times");
+    assert(/never/.test(text.split("\n").find(l => /^Teaching time:/.test(l)) || ""), "and says the schedule never goes outside them");
     const r = I.parseWorkbook(t); assert(!r.ok); assert(r.errors.some(e => e.sheet === "Faculty" && e.row === null), "only the examples, so no data");
   });
 
   test("current data -> workbook rows -> back again gives the same data", () => {
     const d = E.generateExpandedData(3);
     d.faculty.forEach(f => { f.preferredSlotIds = []; f.unavailableSlotIds.sort((a, b) => a - b); f.preferredDays = E.DAYS.filter(x => f.preferredDays.includes(x)); });
+    const times = [["Evening"], ["Morning", "Afternoon"], [], ["Afternoon", "Evening"]];
+    d.faculty.forEach((f, i) => { f.teachingTimes = times[i % times.length]; });
     const r = I.parseWorkbook(I.currentDataRows(d), { schoolYear: d.sections[0].schoolYear });
     assert(r.ok, r.errors.map(e => e.message).join("; "));
     const pick = (list, keys) => JSON.stringify(list.map(x => keys.map(k => x[k])));
-    eq(pick(r.data.faculty, ["name", "specializations", "maxUnits", "preferredDays", "unavailableSlotIds", "employmentStatus", "academicRank"]),
-       pick(d.faculty, ["name", "specializations", "maxUnits", "preferredDays", "unavailableSlotIds", "employmentStatus", "academicRank"]));
+    eq(pick(r.data.faculty, ["name", "specializations", "maxUnits", "preferredDays", "unavailableSlotIds", "employmentStatus", "academicRank", "teachingTimes"]),
+       pick(d.faculty, ["name", "specializations", "maxUnits", "preferredDays", "unavailableSlotIds", "employmentStatus", "academicRank", "teachingTimes"]));
     eq(pick(r.data.sections, ["subjectCode", "subjectName", "sectionName", "program", "units", "requiredSpecialization", "roomTypeRequired", "enrolledStudents", "yearLevel", "semester", "schoolYear", "category", "fixedSlotId", "prerequisiteCode"]),
        pick(d.sections, ["subjectCode", "subjectName", "sectionName", "program", "units", "requiredSpecialization", "roomTypeRequired", "enrolledStudents", "yearLevel", "semester", "schoolYear", "category", "fixedSlotId", "prerequisiteCode"]));
     eq(pick(r.data.rooms, ["name", "capacity"]), pick(d.rooms, ["name", "capacity"]));

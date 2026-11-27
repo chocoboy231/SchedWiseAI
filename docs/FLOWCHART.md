@@ -60,9 +60,9 @@ flowchart TD
 | Step | Symbol | What happens |
 |---|---|---|
 | 1 | Oval | **Start** (Generate Schedule or Full Regenerate). |
-| 2 | Parallelogram | **Input**: faculty (specializations, maximum units, preferred days, unavailable times), rooms (capacity), subject sections (specialization needed, online or laboratory, students, optional fixed day/period), 54 time slots (nine 1.5-hour periods a day, 7:00 AM to 8:30 PM), settings. |
+| 2 | Parallelogram | **Input**: faculty (specializations, maximum units, preferred days, unavailable times, teaching time), rooms (capacity), subject sections (specialization needed, online or laboratory, students, optional fixed day/period), 54 time slots (nine 1.5-hour periods a day, 7:00 AM to 8:30 PM), settings. |
 | 3 | Rectangle | **Greedy seed**: take the next section and give it to the qualified teacher with the most room left under their maximum units (least loaded first; teachers it would take over their maximum come last). A fixed-time section only tries its fixed slot. |
-| 4 | Diamond | Is there a time when the teacher is free and available, the section (its students) has no other class, and a suitable room is free? **Yes** → step 5. **No** → step 6. |
+| 4 | Diamond | Is there a time when the teacher is free, available and inside their teaching time, the section (its students) has no other class, and a suitable room is free? **Yes** → step 5. **No** → step 6. |
 | 5 | Rectangle | Of those times, place the section at the one that spreads the week and the day best: a day the teacher prefers, then the day this section has the fewest classes on, then the day this teacher has the fewest classes on, then the period of the day (P1 7:00 AM to P9 7:00 PM) with the fewest classes so far, then the time with the fewest classes, then the earliest. Classes therefore use the whole day, evening included. |
 | 6 | Rectangle | Give the section a random gene (a qualified teacher and a suitable room at a random time, or its fixed time). The GA fixes it later. |
 | 7 | Diamond | More sections? **Yes** → step 3. **No** → step 8. |
@@ -104,7 +104,7 @@ flowchart TD
 
 | Step | Term | Effect on the score |
 |---|---|---|
-| F1–F2 | **Hard rules.** Each violation of: teacher qualified for the subject; teacher not double-booked; teacher not in an unavailable time; room not double-booked (online classes need no room); section not double-booked (the same program, section name, semester and school year never has two classes at once, online or not); laboratory class in a laboratory, online class with no room; enough seats; fixed day/period respected; and every subject can be placed at all (it has a qualified teacher and, for a laboratory class, a lab big enough). | −1000 each |
+| F1–F2 | **Hard rules.** Each violation of: teacher qualified for the subject; teacher not double-booked; teacher not in an unavailable time and not outside their teaching time (Morning, Afternoon and/or Evening); room not double-booked (online classes need no room); section not double-booked (the same program, section name, semester and school year never has two classes at once, online or not); laboratory class in a laboratory, online class with no room; enough seats; fixed day/period respected; and every subject can be placed at all (it has a qualified teacher and, for a laboratory class, a lab big enough). | −1000 each |
 | F2b | **Overload**: every unit a teacher is given above their maximum units. | −300 per unit |
 | F3 | **Workload balance**: variance of total teaching units per teacher (0 = perfectly even). | −2 × variance |
 | F4 | **Preferred days**: share of classes on the teacher's preferred days (0 to 1). | +50 × share |
@@ -151,7 +151,7 @@ flowchart TD
 | U3 | Rectangle | **Find affected classes**: every class that breaks a hard rule. For a double-booking (of a teacher, a room or a section) only the later class is affected, so as few classes as possible move. A newly added subject with no place is also affected. |
 | U4 | Diamond | Any affected classes? **No** → output "no classes needed to move" and end. **Yes** → continue. |
 | U5 | Rectangle | **Freeze** every other class. |
-| U6 | Rectangle | **Rank options** for each affected class: its current teacher first, then qualified teachers who still have room under their maximum units (least loaded first), and last those it would take over their maximum. Times in this order: the class's own time if it is still allowed (for example when only its room was removed), the times the teacher asked for in an approved *Prefer instead* request, other times on those days, the teacher's preferred days, then other times (ties in week order). Its current room first. Times the teacher is unavailable are never used. |
+| U6 | Rectangle | **Rank options** for each affected class: its current teacher first, then qualified teachers who still have room under their maximum units (least loaded first), and last those it would take over their maximum. Times in this order: the class's own time if it is still allowed (for example when only its room was removed), the times the teacher asked for in an approved *Prefer instead* request, other times on those days, the teacher's preferred days, then other times (ties in week order). Its current room first. Times the teacher is unavailable, or that are outside their teaching time, are never used. |
 | U7 | Diamond | Is any option free (the teacher, the room and the class's section have nothing else at that time)? **Yes** → place the class (U9). **No** → U8. |
 | U8 | Rectangle + diamond | **Make room**: take an option held by up to three other classes (the one holding the teacher, the room or the section's students) and move those classes to free places. If they cannot all be moved, undo everything and leave the class where it was (it still shows as a conflict). |
 | U9 | Rectangle | Place the class. Repeat U7 to U9 for every affected class. |

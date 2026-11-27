@@ -63,6 +63,9 @@
       if (g.facultyId === -1 || g.roomId === -1 || g.slotId === -1) return;          // manually removed
       if (!f || !f.specializations.includes(s.requiredSpecialization)) out.push("unqualified " + i);
       if (f && (f.unavailableSlotIds || []).includes(g.slotId)) out.push("unavailable " + i);
+      // Teaching time: Morning = P1-P3, Afternoon = P4-P6, Evening = P7-P9; none listed = any time.
+      const block = p => (p <= 3 ? "Morning" : p <= 6 ? "Afternoon" : "Evening");
+      if (f && (f.teachingTimes || []).length && !f.teachingTimes.includes(block(SLOTS[g.slotId].period))) out.push("outside-teaching-time " + i);
       if (s.fixedSlotId != null && g.slotId !== s.fixedSlotId) out.push("fixed " + i);
       if (s.roomTypeRequired === "online") { if (g.roomId !== E.ONLINE_ROOM_ID) out.push("online-room " + i); }
       else {
@@ -202,6 +205,24 @@
   test("countViolations: teacher unavailable", () => {
     const d = mini(); d.faculty[0].unavailableSlotIds = [0];
     eq(count(d, CLEAN).unavailable, 1);
+  });
+
+  test("teaching time: Morning P1-P3, Afternoon P4-P6, Evening P7-P9; none listed means any time", () => {
+    eq(JSON.stringify(E.TEACHING_TIMES.map(t => [t.name, t.periods])), JSON.stringify([["Morning", [1, 2, 3]], ["Afternoon", [4, 5, 6]], ["Evening", [7, 8, 9]]]));
+    const evening = { teachingTimes: ["Evening"] };
+    assert(E.canTeachAt(evening, SLOTS[slotAt("Mon", 7)]) && E.canTeachAt(evening, SLOTS[slotAt("Sat", 9)]), "evening periods are allowed");
+    assert(!E.canTeachAt(evening, SLOTS[slotAt("Mon", 6)]) && !E.canTeachAt(evening, SLOTS[slotAt("Tue", 1)]), "daytime periods are not");
+    assert(E.canTeachAt({ teachingTimes: [] }, SLOTS[0]) && E.canTeachAt({}, SLOTS[0]), "no teaching time: any time");
+  });
+
+  test("countViolations: a class outside its teacher's teaching time counts as 'teacher unavailable'", () => {
+    const d = mini(); d.faculty[0] = Object.assign({}, d.faculty[0], { teachingTimes: ["Evening"] });
+    // CLEAN gives teacher A class 0 on Mon P1 and class 2 on Mon P3, both in the morning.
+    eq(count(d, CLEAN).unavailable, 2); eq(count(d, CLEAN).total, 2, "it is a conflict");
+    const g = clone(CLEAN); g[0].slotId = slotAt("Mon", 7);
+    eq(count(d, g).unavailable, 1, "Mon P7 (4:00 PM) is in the evening");
+    const marked = E.findConflictingIndices(d.faculty, d.rooms, d.sections, SLOTS, g);
+    assert(marked.size === 1 && marked.has(2), "only the morning class should be marked for an update");
   });
 
   test("countViolations: room type mismatch (online class given a lab)", () => {
@@ -397,6 +418,17 @@
     const x = E.generateExpandedData(2);
     const used = check("the multi-program sample", x, E.runGA(x.faculty, x.rooms, x.sections, x.timeSlots, { generations: 80, popSize: 30 }).genes);
     assert(Object.keys(used).length >= 7, "the multi-program sample uses only periods " + Object.keys(used).join(", "));
+  });
+
+  test("runGA: every teacher is scheduled only in their teaching time", () => {
+    for (const seed of [11, 12, 13]) {
+      const d = E.generateSyntheticData(9, 18, 6, seed);
+      const times = [["Morning"], ["Afternoon"], ["Evening"], ["Morning", "Evening"], []];
+      const faculty = d.faculty.map((f, i) => Object.assign({}, f, { teachingTimes: times[i % times.length] }));
+      const r = E.runGA(faculty, d.rooms, d.sections, d.timeSlots, GA);
+      eq(brokenRules(Object.assign({}, d, { faculty }), r.genes).join(", "), "", "seed " + seed + " broke a rule");
+      eq(r.violations.total, 0, "seed " + seed + " has conflicts");
+    }
   });
 
   test("runGA: a teacher who can only teach in the evening gets evening classes", () => {
@@ -595,6 +627,18 @@
     return { d, genes: [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: slotAt("Tue", 2) }] };
   }
 
+  test("repairSchedule: a moved class stays inside its teacher's teaching time", () => {
+    // Teacher A teaches only in the evening; A's class on Mon P8 must move (A can no longer teach then).
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, preferredDays: ["Mon"], teachingTimes: ["Evening"],
+                  unavailableSlotIds: [slotAt("Mon", 8)] }],
+      rooms: [], sections: [sec({ id: 0, roomTypeRequired: "online", sectionName: "BSIT-1A" })],
+    };
+    const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: slotAt("Mon", 8) }], GA);
+    eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
+    assert(SLOTS[r.genes[0].slotId].period >= 7, "went outside the evening: " + SLOTS[r.genes[0].slotId].label);
+  });
+
   test("repairSchedule: an evening time the teacher asked for is still used first", () => {
     const { d, genes } = mondayEveningOnly([slotAt("Mon", 8)]);
     const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
@@ -622,6 +666,14 @@
     eq(why(d.sections, 2, 7), "[]", "an online class needs no room");
     const fixed = d.sections.map((s, i) => i === 0 ? Object.assign({}, s, { fixedSlotId: 3 }) : s);
     eq(why(fixed, 0, 10), '[{"kind":"fixed"}]', "a subject with a fixed time can only be then");
+  });
+
+  test("whyNotAt: a time outside the teacher's teaching time is named", () => {
+    const faculty = [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: [], preferredDays: [], teachingTimes: ["Morning"] }];
+    const sections = [sec({ sectionName: "BSIT-1A", roomTypeRequired: "online" })];
+    const genes = [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: slotAt("Mon", 1) }];
+    eq(JSON.stringify(E.whyNotAt(faculty, [], sections, SLOTS, genes, 0, 0, slotAt("Mon", 8))), '[{"kind":"teachingTime","times":["Morning"]}]');
+    eq(JSON.stringify(E.whyNotAt(faculty, [], sections, SLOTS, genes, 0, 0, slotAt("Tue", 2))), "[]", "Tue P2 is in the morning");
   });
 
   test("repairSchedule: removing a room that classes used re-places only those classes", () => {

@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-27T06:47:29.087Z with Babel 7.23.5. source-hash: 14bd0774a00393 */
+   Built 2026-11-27T07:48:17.307Z with Babel 7.23.5. source-hash: fd8d086371dd8 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -550,6 +550,28 @@ function requestTimesText(r, slotById) {
   return parts.length ? parts.join(" · ") : "No time slots selected";
 }
 
+// Teaching time (see E.TEACHING_TIMES): Morning, Afternoon and Evening with their hours.
+//   teachingTimeHint()              -> "Morning 7:00-11:30 AM · Afternoon 11:30 AM-4:00 PM · Evening 4:00-8:30 PM."
+//   teachingTimesOrAny(["Evening"]) -> ["Evening"]; none or all three -> [] (any time)
+//   describeTeachingTime(["Evening"]) -> "Evening (4:00-8:30 PM)"; [] -> "Any time"
+function teachingTimeHours(t) {
+  const monday = E.buildTimeSlots().filter(s => s.day === E.DAYS[0]);
+  const first = monday.find(s => s.period === t.periods[0]),
+    last = monday.find(s => s.period === t.periods[t.periods.length - 1]);
+  return E.timeRangeLabel(first.start, last.end);
+}
+function teachingTimeHint() {
+  return E.TEACHING_TIMES.map(t => t.name + " " + teachingTimeHours(t)).join(" · ") + ".";
+}
+function teachingTimesOrAny(times) {
+  const list = E.TEACHING_TIMES.map(t => t.name).filter(n => (times || []).includes(n));
+  return list.length === E.TEACHING_TIMES.length ? [] : list;
+}
+function describeTeachingTime(times) {
+  const list = teachingTimesOrAny(times);
+  return list.length ? list.map(n => n + " (" + teachingTimeHours(E.TEACHING_TIMES.find(t => t.name === n)) + ")").join(", ") : "Any time";
+}
+
 // whyNotText(reasons, sections, teacher): the reasons from E.whyNotAt in plain words,
 // e.g. "Maria Garcia already teaches IT101 · BSIT-2B then". `teacher` is a name, or "you".
 function whyNotText(reasons, sections, teacher) {
@@ -557,6 +579,7 @@ function whyNotText(reasons, sections, teacher) {
   return reasons.map(b => {
     const other = b.index != null ? sections[b.index] : null;
     if (b.kind === "unavailable") return (you ? "you are" : teacher + " is") + " unavailable then";
+    if (b.kind === "teachingTime") return (you ? "you teach" : teacher + " teaches") + " only in the " + b.times.join(" and ");
     if (b.kind === "fixed") return "the subject has a fixed time";
     if (b.kind === "teacher") return (you ? "you already teach " : teacher + " already teaches ") + other.subjectCode + " · " + other.sectionName + " then";
     if (b.kind === "section") return other.sectionName + " already has " + other.subjectCode + " then";
@@ -688,8 +711,9 @@ function normalizeData(d) {
   const faculty = (d.faculty || []).map(f => ({
     ...f,
     unavailableSlotIds: f.unavailableSlotIds || [],
-    preferredSlotIds: f.preferredSlotIds || []
-  }));
+    preferredSlotIds: f.preferredSlotIds || [],
+    teachingTimes: teachingTimesOrAny(f.teachingTimes)
+  })); // older data has no teaching time: any time
   const timeSlots = E.buildTimeSlots();
   function fixSchedule(res) {
     if (!res || !res.genes || res.genes.length !== sections.length) return res;
@@ -1195,7 +1219,7 @@ function parseBackup(text) {
   const periodsInFile = d.periodsPerDay === E.PERIODS ? E.PERIODS : 6; // six: made before the evening periods
   const slotId = x => x == null || Number.isInteger(x) && x >= 0 && x < E.DAYS.length * periodsInFile;
   const checks = {
-    faculty: f => num(f.id) && str(f.name) && strArr(f.specializations) && num(f.maxUnits) && opt(strArr)(f.preferredDays) && optNumArr(f.unavailableSlotIds) && optNumArr(f.preferredSlotIds) && optStr(f.employmentStatus) && optStr(f.academicRank),
+    faculty: f => num(f.id) && str(f.name) && strArr(f.specializations) && num(f.maxUnits) && opt(strArr)(f.preferredDays) && opt(arrOf(x => E.TEACHING_TIMES.some(t => t.name === x)))(f.teachingTimes) && optNumArr(f.unavailableSlotIds) && optNumArr(f.preferredSlotIds) && optStr(f.employmentStatus) && optStr(f.academicRank),
     rooms: r => num(r.id) && str(r.name) && str(r.type) && num(r.capacity),
     sections: s => num(s.id) && str(s.subjectCode) && optStr(s.subjectName) && str(s.sectionName) && str(s.requiredSpecialization) && ["online", "laboratory", "lecture"].includes(s.roomTypeRequired) && num(s.units) && num(s.enrolledStudents) && optNum(s.yearLevel) && optStr(s.semester) && slotId(s.fixedSlotId) && optStr(s.prerequisiteCode) && optStr(s.program) && optStr(s.schoolYear) && optStr(s.category),
     leaveRequests: r => id(r.id) && num(r.facultyId) && str(r.type) && str(r.status) && optNumArr(r.slotIds) && optNumArr(r.preferredSlotIds) && optNumArr(r.addedSlotIds) && optNumArr(r.addedPreferredSlotIds) && optStr(r.description) && optStr(r.dateFrom) && optStr(r.dateTo) && optStr(r.decidedAt) && optStr(r.endedAt),
@@ -1440,6 +1464,7 @@ function FacultyModal({
   const [newArea, setNewArea] = useState("");
   const [maxUnits, setMaxUnits] = useState(initial ? initial.maxUnits : 21);
   const [preferredDays, setPreferredDays] = useState(initial ? initial.preferredDays : ["Mon", "Wed", "Fri"]);
+  const [teachingTimes, setTeachingTimes] = useState(initial && initial.teachingTimes ? initial.teachingTimes : []); // none ticked: any time
   const [employmentStatus, setEmploymentStatus] = useState(initial ? initial.employmentStatus : E.EMPLOYMENT_STATUSES[0]);
   const [academicRank, setAcademicRank] = useState(initial ? initial.academicRank : E.ACADEMIC_RANKS[0]);
   const areaOptions = choicesOf(subjectAreas || [], initial ? initial.specializations : [], addedAreas);
@@ -1451,6 +1476,9 @@ function FacultyModal({
   }
   function toggleDay(d) {
     setPreferredDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  }
+  function toggleTime(t) {
+    setTeachingTimes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   }
   // "Add subject area": a name that matches an existing one (ignoring capitals) ticks that one instead.
   function addArea() {
@@ -1510,7 +1538,16 @@ function FacultyModal({
     selected: preferredDays,
     onToggle: toggleDay,
     columns: 3
-  })), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Teaching time"
+  }, /*#__PURE__*/React.createElement(CheckboxGroup, {
+    options: E.TEACHING_TIMES.map(t => t.name),
+    selected: teachingTimes,
+    onToggle: toggleTime,
+    columns: 3
+  }), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-500 mt-1"
+  }, teachingTimeHint(), " None ticked: any time. Classes are never scheduled outside the ticked times.")), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-3"
   }, /*#__PURE__*/React.createElement(Field, {
     label: "Maximum Teaching Units"
@@ -1564,6 +1601,7 @@ function FacultyModal({
         specializations: specs,
         maxUnits: Number(maxUnits),
         preferredDays,
+        teachingTimes: teachingTimesOrAny(teachingTimes),
         employmentStatus,
         academicRank
       });
@@ -2011,6 +2049,12 @@ function FacultyProfileModal({
     className: "mt-3"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-xs text-slate-400 mb-1"
+  }, "Teaching Time"), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-700"
+  }, describeTeachingTime(faculty.teachingTimes))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-400 mb-1"
   }, "Unavailable Times"), /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-slate-700"
   }, (faculty.unavailableSlotIds || []).length ? describeSlots(faculty.unavailableSlotIds, slotById) : "None")), /*#__PURE__*/React.createElement("div", {
@@ -2161,7 +2205,8 @@ function AvailabilityRequestModal({
   const [error, setError] = useState("");
   const isChange = type === "Availability Change";
   const fac = faculty.find(f => f.id === facultyId);
-  const unavailable = fac ? fac.unavailableSlotIds || [] : [];
+  // Times this teacher cannot be given: marked unavailable, or outside their teaching time.
+  const unavailable = fac ? timeSlots.filter(t => (fac.unavailableSlotIds || []).includes(t.id) || !E.canTeachAt(fac, t)).map(t => t.id) : [];
 
   // Which slots this teacher currently teaches in, so they can see what a request would affect.
   const classSlots = {};
@@ -5928,9 +5973,9 @@ function FacultyPage({
     onAdd: onAdd,
     addLabel: "Add Faculty",
     onImport: onImport,
-    onExport: () => downloadCSV("faculty.csv", ["Name", "Specializations", "Max Units", "Current Load", "Status", "Preferred Days", "Employment Status", "Academic Rank"], faculty.map(f => {
+    onExport: () => downloadCSV("faculty.csv", ["Name", "Specializations", "Max Units", "Current Load", "Status", "Preferred Days", "Teaching Time", "Employment Status", "Academic Rank"], faculty.map(f => {
       const st = loadStatusFor(f, sections, result, faculty);
-      return [f.name, f.specializations.join("; "), f.maxUnits, st.assigned, st.label, f.preferredDays.join("; "), f.employmentStatus || "", f.academicRank || ""];
+      return [f.name, f.specializations.join("; "), f.maxUnits, st.assigned, st.label, f.preferredDays.join("; "), teachingTimesOrAny(f.teachingTimes).join("; ") || "Any time", f.employmentStatus || "", f.academicRank || ""];
     }))
   }, /*#__PURE__*/React.createElement("div", {
     className: "overflow-x-auto"
@@ -5949,6 +5994,8 @@ function FacultyPage({
   }, "Status"), /*#__PURE__*/React.createElement("th", {
     className: "px-6 py-3 font-medium"
   }, "Preferred Days"), /*#__PURE__*/React.createElement("th", {
+    className: "px-6 py-3 font-medium"
+  }, "Teaching Time"), /*#__PURE__*/React.createElement("th", {
     className: "px-6 py-3 font-medium"
   }))), /*#__PURE__*/React.createElement("tbody", null, faculty.map(f => {
     const status = loadStatusFor(f, sections, result, faculty);
@@ -5969,6 +6016,8 @@ function FacultyPage({
     }, status.label)), /*#__PURE__*/React.createElement("td", {
       className: "px-6 py-3 text-slate-500"
     }, f.preferredDays.join(", ")), /*#__PURE__*/React.createElement("td", {
+      className: "px-6 py-3 text-slate-500"
+    }, teachingTimesOrAny(f.teachingTimes).join(", ") || "Any time"), /*#__PURE__*/React.createElement("td", {
       className: "px-6 py-3 text-right whitespace-nowrap"
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => onViewProfile(f),
@@ -7454,7 +7503,7 @@ function ConflictsPage({
     }, generating ? "Generating..." : "Generate Schedule"));
   }
   const v = result.violations;
-  const rows = [["Faculty double-booking", v.facultyConflicts, "A faculty member assigned to two classes at the same time"], ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"], ["Section double-booking", v.sectionConflicts || 0, "One section (the same students) given two classes at the same time"], ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"], ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot"], ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"], ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"], ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"], ["Cannot be scheduled", v.unplaceable || 0, "No qualified teacher for the subject, or no laboratory big enough for the class, so no schedule can place it"]];
+  const rows = [["Faculty double-booking", v.facultyConflicts, "A faculty member assigned to two classes at the same time"], ["Room double-booking", v.roomConflicts, "A room assigned to two classes at the same time"], ["Section double-booking", v.sectionConflicts || 0, "One section (the same students) given two classes at the same time"], ["Unqualified assignment", v.unqualified, "Faculty assigned to a subject outside their specialization"], ["Faculty unavailable", v.unavailable, "Faculty scheduled during a declared unavailable time slot, or outside their teaching time"], ["Room type mismatch", v.roomTypeMismatch, "A laboratory class without a lab room, or an online class given a room"], ["Fixed time not respected", v.fixedSlot || 0, "A subject with a fixed day/period is scheduled at a different time"], ["Room capacity exceeded", v.capacityViol, "Enrolled students exceed the assigned room's capacity"], ["Cannot be scheduled", v.unplaceable || 0, "No qualified teacher for the subject, or no laboratory big enough for the class, so no schedule can place it"]];
   // Which subjects cannot be placed, and why, so the user knows what to change.
   const impossible = (sections || []).map((s, i) => ({
     s,

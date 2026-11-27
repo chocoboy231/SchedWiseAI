@@ -318,7 +318,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 **E5. Profile and schedule links**
 1. In the Faculty list, press **View Profile**, then **View Schedule** for a teacher.
 
-*Expected:* The profile shows employment status, rank, maximum units, current load, specializations, preferred days, unavailable times and requested preferred times. View Schedule opens Class Schedules on that teacher.
+*Expected:* The profile shows employment status, rank, maximum units, current load, specializations, preferred days, teaching time, unavailable times and requested preferred times. View Schedule opens Class Schedules on that teacher.
 ☐ Pass ☐ Fail
 
 **E6. Form messages and limits**
@@ -326,6 +326,13 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 2. Finally enter valid values and save.
 
 *Expected:* Each time a red message says what is wrong and nothing is saved: "Enter the teacher's full name.", "Another teacher is already called … Names must be different, because a teacher's sign-in account is linked by name.", "Tick or add at least one subject area.", "Maximum teaching units must be between 1 and 40." or "… must be a whole number." With valid values the teacher is saved and the dialog closes.
+☐ Pass ☐ Fail
+
+**E7. Teaching time**
+1. With a generated schedule, edit a teacher whose **Teaching Time** in the Faculty list says *Any time* and who has a class before 4:00 PM. Under **Teaching time** tick only **Evening** and save.
+2. Open **Class Schedules** and press **Update affected classes** in the banner.
+
+*Expected:* (1) The form explains the three times (Morning 7:00-11:30 AM · Afternoon 11:30 AM-4:00 PM · Evening 4:00-8:30 PM; none ticked means any time). The Faculty list shows *Evening* for that teacher, the profile shows "Evening (4:00-8:30 PM)", and the conflict count rises straight away (the *Faculty unavailable* row: one per class outside the evening). (2) Only that teacher's daytime classes move, all into evening periods, and the schedule is conflict-free again.
 ☐ Pass ☐ Fail
 
 ---
@@ -661,7 +668,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs all three.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `48 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `53 passed, 0 failed`, the *Importer tests* with `20 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**
@@ -680,7 +687,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. Open **Class Schedules**. In the card **Set up with your school's data** at the top, press **Upload school data**, then **Download blank template**. Open the file in Excel.
 2. Press **Hide**, then **Upload school data** again. Open **Settings**.
 
-*Expected:* (1) The card starts folded: only its title, "Currently loaded: sample data (standard sample)" and **Upload school data** show, above the timetable. **Upload school data** opens the steps. A file `SchedWiseAI-template.xlsx` downloads and a green message says "Downloaded the blank template." It has four sheets: **Instructions**, **Faculty**, **Subjects** and **Rooms**. Row 1 of each data sheet holds the column names (required ones end in `*`), and the rows under it start with `EXAMPLE`. The Instructions sheet explains every column, lists the nine periods (P1 7:00-8:30 AM to P9 7:00-8:30 PM), and says to upload the file on the Class Schedules page. (2) **Hide** folds the steps away and **Upload school data** opens them again. Settings has no upload card, only a line in *Testing tools* that links to it.
+*Expected:* (1) The card starts folded: only its title, "Currently loaded: sample data (standard sample)" and **Upload school data** show, above the timetable. **Upload school data** opens the steps. A file `SchedWiseAI-template.xlsx` downloads and a green message says "Downloaded the blank template." It has four sheets: **Instructions**, **Faculty**, **Subjects** and **Rooms**. Row 1 of each data sheet holds the column names (required ones end in `*`), and the rows under it start with `EXAMPLE`. The Instructions sheet explains every column, lists the nine periods (P1 7:00-8:30 AM to P9 7:00-8:30 PM), and says to upload the file on the Class Schedules page. The Faculty sheet's last column is **Teaching time** (Morning, Afternoon or Noon, Evening, several, Daytime, or empty for any time), and its line in the Instructions says the schedule never puts a teacher outside it. (2) **Hide** folds the steps away and **Upload school data** opens them again. Settings has no upload card, only a line in *Testing tools* that links to it.
 ☐ Pass ☐ Fail
 
 **N2. A workbook with mistakes is refused**
@@ -817,7 +824,7 @@ Please read the README section *Limitations and known issues*. Examples: data an
 | B. Generation and approval | 8 | | | |
 | C. Conflicts | 7 | | | |
 | D. Manual editing | 4 | | | |
-| E. Faculty | 6 | | | |
+| E. Faculty | 7 | | | |
 | F. Subjects and rooms | 9 | | | |
 | G. CSV | 5 | | | |
 | H. Workload and departments | 3 | | | |
@@ -828,7 +835,7 @@ Please read the README section *Limitations and known issues*. Examples: data an
 | M. Automated tests and build check | 2 | | | |
 | N. Setting up with a school's data | 9 | | | |
 | End-to-end scenarios | 4 | | | |
-| **Total** | **98** | | | |
+| **Total** | **99** | | | |
 
 **Defect log**
 

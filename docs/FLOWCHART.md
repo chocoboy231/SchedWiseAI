@@ -63,7 +63,7 @@ flowchart TD
 | 2 | Parallelogram | **Input**: faculty (specializations, maximum units, preferred days, unavailable times), rooms (capacity), subject sections (specialization needed, online or laboratory, students, optional fixed day/period), 54 time slots (nine 1.5-hour periods a day, 7:00 AM to 8:30 PM), settings. |
 | 3 | Rectangle | **Greedy seed**: take the next section and give it to the qualified teacher with the most room left under their maximum units (least loaded first; teachers it would take over their maximum come last). A fixed-time section only tries its fixed slot. |
 | 4 | Diamond | Is there a time when the teacher is free and available, the section (its students) has no other class, and a suitable room is free? **Yes** → step 5. **No** → step 6. |
-| 5 | Rectangle | Of those times, place the section at the one that spreads the week best: a daytime period first (the evening, from 4:00 PM, only when no daytime period is free), then a day the teacher prefers, then the day this section has the fewest classes on, then the day this teacher has the fewest classes on, then the period with the fewest classes so far, then the earliest. |
+| 5 | Rectangle | Of those times, place the section at the one that spreads the week and the day best: a day the teacher prefers, then the day this section has the fewest classes on, then the day this teacher has the fewest classes on, then the period of the day (P1 7:00 AM to P9 7:00 PM) with the fewest classes so far, then the time with the fewest classes, then the earliest. Classes therefore use the whole day, evening included. |
 | 6 | Rectangle | Give the section a random gene (a qualified teacher and a suitable room at a random time, or its fixed time). The GA fixes it later. |
 | 7 | Diamond | More sections? **Yes** → step 3. **No** → step 8. |
 | 8 | Rectangle | **Initial population**: the seed plus 49 random schedules (50 in all). |
@@ -95,8 +95,7 @@ flowchart TD
     D --> E["F4. Preferred days: share of classes on the<br/>teacher's preferred days, x 50 (add)"]
     E --> F["F5. Requested times: share of classes in times a teacher<br/>asked for in an approved request, x 60 (add)"]
     F --> G["F6. Room efficiency: average empty seats per class,<br/>x 0.5 (subtract)"]
-    G --> G2["F6b. Evening: share of classes in an evening period<br/>their teacher did not ask for, x 100 (subtract)"]
-    G2 --> J{F7. Incremental update?}
+    G --> J{F7. Incremental update?}
     J -- Yes --> K["Stability: for each re-placed class,<br/>teacher changed 20, room changed 3, time changed 1 (subtract);<br/>placement: 120 per step of the update's time order (add)"]
     J -- No --> L
     K --> L[/Return the score: higher is better/]
@@ -111,8 +110,7 @@ flowchart TD
 | F4 | **Preferred days**: share of classes on the teacher's preferred days (0 to 1). | +50 × share |
 | F5 | **Requested times**: share of classes placed in times a teacher asked for in an approved "prefer instead" request. It is 0 when no teacher has such times. | +60 × share |
 | F6 | **Room efficiency**: average empty seats per class (online classes count as 0). | −0.5 × average |
-| F6b | **Evening**: share of classes in an evening period (4:00 to 8:30 PM) that their teacher did not ask for in an approved *Prefer instead* request. It is more than a preferred day is worth, so a daytime period beats an evening one on a preferred day. | −100 × share |
-| F7 | **Stability and placement** (only during an incremental update): for each class being re-placed, a changed teacher, room or time costs 20 / 3 / 1. A class that keeps its teacher also scores for where it lands, in the order chart 3 uses (step U6): its own time 6, a time the teacher asked for 5, another daytime period on that day 4, an evening period on that day 3, a daytime period on a preferred day 2, any other daytime period 1, any other evening period 0, times 120. This keeps the GA polish from undoing that order. | −20 / −3 / −1; +120 per step |
+| F7 | **Stability and placement** (only during an incremental update): for each class being re-placed, a changed teacher, room or time costs 20 / 3 / 1. A class that keeps its teacher also scores for where it lands, in the order chart 3 uses (step U6): its own time 4, a time the teacher asked for 3, another time on that day 2, a preferred day 1, any other time 0, times 120. This keeps the GA polish from undoing that order. | −20 / −3 / −1; +120 per step |
 
 Because −1000 is far larger than every other term, any schedule with a hard-rule violation scores below every conflict-free schedule. The GA therefore removes conflicts first, then improves fairness, preferences and room use.
 
@@ -130,7 +128,7 @@ flowchart TD
     D -- No --> E[/Output: schedule unchanged,<br/>no classes needed to move/]
     E --> Z([End])
     D -- Yes --> F[Freeze every other class:<br/>its teacher, room and time are taken]
-    F --> G["List options for each affected class, best first:<br/>same teacher, then qualified teachers with room under<br/>their maximum (least loaded first), then the rest;<br/>its own time if still allowed, then requested times,<br/>other times on those days (daytime first),<br/>daytime on preferred days, other daytime, then the evening;<br/>same room first; never an unavailable time"]
+    F --> G["List options for each affected class, best first:<br/>same teacher, then qualified teachers with room under<br/>their maximum (least loaded first), then the rest;<br/>its own time if still allowed, then requested times,<br/>other times on those days, preferred days, other times;<br/>same room first; never an unavailable time"]
     G --> H{A free option exists?<br/>teacher, room and section all free}
     H -- Yes --> I[Place the class there]
     H -- No --> J["Make room: try an option held by up to three other classes<br/>(the teacher's, the room's, the section's),<br/>move those classes to free places of their own"]
@@ -153,7 +151,7 @@ flowchart TD
 | U3 | Rectangle | **Find affected classes**: every class that breaks a hard rule. For a double-booking (of a teacher, a room or a section) only the later class is affected, so as few classes as possible move. A newly added subject with no place is also affected. |
 | U4 | Diamond | Any affected classes? **No** → output "no classes needed to move" and end. **Yes** → continue. |
 | U5 | Rectangle | **Freeze** every other class. |
-| U6 | Rectangle | **Rank options** for each affected class: its current teacher first, then qualified teachers who still have room under their maximum units (least loaded first), and last those it would take over their maximum. Times in this order: the class's own time if it is still allowed (for example when only its room was removed), the times the teacher asked for in an approved *Prefer instead* request (even in the evening), other times on those days (daytime first), daytime periods on the teacher's preferred days, other daytime periods, then the evening, 4:00 to 8:30 PM (ties in week order). Its current room first. Times the teacher is unavailable are never used. |
+| U6 | Rectangle | **Rank options** for each affected class: its current teacher first, then qualified teachers who still have room under their maximum units (least loaded first), and last those it would take over their maximum. Times in this order: the class's own time if it is still allowed (for example when only its room was removed), the times the teacher asked for in an approved *Prefer instead* request, other times on those days, the teacher's preferred days, then other times (ties in week order). Its current room first. Times the teacher is unavailable are never used. |
 | U7 | Diamond | Is any option free (the teacher, the room and the class's section have nothing else at that time)? **Yes** → place the class (U9). **No** → U8. |
 | U8 | Rectangle + diamond | **Make room**: take an option held by up to three other classes (the one holding the teacher, the room or the section's students) and move those classes to free places. If they cannot all be moved, undo everything and leave the class where it was (it still shows as a conflict). |
 | U9 | Rectangle | Place the class. Repeat U7 to U9 for every affected class. |

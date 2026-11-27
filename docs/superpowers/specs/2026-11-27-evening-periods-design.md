@@ -17,11 +17,11 @@ Periods stay 1.5 hours long (real class hours are a separate, later step).
 ## Design
 
 - **Time model:** `PERIODS` 6 → 9. 54 slots a week (Mon–Sat × 9), numbered day by day as before (`id = day × 9 + period − 1`). The weekly grid's 30-minute rows run 7:00 AM to 8:00 PM (27 rows). The request picker, the Excel template (periods 1 to 9), period lists and reports follow automatically.
-- **Daytime first** (proposed in chat, not objected to): periods 7–9 (from 4:00 PM) are *evening*.
-  - The starting schedule puts a class in the evening only when its teacher, section or rooms have no free daytime period.
-  - The score subtracts 100 × the share of classes in an evening period that their teacher did not ask for, so the Genetic Algorithm does not drift classes into the evening. This is more than a preferred day is worth (50), so a daytime period beats an evening on a preferred day. A time a teacher asked for in an approved *Prefer instead* request is never penalised.
-  - *Update affected classes* keeps its order (own time, then asked-for times, then other times on those days, then preferred days, then the rest) and puts daytime before evening inside it. Asked-for times and asked-for days still come first, even in the evening.
-  - Teachers who can only teach in the evening (daytime marked unavailable) still get evening classes; the hard rules come first.
+- **The whole day is used** (changed after the user tried it, 2026-11-27, branch `full-day`). The first version kept classes in the daytime (periods 1–6) while there was room, so no class went past 4:00 PM; the user asked for the scheduler to fill the whole day without conflicts instead. Now:
+  - The starting schedule spreads classes over the periods of the day the same way it spreads them over the days: after the day criteria, it takes the period (P1 to P9) with the fewest classes so far across the week. The 153-teacher school gets 69 or 70 classes in every period, with no conflicts.
+  - The score has no evening term; every period counts the same.
+  - *Update affected classes* keeps its order (own time, then asked-for times, then other times on those days, then preferred days, then the rest; ties in week order), with every period counting the same.
+  - A teacher who cannot teach in the evening needs those times marked unavailable, or an approved availability change.
 - **Saved data converts automatically.** Times are stored as slot numbers, and with nine periods every day except Monday gets new numbers. The app now saves `periodsPerDay: 9` with its data and in backups. Data or a backup without it is from the six-period version: every stored time keeps its day and period (Tue P1: 6 → 9), and a time list that covered a whole day (all six periods) is widened to the whole new day, so "can't teach Thursday" still means all of Thursday. Uploaded workbooks are read with the new periods and are never converted.
 
 ## Non-goals
@@ -45,3 +45,5 @@ Periods stay 1.5 hours long (real class hours are a separate, later step).
 5. App: save `periodsPerDay`; convert six-period saved data and backups on load; rebuild `app.js`.
 6. Check in the browser with a real six-period save and backup, the grid, the request picker and the 153-teacher school.
 7. Docs: README, flowchart, testing guide.
+
+**Follow-up (branch `full-day`):** the daytime-first parts of steps 1 and 3 were replaced. The full-generation test now checks that classes use the whole day (7 or more of the 9 periods in the small samples, all 9 in the multi-program sample), the daytime-before-evening update test was removed, and the engine has no evening helpers or evening score term.

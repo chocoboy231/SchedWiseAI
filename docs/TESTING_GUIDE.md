@@ -156,7 +156,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 **B1. Generate a schedule**
 1. Open **Class Schedules** and press **Generate Schedule**.
 
-*Expected:* A weekly timetable appears (Monday to Saturday, 9 periods a day, 7:00 AM to 8:30 PM). With the sample data every class is in the daytime (before 4:00 PM): the evening periods are used only when the daytime is full. The header shows **✓ Conflict-free**, a fitness score, and "Pending Review" as the approval status. A notification says a new schedule was generated.
+*Expected:* A weekly timetable appears (Monday to Saturday, 9 periods a day, 7:00 AM to 8:30 PM). Classes are spread over the whole day, so some are in the evening periods (4:00 to 8:30 PM) too. The header shows **✓ Conflict-free**, a fitness score, and "Pending Review" as the approval status. A notification says a new schedule was generated.
 ☐ Pass
 
 **B2. Convergence chart**
@@ -661,7 +661,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs all three.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `49 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `48 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**

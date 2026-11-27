@@ -374,14 +374,21 @@
     assert(Math.max(...Object.values(perTeacherDay)) <= 2, "a teacher has all 3 classes on one day");
   });
 
-  test("runGA: classes stay in the daytime while there is room (evening periods only when needed)", () => {
+  test("runGA: classes are spread over the whole day, 7:00 AM to 8:30 PM, evening included", () => {
+    const periodsUsed = genes => new Set(genes.filter(g => g.slotId >= 0).map(g => SLOTS[g.slotId].period));
     for (const seed of [3, 4, 5]) {
       const d = E.generateSyntheticData(9, 18, 6, seed);
       const r = E.runGA(d.faculty, d.rooms, d.sections, d.timeSlots, GA);
       eq(brokenRules(d, r.genes).length, 0, "seed " + seed + " broke a rule");
-      const evening = r.genes.filter(g => g.slotId >= 0 && isEveningSlot(g.slotId)).map(g => SLOTS[g.slotId].label);
-      eq(evening.join(", "), "", "seed " + seed + ": classes placed in the evening although the daytime had room");
+      const used = periodsUsed(r.genes);
+      assert(used.size >= 7, "seed " + seed + ": only periods " + Array.from(used).sort().join(", ") + " are used");
+      assert(r.genes.some(g => g.slotId >= 0 && isEveningSlot(g.slotId)), "seed " + seed + ": no class after 4:00 PM");
     }
+    // A bigger school uses every one of the nine periods.
+    const x = E.generateExpandedData(2);
+    const rx = E.runGA(x.faculty, x.rooms, x.sections, x.timeSlots, { generations: 80, popSize: 30 });
+    eq(brokenRules(x, rx.genes).length, 0, "the multi-program sample broke a rule");
+    eq(periodsUsed(rx.genes).size, 9, "periods used: " + Array.from(periodsUsed(rx.genes)).sort().join(", "));
   });
 
   test("runGA: a teacher who can only teach in the evening gets evening classes", () => {
@@ -579,13 +586,6 @@
     };
     return { d, genes: [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: slotAt("Tue", 2) }] };
   }
-
-  test("repairSchedule: a moved class goes to a daytime period before an evening one, even on a preferred day", () => {
-    const { d, genes } = mondayEveningOnly([]);
-    const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
-    eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
-    assert(!isEveningSlot(r.genes[0].slotId), "went to the evening: " + SLOTS[r.genes[0].slotId].label);
-  });
 
   test("repairSchedule: an evening time the teacher asked for is still used first", () => {
     const { d, genes } = mondayEveningOnly([slotAt("Mon", 8)]);

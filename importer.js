@@ -92,7 +92,7 @@
   // Time-slot ids by day and period, from the engine's slot list.
   const SLOTS = E.buildTimeSlots();
   const slotId = (day, period) => SLOTS.find(t => t.day === day && t.period === period).id;
-  const SLOT_ENTRY = /^([a-z]+)(?:\s*p\s*([1-6])(?:\s*-\s*p?\s*([1-6]))?)?$/;
+  const SLOT_ENTRY = /^([a-z]+)(?:\s*p\s*(\d{1,2})(?:\s*-\s*p?\s*(\d{1,2}))?)?$/;   // period numbers are checked below
 
   // "Sat; Mon P1; Fri P4-P6" -> the slot ids of all of Saturday, Monday period 1, and Friday periods 4 to 6.
   function parseSlotList(text) {
@@ -105,6 +105,7 @@
         return { error: "'" + entry + "' is not understood. Write a whole day (Sat), one period (Mon P1) or a range (Fri P4-P6), with periods 1 to " + E.PERIODS + "." };
       }
       const from = m[2] ? Number(m[2]) : 1, to = m[3] ? Number(m[3]) : (m[2] ? from : E.PERIODS);
+      if (from < 1 || to > E.PERIODS) return { error: "'" + entry + "' is not understood. Write a whole day (Sat), one period (Mon P1) or a range (Fri P4-P6), with periods 1 to " + E.PERIODS + "." };
       if (to < from) return { error: "'" + entry + "': the range must go from the earlier period to the later one." };
       for (let p = from; p <= to; p++) ids.add(slotId(day, p));
     }

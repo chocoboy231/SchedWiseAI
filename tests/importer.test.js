@@ -47,15 +47,17 @@
   });
 
   test("parseSlotList: whole day, one period, a range; bad entries refused", () => {
-    eq(JSON.stringify(I.parseSlotList("Sat").ids), JSON.stringify([1, 2, 3, 4, 5, 6].map(p => id("Sat", p))));
+    eq(JSON.stringify(I.parseSlotList("Sat").ids), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9].map(p => id("Sat", p))), "a whole day is all nine periods");
     eq(JSON.stringify(I.parseSlotList("monday p2").ids), JSON.stringify([id("Mon", 2)]));
     eq(JSON.stringify(I.parseSlotList("Fri P4-P6; Mon P1").ids), JSON.stringify([id("Mon", 1), id("Fri", 4), id("Fri", 5), id("Fri", 6)]));
+    eq(JSON.stringify(I.parseSlotList("Wed P7-P9").ids), JSON.stringify([id("Wed", 7), id("Wed", 8), id("Wed", 9)]), "the evening periods");
     eq(I.parseSlotList("").ids.length, 0);
-    ["Mon P7", "Fri P5-P3", "Sun", "Mon morning", "P1"].forEach(t => assert(I.parseSlotList(t).error, t));
+    ["Mon P10", "Mon P0", "Fri P5-P3", "Fri P8-P12", "Sun", "Mon morning", "P1"].forEach(t => assert(I.parseSlotList(t).error, t));
+    assert(/periods 1 to 9/.test(I.parseSlotList("Mon P10").error), "the message names the periods allowed");
   });
 
   test("formatSlotList is the inverse of parseSlotList", () => {
-    ["Sat", "Mon P1", "Mon P1-P2; Fri P4-P6", "Tue; Thu P3"].forEach(t => eq(I.formatSlotList(I.parseSlotList(t).ids), t));
+    ["Sat", "Mon P1", "Mon P1-P2; Fri P4-P6", "Tue; Thu P3", "Wed P7-P9"].forEach(t => eq(I.formatSlotList(I.parseSlotList(t).ids), t));
   });
 
   test("parseYearLevel, parseSemester, parseSchoolYear", () => {
@@ -90,7 +92,7 @@
     assert(r.ok, r.errors.map(e => e.message).join("; ")); eq(JSON.stringify(r.counts), '{"faculty":2,"sections":2,"rooms":1}');
     const [m, j] = r.data.faculty, [it, acc] = r.data.sections;
     eq(JSON.stringify(m), JSON.stringify({ id: 0, name: "Maria Santos", specializations: ["Programming", "Databases"], maxUnits: 21, preferredDays: ["Mon", "Wed"],
-      unavailableSlotIds: [1, 2, 3, 4, 5, 6].map(p => id("Sat", p)), preferredSlotIds: [], employmentStatus: "Full-time", academicRank: "Instructor I" }));
+      unavailableSlotIds: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(p => id("Sat", p)), preferredSlotIds: [], employmentStatus: "Full-time", academicRank: "Instructor I" }));
     eq(j.preferredDays.join(","), E.DAYS.join(",")); eq(j.academicRank, "");
     eq(acc.requiredSpecialization, "Accounting"); eq(acc.program, "BSA"); eq(acc.roomTypeRequired, "online"); eq(acc.schoolYear, "2030–2031");
     eq(acc.category, "Major"); eq(acc.fixedSlotId, id("Sat", 1)); eq(acc.prerequisiteCode, null);
@@ -140,7 +142,7 @@
       ["not whole", () => withS(s => { s[0][4] = 2.5; }), ["Subjects", 2, "Units"]],
       ["value not allowed", () => withS(s => { s[0][6] = "Lecture"; }), ["Subjects", 2, "Class type"]],
       ["bad preferred days", () => withF(f => { f[0][5] = "Mon; Sun"; }), ["Faculty", 2, "Preferred days"]],
-      ["bad not available", () => withF(f => { f[0][6] = "Mon P9"; }), ["Faculty", 2, "Not available"]],
+      ["bad not available", () => withF(f => { f[0][6] = "Mon P10"; }), ["Faculty", 2, "Not available"]],
       ["bad employment status", () => withF(f => { f[0][3] = "Volunteer"; }), ["Faculty", 2, "Employment status"]],
       ["duplicate teacher", () => withF(f => { f[1][0] = "MARIA  santos"; }), ["Faculty", 3, "Name"], /row 2\b.*sign-in account is linked by name/],
       ["duplicate subject+section", () => withS(s => { s[1] = s[0].slice(); }), ["Subjects", 3, "Section"]],

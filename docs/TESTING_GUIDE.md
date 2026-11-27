@@ -156,7 +156,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 **B1. Generate a schedule**
 1. Open **Class Schedules** and press **Generate Schedule**.
 
-*Expected:* A weekly timetable appears (Monday to Saturday, 6 periods a day). The header shows **✓ Conflict-free**, a fitness score, and "Pending Review" as the approval status. A notification says a new schedule was generated.
+*Expected:* A weekly timetable appears (Monday to Saturday, 9 periods a day, 7:00 AM to 8:30 PM). With the sample data every class is in the daytime (before 4:00 PM): the evening periods are used only when the daytime is full. The header shows **✓ Conflict-free**, a fitness score, and "Pending Review" as the approval status. A notification says a new schedule was generated.
 ☐ Pass
 
 **B2. Convergence chart**
@@ -169,7 +169,7 @@ Mark each test **Pass** or **Fail**. For a failure, add a line in the [defect lo
 1. Switch between **Weekly Grid** and **By Faculty**. In By Faculty, choose different teachers.
 2. In the Weekly Grid, read the **Time** column and look at one class.
 
-*Expected:* The grid shows every class once. Its rows go every 30 minutes, from 7:00 AM to 3:30 PM, and the first row of each period also shows the period (7:00 AM P1, 8:30 AM P2 … 2:30 PM P6). Each class covers the three rows of its period (a P1 class fills 7:00 to 8:30 AM), and classes held at the same time share one block. By Faculty shows only the chosen teacher's classes, with 12-hour times such as "Mon 8:30-10:00 AM" or "Mon 11:30 AM-1:00 PM" (the same style is used in Edit Assignment, Workload Management, the period lists and the CSV export). Nothing is placed on Sunday.
+*Expected:* The grid shows every class once. Its rows go every 30 minutes, from 7:00 AM to 8:00 PM, and the first row of each period also shows the period (7:00 AM P1, 8:30 AM P2 … 2:30 PM P6, 4:00 PM P7, 5:30 PM P8, 7:00 PM P9). Each class covers the three rows of its period (a P1 class fills 7:00 to 8:30 AM), and classes held at the same time share one block. By Faculty shows only the chosen teacher's classes, with 12-hour times such as "Mon 8:30-10:00 AM" or "Mon 11:30 AM-1:00 PM" (the same style is used in Edit Assignment, Workload Management, the period lists and the CSV export). Nothing is placed on Sunday.
 ☐ Pass
 
 **B4. One class at a time per section, spread over the week**
@@ -661,7 +661,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. With Node.js: from the project folder run `node tests/engine.test.js`, then `node tests/importer.test.js`.
 2. Without Node.js: serve the folder and open `/tests/run.html`. It runs all three.
 
-*Expected:* Lists of `ok` lines. The engine tests end with `43 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
+*Expected:* Lists of `ok` lines. The engine tests end with `49 passed, 0 failed`, the *Importer tests* with `19 passed, 0 failed`, and the *Accounts tests* with `13 passed, 0 failed` (with Node.js, run `node tests/accounts.test.js` too; it needs Node.js 19 or newer). A line starting `FAIL` shows which check broke.
 ☐ Pass ☐ Fail
 
 **M2. The ready-compiled app is up to date**
@@ -680,7 +680,7 @@ The engine (`engine.js`) and the workbook checker (`importer.js`) have their own
 1. Open **Class Schedules**. In the card **Set up with your school's data** at the top, press **Upload school data**, then **Download blank template**. Open the file in Excel.
 2. Press **Hide**, then **Upload school data** again. Open **Settings**.
 
-*Expected:* (1) The card starts folded: only its title, "Currently loaded: sample data (standard sample)" and **Upload school data** show, above the timetable. **Upload school data** opens the steps. A file `SchedWiseAI-template.xlsx` downloads and a green message says "Downloaded the blank template." It has four sheets: **Instructions**, **Faculty**, **Subjects** and **Rooms**. Row 1 of each data sheet holds the column names (required ones end in `*`), and the rows under it start with `EXAMPLE`. The Instructions sheet explains every column, lists the six periods, and says to upload the file on the Class Schedules page. (2) **Hide** folds the steps away and **Upload school data** opens them again. Settings has no upload card, only a line in *Testing tools* that links to it.
+*Expected:* (1) The card starts folded: only its title, "Currently loaded: sample data (standard sample)" and **Upload school data** show, above the timetable. **Upload school data** opens the steps. A file `SchedWiseAI-template.xlsx` downloads and a green message says "Downloaded the blank template." It has four sheets: **Instructions**, **Faculty**, **Subjects** and **Rooms**. Row 1 of each data sheet holds the column names (required ones end in `*`), and the rows under it start with `EXAMPLE`. The Instructions sheet explains every column, lists the nine periods (P1 7:00-8:30 AM to P9 7:00-8:30 PM), and says to upload the file on the Class Schedules page. (2) **Hide** folds the steps away and **Upload school data** opens them again. Settings has no upload card, only a line in *Testing tools* that links to it.
 ☐ Pass ☐ Fail
 
 **N2. A workbook with mistakes is refused**

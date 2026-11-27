@@ -33,6 +33,8 @@
 
   // ---------------- small hand-made data ----------------
   const SLOTS = E.buildTimeSlots();
+  const slotAt = (day, period) => SLOTS.find(s => s.day === day && s.period === period).id;   // slotAt("Wed", 2) -> its id
+  const isEveningSlot = id => SLOTS[id].period > 6;                                              // 4:00 PM or later
   function sec(over) {
     return Object.assign({ requiredSpecialization: "Programming", roomTypeRequired: "laboratory", enrolledStudents: 30, units: 3,
       fixedSlotId: null, yearLevel: 1, semester: "1st Semester", program: "BSIT" }, over || {});
@@ -83,17 +85,23 @@
   // ====================================================================
   // 1. TIME SLOTS AND LOOKUPS
   // ====================================================================
-  test("buildTimeSlots: 6 days x 6 periods, ids 0..35, no Sunday", () => {
-    eq(SLOTS.length, 36);
+  test("buildTimeSlots: 6 days x 9 periods, ids 0..53, no Sunday, the last class ends at 8:30 PM", () => {
+    eq(E.PERIODS, 9);
+    eq(SLOTS.length, 54);
     SLOTS.forEach((s, i) => eq(s.id, i, "slot id order"));
     assert(SLOTS.every(s => E.DAYS.includes(s.day)) && !SLOTS.some(s => s.day === "Sun"), "unexpected day");
     eq(SLOTS[0].label, "Mon 7:00-8:30 AM");
     eq(SLOTS[3].label, "Mon 11:30 AM-1:00 PM", "a period across noon shows AM and PM");
-    eq(SLOTS[5].label, "Mon 2:30-4:00 PM", "period 6 should end at 4:00 PM");
-    eq(SLOTS[7].time, "8:30-10:00 AM", "the time without the day");
+    eq(SLOTS[5].label, "Mon 2:30-4:00 PM", "period 6 ends at 4:00 PM");
+    eq(SLOTS[6].label, "Mon 4:00-5:30 PM", "period 7 is the first evening period");
+    eq(SLOTS[7].label, "Mon 5:30-7:00 PM");
+    eq(SLOTS[8].label, "Mon 7:00-8:30 PM", "period 9 is the last");
+    eq(SLOTS[10].time, "8:30-10:00 AM", "the time without the day");
     eq(SLOTS[0].start, 7 * 60, "period 1 starts at 7:00 AM");
-    eq(SLOTS[5].end, 16 * 60, "period 6 ends at 4:00 PM");
-    eq(SLOTS[30].day, "Sat", "Saturday follows Friday");
+    eq(SLOTS[8].end, 20 * 60 + 30, "period 9 ends at 8:30 PM");
+    eq(SLOTS[9].label, "Tue 7:00-8:30 AM", "each day has nine periods");
+    eq(SLOTS[45].day, "Sat", "Saturday follows Friday");
+    eq(SLOTS[53].label, "Sat 7:00-8:30 PM");
   });
 
   test("timeRangeLabel: one AM/PM when both times share it, both when the range crosses noon", () => {
@@ -101,6 +109,7 @@
     eq(E.timeRangeLabel(10 * 60, 11 * 60 + 30), "10:00-11:30 AM");
     eq(E.timeRangeLabel(11 * 60 + 30, 13 * 60), "11:30 AM-1:00 PM");
     eq(E.timeRangeLabel(14 * 60 + 30, 16 * 60), "2:30-4:00 PM");
+    eq(E.timeRangeLabel(19 * 60, 20 * 60 + 30), "7:00-8:30 PM");
   });
 
   test("clockLabel: 12-hour times with AM and PM", () => {
@@ -112,12 +121,12 @@
     eq(E.clockLabel(16 * 60), "4:00 PM");
   });
 
-  test("halfHourRows: the weekly grid has a row every 30 minutes from 7:00 AM to 3:30 PM, three per period", () => {
+  test("halfHourRows: the weekly grid has a row every 30 minutes from 7:00 AM to 8:00 PM, three per period", () => {
     const rows = E.halfHourRows();
-    eq(rows.length, 18, "rows from 7:00 AM to 4:00 PM");
+    eq(rows.length, 27, "rows from 7:00 AM to 8:30 PM");
     rows.forEach((r, i) => { eq(r.minutes, 7 * 60 + 30 * i, "row " + i + " start"); eq(r.label, E.clockLabel(r.minutes), "row " + i + " label"); });
     eq(rows.slice(0, 4).map(r => r.label).join(", "), "7:00 AM, 7:30 AM, 8:00 AM, 8:30 AM");
-    eq(rows[rows.length - 1].label, "3:30 PM", "the last row starts at 3:30 PM");
+    eq(rows[rows.length - 1].label, "8:00 PM", "the last row starts at 8:00 PM");
     for (let p = 1; p <= E.PERIODS; p++) {
       const own = rows.filter(r => r.period === p);
       eq(own.length, 3, "period " + p + " covers three rows");
@@ -125,6 +134,24 @@
       // The period's first row starts when its time slot starts (Mon 8:30-10:00 AM -> the 8:30 AM row).
       eq(own[0].minutes, SLOTS.find(s => s.day === "Mon" && s.period === p).start, "period " + p + " starts with its time slot");
     }
+  });
+
+  test("upgradeSlotId: a time saved when days had six periods keeps its day and period", () => {
+    eq(E.upgradeSlotId(0, 6), 0, "Mon P1");
+    eq(E.upgradeSlotId(5, 6), 5, "Mon P6");
+    eq(E.upgradeSlotId(6, 6), 9, "Tue P1 was 6, is now 9");
+    eq(SLOTS[E.upgradeSlotId(12, 6)].label, "Wed 7:00-8:30 AM", "Wed P1");
+    eq(SLOTS[E.upgradeSlotId(35, 6)].label, "Sat 2:30-4:00 PM", "Sat P6, the last old slot");
+    eq(E.upgradeSlotId(-1, 6), -1, "'not assigned' stays -1");
+    eq(E.upgradeSlotId(20, 9), 20, "already nine periods: unchanged");
+  });
+
+  test("upgradeSlotList: a whole old day becomes the whole new day, a part stays a part", () => {
+    const oldThursday = [18, 19, 20, 21, 22, 23];                             // Thu P1-P6 with six periods
+    eq(JSON.stringify(E.upgradeSlotList(oldThursday, 6)), JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9].map(p => slotAt("Thu", p))), "all of Thursday");
+    eq(JSON.stringify(E.upgradeSlotList([6, 7, 30], 6)), JSON.stringify([slotAt("Tue", 1), slotAt("Tue", 2), slotAt("Sat", 1)]), "single periods keep day and period");
+    eq(JSON.stringify(E.upgradeSlotList([], 6)), "[]");
+    eq(JSON.stringify(E.upgradeSlotList([slotAt("Mon", 8)], 9)), JSON.stringify([slotAt("Mon", 8)]), "already nine periods: unchanged");
   });
 
   test("qualifiedFaculty returns only teachers with the required specialization", () => {
@@ -347,6 +374,27 @@
     assert(Math.max(...Object.values(perTeacherDay)) <= 2, "a teacher has all 3 classes on one day");
   });
 
+  test("runGA: classes stay in the daytime while there is room (evening periods only when needed)", () => {
+    for (const seed of [3, 4, 5]) {
+      const d = E.generateSyntheticData(9, 18, 6, seed);
+      const r = E.runGA(d.faculty, d.rooms, d.sections, d.timeSlots, GA);
+      eq(brokenRules(d, r.genes).length, 0, "seed " + seed + " broke a rule");
+      const evening = r.genes.filter(g => g.slotId >= 0 && isEveningSlot(g.slotId)).map(g => SLOTS[g.slotId].label);
+      eq(evening.join(", "), "", "seed " + seed + ": classes placed in the evening although the daytime had room");
+    }
+  });
+
+  test("runGA: a teacher who can only teach in the evening gets evening classes", () => {
+    const daytime = SLOTS.filter(s => s.period <= 6).map(s => s.id);
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: daytime, preferredDays: [] }],
+      rooms: [], sections: [0, 1, 2].map(i => sec({ id: i, roomTypeRequired: "online", sectionName: "BSIT-1A" })),
+    };
+    const r = E.runGA(d.faculty, d.rooms, d.sections, SLOTS, GA);
+    eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
+    assert(r.genes.every(g => isEveningSlot(g.slotId)), "every class should be in the evening");
+  });
+
   test("runGA: a subject nobody can teach is reported (not 'conflict-free'), the rest still scheduled", () => {
     const d = E.generateSyntheticData(9, 18, 6, 5);
     const faculty = d.faculty.map(f => Object.assign({}, f, { specializations: f.specializations.filter(s => s !== "AI/ML") }));
@@ -481,11 +529,11 @@
   // class 1 (another section) at Wednesday P2. Both classes are online.
   function askedOntoWednesday(preferredDays) {
     const d = {
-      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: [1], preferredSlotIds: [13], preferredDays }],
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, unavailableSlotIds: [slotAt("Mon", 2)], preferredSlotIds: [slotAt("Wed", 2)], preferredDays }],
       rooms: [],
       sections: [sec({ id: 0, roomTypeRequired: "online", sectionName: "BSIT-1A" }), sec({ id: 1, roomTypeRequired: "online", sectionName: "BSIT-1B" })],
     };
-    const genes = [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: 1 }, { facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: 13 }];
+    const genes = [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: slotAt("Mon", 2) }, { facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: slotAt("Wed", 2) }];
     return { d, genes };
   }
 
@@ -515,9 +563,34 @@
       rooms: [{ id: 1, name: "Lab 2", type: "laboratory", capacity: 40 }],
       sections: [sec({ id: 0, sectionName: "BSIT-1A" })],
     };
-    const genes = [{ facultyId: 0, roomId: 0, slotId: 8 }];
+    const genes = [{ facultyId: 0, roomId: 0, slotId: slotAt("Tue", 3) }];
     const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
-    eq(JSON.stringify(r.genes[0]), JSON.stringify({ facultyId: 0, roomId: 1, slotId: 8 }), "same teacher and time, new room");
+    eq(JSON.stringify(r.genes[0]), JSON.stringify({ facultyId: 0, roomId: 1, slotId: slotAt("Tue", 3) }), "same teacher and time, new room");
+  });
+
+  // Teacher A's class on Tuesday P2 has to move (A can no longer teach then). A prefers Mondays,
+  // but A cannot teach on Monday in the daytime, so Monday's only free times are in the evening.
+  function mondayEveningOnly(preferredSlotIds) {
+    const mondayDaytime = [1, 2, 3, 4, 5, 6].map(p => slotAt("Mon", p));
+    const d = {
+      faculty: [{ id: 0, name: "A", specializations: ["Programming"], maxUnits: 21, preferredDays: ["Mon"], preferredSlotIds,
+                  unavailableSlotIds: mondayDaytime.concat([slotAt("Tue", 2)]) }],
+      rooms: [], sections: [sec({ id: 0, roomTypeRequired: "online", sectionName: "BSIT-1A" })],
+    };
+    return { d, genes: [{ facultyId: 0, roomId: E.ONLINE_ROOM_ID, slotId: slotAt("Tue", 2) }] };
+  }
+
+  test("repairSchedule: a moved class goes to a daytime period before an evening one, even on a preferred day", () => {
+    const { d, genes } = mondayEveningOnly([]);
+    const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
+    eq(brokenRules(d, r.genes).join(", "), "", "broke a rule");
+    assert(!isEveningSlot(r.genes[0].slotId), "went to the evening: " + SLOTS[r.genes[0].slotId].label);
+  });
+
+  test("repairSchedule: an evening time the teacher asked for is still used first", () => {
+    const { d, genes } = mondayEveningOnly([slotAt("Mon", 8)]);
+    const r = E.repairSchedule(d.faculty, d.rooms, d.sections, SLOTS, genes, GA);
+    eq(SLOTS[r.genes[0].slotId].label, "Mon 5:30-7:00 PM", "the time asked for");
   });
 
   test("whyNotAt: names what stops a class from being at a time", () => {

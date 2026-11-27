@@ -1,5 +1,5 @@
 /* SchedWiseAI build. DO NOT EDIT: this file is app.jsx compiled by tools/build.html.
-   Built 2026-11-27T00:42:13.509Z with Babel 7.23.5. source-hash: 1e5a452d9c004f */
+   Built 2026-11-27T06:47:29.087Z with Babel 7.23.5. source-hash: 14bd0774a00393 */
 function _extends() { _extends = Object.assign ? Object.assign.bind() : function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; }; return _extends.apply(this, arguments); }
 /* =====================================================================
    SchedWiseAI — USER INTERFACE  (app.jsx)
@@ -593,6 +593,71 @@ function describeSlots(slotIds, slotById) {
   }).join(" · ");
 }
 
+// upgradeSlots(data)
+// Times (teachers' unavailable and asked-for times, fixed times, the classes of the
+// schedule and its saved versions, requests) are stored as slot numbers. Data saved
+// before the evening periods were added had six periods a day and no `periodsPerDay`;
+// every time is converted so it keeps its day and period, and a whole old day
+// becomes the whole new day (see E.upgradeSlotId / E.upgradeSlotList). Data that
+// already has the current number of periods is returned unchanged.
+function upgradeSlots(d) {
+  const from = d && d.periodsPerDay != null ? d.periodsPerDay : 6;
+  if (!d || from === E.PERIODS) return d;
+  const one = id => E.upgradeSlotId(id, from);
+  const list = ids => E.upgradeSlotList(ids, from);
+  const gene = g => g && typeof g === "object" ? {
+    ...g,
+    slotId: one(g.slotId)
+  } : g;
+  const schedule = s => {
+    if (!s || typeof s !== "object") return s;
+    const u = s.updateSummary,
+      n = s.needsRegeneration;
+    return {
+      ...s,
+      genes: Array.isArray(s.genes) ? s.genes.map(gene) : s.genes,
+      updateSummary: u && Array.isArray(u.changes) ? {
+        ...u,
+        changes: u.changes.map(c => ({
+          ...c,
+          from: gene(c.from),
+          to: gene(c.to)
+        }))
+      } : u,
+      needsRegeneration: n && Array.isArray(n.triggers) ? {
+        ...n,
+        triggers: n.triggers.map(t => ({
+          ...t,
+          slotIds: list(t.slotIds),
+          preferredSlotIds: list(t.preferredSlotIds)
+        }))
+      } : n
+    };
+  };
+  return {
+    ...d,
+    periodsPerDay: E.PERIODS,
+    faculty: Array.isArray(d.faculty) ? d.faculty.map(f => ({
+      ...f,
+      unavailableSlotIds: list(f.unavailableSlotIds),
+      preferredSlotIds: list(f.preferredSlotIds)
+    })) : d.faculty,
+    sections: Array.isArray(d.sections) ? d.sections.map(s => s.fixedSlotId == null ? s : {
+      ...s,
+      fixedSlotId: one(s.fixedSlotId)
+    }) : d.sections,
+    result: schedule(d.result),
+    scheduleHistory: Array.isArray(d.scheduleHistory) ? d.scheduleHistory.map(schedule) : d.scheduleHistory,
+    leaveRequests: Array.isArray(d.leaveRequests) ? d.leaveRequests.map(r => ({
+      ...r,
+      slotIds: list(r.slotIds),
+      preferredSlotIds: list(r.preferredSlotIds),
+      addedSlotIds: list(r.addedSlotIds),
+      addedPreferredSlotIds: list(r.addedPreferredSlotIds)
+    })) : d.leaveRequests
+  };
+}
+
 // normalizeData(data)
 // Upgrades data saved by OLDER versions of the prototype so it works with
 // this version, without losing anything:
@@ -950,14 +1015,16 @@ function saveState(data) {
 const BACKUP_APP = "SchedWiseAI";
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
-const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind", "datasetInfo"];
+const BACKUP_KEYS = ["faculty", "rooms", "sections", "result", "leaveRequests", "notifications", "scheduleHistory", "activityLog", "chairDept", "datasetKind", "datasetInfo", "periodsPerDay"];
 
-// makeBackup(state): the object that is written to the .json file.
+// makeBackup(state): the object that is written to the .json file. `periodsPerDay` says how
+// the times in it are numbered (a backup without it was made with six periods a day).
 function makeBackup(state) {
   const data = {};
   BACKUP_KEYS.forEach(k => {
     data[k] = state[k] === undefined ? null : state[k];
   });
+  data.periodsPerDay = E.PERIODS;
   return {
     app: BACKUP_APP,
     backupVersion: BACKUP_VERSION,
@@ -1125,7 +1192,8 @@ function parseBackup(text) {
     strArr = arrOf(str);
   const id = x => num(x) || str(x);
   const gene = x => obj(x) && num(x.facultyId) && num(x.roomId) && num(x.slotId);
-  const slotId = x => x == null || Number.isInteger(x) && x >= 0 && x < E.DAYS.length * E.PERIODS;
+  const periodsInFile = d.periodsPerDay === E.PERIODS ? E.PERIODS : 6; // six: made before the evening periods
+  const slotId = x => x == null || Number.isInteger(x) && x >= 0 && x < E.DAYS.length * periodsInFile;
   const checks = {
     faculty: f => num(f.id) && str(f.name) && strArr(f.specializations) && num(f.maxUnits) && opt(strArr)(f.preferredDays) && optNumArr(f.unavailableSlotIds) && optNumArr(f.preferredSlotIds) && optStr(f.employmentStatus) && optStr(f.academicRank),
     rooms: r => num(r.id) && str(r.name) && str(r.type) && num(r.capacity),
@@ -1177,11 +1245,12 @@ function parseBackup(text) {
     error: "Version " + (badVersion + 1) + " in the backup's schedule history does not match its subject list, or is damaged."
   };
   // datasetKind: which sample is loaded, or "school" for uploaded data (datasetInfo then says which file and when).
-  if (!optStr(d.chairDept) || !opt(k => ["standard", "expanded", "school"].includes(k))(d.datasetKind) || !opt(x => obj(x) && optStr(x.fileName) && optStr(x.uploadedAt))(d.datasetInfo)) return {
+  if (!optStr(d.chairDept) || !opt(k => ["standard", "expanded", "school"].includes(k))(d.datasetKind) || !opt(x => obj(x) && optStr(x.fileName) && optStr(x.uploadedAt))(d.datasetInfo) || !opt(n => n === 6 || n === E.PERIODS)(d.periodsPerDay)) return {
     error: "The settings part of the backup is damaged."
   };
-  if (d.result && !obj(d.result.violations)) d.result.violations = E.countViolations(d.faculty, d.rooms, d.sections, E.buildTimeSlots(), d.result.genes);
-  const data = normalizeData(d);
+  const u = upgradeSlots(d); // a backup made when days had six periods
+  if (u.result && !obj(u.result.violations)) u.result.violations = E.countViolations(u.faculty, u.rooms, u.sections, E.buildTimeSlots(), u.result.genes);
+  const data = normalizeData(u);
   return {
     data,
     exportedAt: b.exportedAt || null,
@@ -3728,13 +3797,13 @@ function App() {
   // On startup: use saved data if it exists, otherwise generate sample data.
   // normalizeData() upgrades anything saved by an older version (see its comment).
   const saved = loadState();
-  const init = normalizeData(saved || freshData());
+  const init = normalizeData(saved ? upgradeSlots(saved) : freshData()); // upgradeSlots: data saved with six periods a day
 
   // ---- Core data ----
   const [faculty, setFaculty] = useState(init.faculty);
   const [rooms, setRooms] = useState(init.rooms);
   const [sections, setSections] = useState(init.sections);
-  const [timeSlots] = useState(init.timeSlots); // Mon–Sat × 6 periods (from normalizeData)
+  const [timeSlots] = useState(init.timeSlots); // Mon–Sat × 9 periods (from normalizeData)
   const [storedResult, setResult] = useState(init.result); // the CURRENT schedule (output of the GA), or null
   // `result` is what every page reads. Its conflict counts are recalculated from the
   // CURRENT teachers, rooms and subjects, so editing any of them (a maximum, a
@@ -3803,7 +3872,8 @@ function App() {
       activityLog,
       chairDept,
       datasetKind,
-      datasetInfo
+      datasetInfo,
+      periodsPerDay: E.PERIODS
     });
   }, [faculty, rooms, sections, timeSlots, result, leaveRequests, notifications, scheduleHistory, activityLog, chairDept, datasetKind, datasetInfo]);
 
@@ -7489,7 +7559,7 @@ function ReportCard({
   }), " CSV")), children);
 }
 
-// RoomHeatmap: a room × day grid. Each cell counts how many of the 6 periods
+// RoomHeatmap: a room × day grid. Each cell counts how many of the day's periods
 // that room is used on that day; darker blue = busier.
 function RoomHeatmap({
   rooms,

@@ -48,7 +48,9 @@
 // ---------------------------------------------------------------------
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];  // days classes CAN be scheduled on
 const CALENDAR_DAYS = DAYS.concat(["Sun"]);                 // days SHOWN in the weekly grid (Sunday = no classes)
-const PERIODS = 6;                                  // class periods per day (1.5 hours each, starting 7:00)
+const PERIODS = 9;                                  // class periods per day (1.5 hours each, 7:00 AM to 8:30 PM)
+const DAYTIME_PERIODS = 6;                          // periods 1-6 (7:00 AM to 4:00 PM) are daytime; 7-9 are the
+                                                    // evening, used only when the daytime has no room (isEvening)
 const DAY_START_MINUTES = 7 * 60;                   // period 1 starts at 7:00 (minutes after midnight)
 const PERIOD_MINUTES = 90;                          // each period lasts 1.5 hours
 const ROW_MINUTES = 30;                             // the weekly grid draws one row per 30 minutes
@@ -79,6 +81,10 @@ const PLACEMENT_STEP = 120;                         // UPDATE mode only: score p
                                                     // else one class can change in the score (requested times 60,
                                                     // preferred days 50, a room change 3, a time change 1), so the
                                                     // update's order is kept, but far below one broken rule.
+const EVENING_PENALTY = 100;                        // fitness penalty × the share of classes in an evening period
+                                                    // (from 4:00 PM) that their teacher did not ask for. More than a
+                                                    // preferred day is worth (50), so a daytime period beats an
+                                                    // evening one on a preferred day; asked-for times never pay it.
 const SPECIALIZATIONS = ["Programming", "Networking", "Databases", "Web Development", "Mathematics", "General Education", "Systems Analysis", "AI/ML"];
 const EMPLOYMENT_STATUSES = ["Full-time", "Part-time", "Contractual"];
 const ACADEMIC_RANKS = ["Instructor I", "Instructor II", "Instructor III", "Assistant Professor", "Associate Professor", "Professor"];
@@ -86,12 +92,12 @@ const ACADEMIC_RANKS = ["Instructor I", "Instructor II", "Instructor III", "Assi
 // ---------------------------------------------------------------------
 // buildTimeSlots()
 // Creates the list of every teachable time slot in the week:
-// 6 days (Mon–Sat) × 6 periods = 36 slots. Each slot gets a numeric id (0..35),
-// which is what genes store in `slotId`. Sunday has no slots at all.
-// Because Saturday is added AFTER Friday, the ids for Mon–Fri (0..29) are the
-// same as in the earlier Mon–Fri version, so older saved schedules still line up.
+// 6 days (Mon–Sat) × 9 periods = 54 slots. Each slot gets a numeric id (0..53),
+// day by day (id = day × 9 + period − 1), which is what genes store in `slotId`.
+// Sunday has no slots at all. Data saved when days had six periods is converted
+// with upgradeSlotId / upgradeSlotList (below), so it keeps its days and periods.
 // start and end are minutes after midnight; time and label use 12-hour clock times.
-// Example: { id: 7, day: "Tue", period: 2, start: 510, end: 600, time: "8:30-10:00 AM", label: "Tue 8:30-10:00 AM" }
+// Example: { id: 10, day: "Tue", period: 2, start: 510, end: 600, time: "8:30-10:00 AM", label: "Tue 8:30-10:00 AM" }
 // ---------------------------------------------------------------------
 function buildTimeSlots() {
   const slots = [];
@@ -132,6 +138,32 @@ function halfHourRows() {
     rows.push({ minutes: t, label: clockLabel(t), period: Math.floor(intoDay / PERIOD_MINUTES) + 1, first: intoDay % PERIOD_MINUTES === 0 });
   }
   return rows;
+}
+// isEvening(slot): is this a period from 4:00 PM on (period 7, 8 or 9)? The scheduler
+// uses those only when the daytime has no room (see greedySeed, fitness, placementRank).
+function isEvening(slot) { return !!slot && slot.period > DAYTIME_PERIODS; }
+// ---------------------------------------------------------------------
+// upgradeSlotId(id, oldPeriods) and upgradeSlotList(ids, oldPeriods)
+// Saved schedules, requests and teachers' times store slot ids. Data saved when
+// days had `oldPeriods` periods (6 before the evening was added) is converted
+// so every time keeps its day and period:
+//   upgradeSlotId(6, 6)  -> 9     (Tue P1 was 6, is now 9)      upgradeSlotId(-1, 6) -> -1
+//   upgradeSlotList([18,19,20,21,22,23], 6) -> all nine Thursday periods
+// A list that held a whole old day gets the whole new day, so "can't teach on
+// Thursday" still means all of Thursday, evening included.
+// ---------------------------------------------------------------------
+function upgradeSlotId(id, oldPeriods) {
+  if (typeof id !== "number" || id < 0 || oldPeriods === PERIODS) return id;
+  return Math.floor(id / oldPeriods) * PERIODS + (id % oldPeriods);
+}
+function upgradeSlotList(ids, oldPeriods) {
+  if (!Array.isArray(ids) || oldPeriods === PERIODS) return ids;
+  const out = new Set(ids.map(id => upgradeSlotId(id, oldPeriods)));
+  DAYS.forEach((day, d) => {
+    const whole = Array.from({ length: oldPeriods }, (_, p) => d * oldPeriods + p).every(old => ids.includes(old));
+    if (whole) for (let p = 0; p < PERIODS; p++) out.add(d * PERIODS + p);
+  });
+  return Array.from(out).sort((a, b) => a - b);
 }
 // ---------------------------------------------------------------------
 // qualifiedFaculty(faculty, section)
@@ -190,20 +222,24 @@ function keyOf(section) {
 }
 // placementRank(fac, slot, oldSlotId, timeSlots): how well a time suits a class that an
 // update has to re-place, taught by `fac` (higher is better):
-//   4 = the class's own old time, so a class that only needs a new room keeps its time
-//   3 = a time the teacher asked for in an approved "Prefer instead" request
-//   2 = another time on a day the teacher asked for ("move me to Wednesday": any Wednesday)
-//   1 = one of the teacher's preferred days
-//   0 = any other time
+//   6 = the class's own old time, so a class that only needs a new room keeps its time
+//   5 = a time the teacher asked for in an approved "Prefer instead" request (even in the evening)
+//   4 = another daytime period on a day the teacher asked for ("move me to Wednesday")
+//   3 = an evening period on a day the teacher asked for
+//   2 = a daytime period on one of the teacher's preferred days
+//   1 = any other daytime period
+//   0 = any other evening period (from 4:00 PM), used only when the daytime has no room
 // The update's own search (repairSchedule) and its Genetic Algorithm polish (fitness) both
 // use it, so the polish cannot undo the order.
 function placementRank(fac, slot, oldSlotId, timeSlots) {
   if (!fac || !slot) return 0;
-  if (slot.id === oldSlotId) return 4;
+  if (slot.id === oldSlotId) return 6;
   const asked = fac.preferredSlotIds || [];
-  if (asked.includes(slot.id)) return 3;
-  if (asked.some(sid => timeSlots[sid] && timeSlots[sid].day === slot.day)) return 2;
-  return (fac.preferredDays || []).includes(slot.day) ? 1 : 0;
+  if (asked.includes(slot.id)) return 5;
+  const evening = isEvening(slot);
+  if (asked.some(sid => timeSlots[sid] && timeSlots[sid].day === slot.day)) return evening ? 3 : 4;
+  if (evening) return 0;
+  return (fac.preferredDays || []).includes(slot.day) ? 2 : 1;
 }
 // lexLess([0, 2, 1], [0, 3, 0]) -> true: compares two lists of numbers, first number first.
 function lexLess(a, b) {
@@ -237,7 +273,8 @@ function randomGene(faculty, rooms, timeSlots, section) {
 // teachers who can take it without going over their maximum units first,
 // least loaded first). Of the times when that teacher is free and available,
 // the section (its students) has no other class and a suitable room is free,
-// it takes the one that spreads the week best: a day the teacher prefers,
+// it takes the one that spreads the week best: a daytime period (the evening,
+// from 4:00 PM, only when no daytime period is free), a day the teacher prefers,
 // then the day this section has the fewest classes on, then the day this
 // teacher has the fewest classes on, then the period with the fewest classes
 // school-wide, then the earliest. This respects the hard constraints wherever
@@ -275,7 +312,7 @@ function greedySeed(faculty, rooms, timeSlots, sections) {
         if (skey !== null && sectionSlotUsed.has(skey + "@" + slot.id)) continue;
         const rid = qr.find(r => r === ONLINE_ROOM_ID || !roomSlotUsed.has(r + "-" + slot.id));
         if (rid === undefined) continue;             // every suitable room is taken at this time
-        const rank = [preferred.includes(slot.day) ? 0 : 1, skey !== null ? count("s" + skey + "|" + slot.day) : 0,
+        const rank = [isEvening(slot) ? 1 : 0, preferred.includes(slot.day) ? 0 : 1, skey !== null ? count("s" + skey + "|" + slot.day) : 0,
           count("f" + fid + "|" + slot.day), count("t" + slot.id)];
         if (!bestRank || lexLess(rank, bestRank)) { bestRank = rank; placed = { facultyId: fid, roomId: rid, slotId: slot.id }; }
       }
@@ -376,10 +413,13 @@ function countViolations(faculty, rooms, sections, timeSlots, genes) {
 //           + (requested-time share × 60)    honour approved "Prefer instead" times
 //                                            (0 when no teacher has requested times)
 //           - (average empty seats × 0.5)    don't waste big rooms on small classes
+//           - (evening share × 100)          periods from 4:00 PM only when needed (a time
+//                                            the teacher asked for is never counted)
 //   UPDATE mode only (repairSchedule), for each re-placed class:
 //           - stability: teacher changed 20, room changed 3, time changed 1
 //           + placementRank × 120 when it keeps its teacher (its old time, then the
-//             times the teacher asked for, then those days, then preferred days)
+//             times the teacher asked for, then those days, then daytime periods on
+//             preferred days, then other daytime periods, then the evening)
 //
 // Because 1000 is so much bigger than the other terms, any schedule with
 // even one hard violation scores worse than every conflict-free schedule.
@@ -421,6 +461,15 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
     if (fac.preferredSlotIds.includes(g.slotId)) reqHits++;
   });
   const requestScore = reqTotal ? reqHits / reqTotal : 0;
+  // 3c) Evening periods (from 4:00 PM) are for when the daytime has no room: share of
+  //     classes in an evening period their teacher did not ask for.
+  let eveningCount = 0;
+  genes.forEach(g => {
+    if (!isEvening(timeSlots[g.slotId])) return;
+    const fac = facultyById[g.facultyId];
+    if (!(fac && (fac.preferredSlotIds || []).includes(g.slotId))) eveningCount++;
+  });
+  const eveningShare = eveningCount / (genes.length || 1);
   // 4) Room efficiency: average number of empty seats per class.
   const roomById = Object.fromEntries(rooms.map(r => [r.id, r]));
   let waste = 0;
@@ -448,7 +497,8 @@ function fitness(faculty, rooms, sections, timeSlots, genes, opts) {
         placementScore += PLACEMENT_STEP * placementRank(facultyById[g.facultyId], timeSlots[g.slotId], a.slotId, timeSlots);
     });
   }
-  return -hardPenalty - v.overload * OVERLOAD_PENALTY - variance * 2.0 + prefScore * 50.0 + requestScore * 60.0 - avgWaste * 0.5 - changePenalty + placementScore;
+  return -hardPenalty - v.overload * OVERLOAD_PENALTY - variance * 2.0 + prefScore * 50.0 + requestScore * 60.0 - avgWaste * 0.5
+    - eveningShare * EVENING_PENALTY - changePenalty + placementScore;
 }
 // ---------------------------------------------------------------------
 // runGA(faculty, rooms, sections, timeSlots, opts)   — THE GENETIC ALGORITHM
@@ -645,8 +695,9 @@ function whyNotAt(faculty, rooms, sections, timeSlots, genes, i, facultyId, slot
 //   2. Everything else is FROZEN: its teacher/room/time is treated as taken.
 //   3. Greedy repair: for each affected class, try the SAME teacher first (at
 //      one of their free, available times, in placementRank order: its old time
-//      if still allowed, the times they asked for, other times on those days,
-//      their preferred days, then the rest), then other qualified teachers who
+//      if still allowed, the times they asked for, other times on those days
+//      (daytime first), daytime on their preferred days, other daytime, then the
+//      evening), then other qualified teachers who
 //      still have room under their maximum units (least loaded first), and only
 //      then teachers it would take over their maximum; same room first if possible.
 //      If no free option exists, "make room": shift the classes that block
@@ -707,7 +758,8 @@ function repairSchedule(faculty, rooms, sections, timeSlots, genes, opts) {
   // it would take over their maximum; for each teacher the times in
   // placementRank order (the class's old time if still allowed, the times the
   // teacher asked for in an approved "Prefer instead" request, other times on
-  // those days, their preferred days, then the rest; ties in week order);
+  // those days with daytime first, daytime on their preferred days, other
+  // daytime, then the evening; ties in week order);
   // the current room first. Times the teacher is unavailable are never offered.
   function options(i) {
     const sec = sections[i], old = genes[i];
@@ -983,4 +1035,5 @@ window.SchedEngine = {
   CALENDAR_DAYS, ONLINE_ROOM_ID, isOnline,
   repairSchedule, findConflictingIndices, currentSchoolYear, schoolYearOptions,
   generateExpandedData, sectionKey, whyNotAt,
+  DAYTIME_PERIODS, isEvening, upgradeSlotId, upgradeSlotList,
 };
